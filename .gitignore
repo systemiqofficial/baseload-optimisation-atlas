@@ -219,3 +219,6 @@ __marimo__/
 
 # Claude Code guidance (local-only, not shared via commit history)
 CLAUDE.md
+
+# Dev-only helper scripts, not yet validated end-to-end (see docs/cost-data-prep.md)
+scripts/
