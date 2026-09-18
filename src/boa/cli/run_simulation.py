@@ -19,15 +19,13 @@ The weather year is never passed in: it is read off the profile-store filenames
 of the selected input set (`--weather-input`), so the stores are the single
 source of truth. Input data is prepared separately — `boa-cds-prepare` for the
 profile + max-capacity stores, `boa-data-prepare` for the cost workbook — and a
-preflight check points at the right command when something is missing. Both can
-also be run inline via `--cds-prepare <year>` / `--data-prepare <xlsx> <scenario>`.
+preflight check points at the right command when something is missing.
 
 Examples:
     boa-run --load-density 1.0 --coverage 0.95
     boa-run --load-density 1.0 --coverage 0.95 --promote-lcoe
     boa-run --weather-input cds-2023 --cost-input xlsx-rev3 --dry-run
     boa-run --weather-input cds-2022 cds-2023 cds-2024   # sweep several weather years in one run
-    boa-run --cds-prepare 2024 --data-prepare master.xlsx test_scenario
     boa-run build-cache --workers fast
     boa-run query --start-year 2030 --end-year 2030 --force
     boa-run point --lat 52.5 --lon 13.4
@@ -42,7 +40,7 @@ from typing import List
 import xarray as xr
 
 from boa.cli import reconfigure_streams_utf8
-from boa.config.paths import DEFAULT_SET, PathConfig, make_run_dirname, weather_set_name
+from boa.config.paths import DEFAULT_SET, PathConfig, make_run_dirname
 from boa.config.physical_parameters import REGION_COORDS
 from boa.model.anchors import anchor_cost_coefficients
 from boa.model.bisection import SearchParams
@@ -126,14 +124,12 @@ def add_data_args(parser: argparse.ArgumentParser) -> None:
         "gets its own outputs/wy<year>/ subtree under the same run, so a sweep across weather "
         "years doesn't overwrite itself. The frontier cache lives alongside each input set but "
         "is keyed on the weather year alone, not the full input set, so layer sets on the same "
-        f"weather share it. Default: {DEFAULT_WEATHER_INPUT}, or cds-<year> when --cds-prepare "
-        "is given.",
+        f"weather share it. Default: {DEFAULT_WEATHER_INPUT}.",
     )
     group.add_argument(
         "--cost-input",
         default=None,
-        help=f"Cost set under <root>/costs/ (boa_cost_data.xlsx, cost cache). "
-        f"Default: {DEFAULT_SET}, or the scenario given to --data-prepare.",
+        help=f"Cost set under <root>/costs/ (boa_cost_data.xlsx, cost cache). Default: {DEFAULT_SET}.",
     )
     group.add_argument(
         "--run",
@@ -144,67 +140,19 @@ def add_data_args(parser: argparse.ArgumentParser) -> None:
         "physical/search parameters change -- reusing the same label with the same parameters "
         "always resolves to the same directory.",
     )
-    group.add_argument(
-        "--cds-prepare",
-        type=int,
-        metavar="YEAR",
-        default=None,
-        help="Run boa-cds-prepare for YEAR first, building the weather-input set's missing stores.",
-    )
-    group.add_argument(
-        "--data-prepare",
-        nargs=2,
-        metavar=("XLSX", "SCENARIO"),
-        default=None,
-        help="Run boa-data-prepare first, extracting the cost workbook XLSX into cost set SCENARIO.",
-    )
 
 
 def resolve_data_sets(args: argparse.Namespace) -> None:
-    """Fill in data-set names left unset on the command line, honouring the inline prepare flags.
+    """Fill in data-set names left unset on the command line.
 
     ``args.weather_input`` is always a list after this: ``--weather-input`` takes ``nargs="+"``,
     so argparse already returns one when the flag is given; the ``None`` default (flag omitted)
     is normalised to a single-element list here too.
     """
     if args.weather_input is None:
-        args.weather_input = [f"cds-{args.cds_prepare}" if args.cds_prepare is not None else DEFAULT_WEATHER_INPUT]
+        args.weather_input = [DEFAULT_WEATHER_INPUT]
     if args.cost_input is None:
-        args.cost_input = args.data_prepare[1] if args.data_prepare is not None else DEFAULT_SET
-
-
-def run_prepare_flags(args: argparse.Namespace) -> int:
-    """Run the inline --cds-prepare / --data-prepare steps ahead of the simulation.
-
-    ``--cds-prepare`` only ever prepares the one weather year it names, via
-    ``weather_set_name`` rather than ``args.weather_input`` -- decoupled deliberately, since
-    ``--weather-input`` can now list several sets and only one of them is the one being
-    prepared here.
-    """
-    if args.cds_prepare is not None:
-        from boa.cli.run_cds import main_prepare
-
-        rc = main_prepare(["--weather_year", str(args.cds_prepare), "--inputs", weather_set_name(args.cds_prepare)])
-        if rc:
-            return rc
-    if args.data_prepare is not None:
-        try:
-            from steelo.entrypoints.boa_data_cli import boa_data_prepare
-        except ImportError:
-            logging.error(
-                "--data-prepare needs the steelo package; run "
-                f"`boa-data-prepare --input-file {args.data_prepare[0]} --scenario {args.data_prepare[1]}` instead."
-            )
-            return 1
-        boa_data_prepare(["--input-file", args.data_prepare[0], "--scenario", args.data_prepare[1]])
-    if args.cds_prepare is not None or args.data_prepare is not None:
-        # The prepare CLIs reconfigure logging onto a rich handler; restore the runner's format.
-        logging.basicConfig(
-            level=logging.DEBUG if getattr(args, "verbose", False) else logging.INFO,
-            format="%(asctime)s - %(levelname)s - %(message)s",
-            force=True,
-        )
-    return 0
+        args.cost_input = DEFAULT_SET
 
 
 def add_scenario_args(parser: argparse.ArgumentParser) -> None:
@@ -371,8 +319,7 @@ def preflight(path_config: PathConfig, require_all_stores: bool = True) -> int:
     if not path_config.input_data_path.exists():
         raise FileNotFoundError(
             f"Cost workbook {path_config.input_data_path} not found — build the cost set with "
-            f"`boa-data-prepare --scenario {path_config.cost_set}` "
-            f"(or pass `--data-prepare <master.xlsx> {path_config.cost_set}` to boa-run)."
+            f"`boa-data-prepare --scenario {path_config.cost_set}`."
         )
     logging.info(f"Preflight OK: weather year {weather_year}, cost set '{path_config.cost_set}'.")
     return weather_year
@@ -524,8 +471,6 @@ def main_run(argv: list[str]) -> int:
     logging.info("=" * 60)
 
     resolve_data_sets(args)
-    if (rc := run_prepare_flags(args)) != 0:
-        return rc
     run = resolve_run_id(args)
     for weather_input in args.weather_input:
         path_config = build_path_config(args, weather_input, run)
@@ -594,8 +539,6 @@ def main_build_cache(argv: list[str]) -> int:
     logging.info(f"Coverage {args.coverage:g}; workers={args.workers} (caches are baseload- and year-independent)")
 
     resolve_data_sets(args)
-    if (rc := run_prepare_flags(args)) != 0:
-        return rc
     run = resolve_run_id(args)
     for weather_input in args.weather_input:
         path_config = build_path_config(args, weather_input, run)
@@ -657,8 +600,6 @@ def main_query(argv: list[str]) -> int:
     logging.info(f"Load density: {args.load_density} MW/km2; coverage {args.coverage:g}; workers={args.workers}")
 
     resolve_data_sets(args)
-    if (rc := run_prepare_flags(args)) != 0:
-        return rc
     run = resolve_run_id(args)
     for weather_input in args.weather_input:
         path_config = build_path_config(args, weather_input, run)
@@ -723,8 +664,6 @@ def main_point(argv: list[str]) -> int:
     logging.info(f"Years: {years}; load density: {args.load_density} MW/km2; coverage {args.coverage:g}")
 
     resolve_data_sets(args)
-    if (rc := run_prepare_flags(args)) != 0:
-        return rc
     run = resolve_run_id(args)
     for weather_input in args.weather_input:
         path_config = build_path_config(args, weather_input, run)

@@ -145,7 +145,7 @@ def test_dry_run_accepts_several_weather_inputs(tmp_path, monkeypatch):
 def _namespace(**overrides):
     import argparse
 
-    defaults = dict(weather_input=None, cost_input=None, cds_prepare=None, data_prepare=None)
+    defaults = dict(weather_input=None, cost_input=None)
     return argparse.Namespace(**{**defaults, **overrides})
 
 
@@ -158,20 +158,11 @@ def test_resolve_data_sets_defaults():
     assert args.cost_input == "default"
 
 
-def test_resolve_data_sets_follows_prepare_flags():
-    from boa.cli.run_simulation import resolve_data_sets
-
-    args = _namespace(cds_prepare=2023, data_prepare=["master.xlsx", "test_scenario"])
-    resolve_data_sets(args)
-    assert args.weather_input == ["cds-2023"]
-    assert args.cost_input == "test_scenario"
-
-
 def test_resolve_data_sets_keeps_explicit_choices():
     """argparse's nargs="+" always hands back a list, even for one value."""
     from boa.cli.run_simulation import resolve_data_sets
 
-    args = _namespace(weather_input=["my-set"], cost_input="my-costs", cds_prepare=2023, data_prepare=["m.xlsx", "s"])
+    args = _namespace(weather_input=["my-set"], cost_input="my-costs")
     resolve_data_sets(args)
     assert args.weather_input == ["my-set"]
     assert args.cost_input == "my-costs"

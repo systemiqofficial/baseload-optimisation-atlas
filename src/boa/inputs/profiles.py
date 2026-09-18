@@ -64,7 +64,7 @@ def detect_weather_year(path_config: PathConfig) -> int:
     }
     if not years:
         if m := re.fullmatch(r"cds-(\d{4})", path_config.input_set):
-            hint = f"`boa-cds-prepare --weather_year {m.group(1)}` (or pass `--cds-prepare {m.group(1)}` to boa-run)"
+            hint = f"`boa-cds-prepare --weather_year {m.group(1)}`"
         else:
             hint = f"`boa-cds-prepare --weather_year <year> --inputs {path_config.input_set}`"
         raise FileNotFoundError(
