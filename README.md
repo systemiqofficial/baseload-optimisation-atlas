@@ -45,5 +45,4 @@ boa-run --load-density 1.0 --coverage 0.95 --dry-run # sanity-check, then drop -
 - [docs/cost-data-prep.md](docs/cost-data-prep.md) — the cost workbook, static geo data, and the on-disk data layout.
 - [docs/model-assumptions.md](docs/model-assumptions.md) — sourced references for the physical parameter assumptions.
 - [docs/roadmap.md](docs/roadmap.md) — open items.
-- [HANDOFF_cost_schema_contract.md](HANDOFF_cost_schema_contract.md) — open task: publish and validate the cost-workbook contract as its own doc.
 - [src/boa/CHANGELOG.md](src/boa/CHANGELOG.md) — the Monte-Carlo → grid-bisection search rewrite.

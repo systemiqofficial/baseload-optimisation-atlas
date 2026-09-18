@@ -55,6 +55,6 @@ costs/<scenario>/
 
 Run against a scenario with `boa-run ... --cost-input <scenario>`.
 
-For the exact sheet/column contract `boa-data-prepare` must produce, see
-`../HANDOFF_cost_schema_contract.md` — publishing it as a standalone, machine-checkable doc
-is still an open task.
+The exact sheet/column contract `boa-data-prepare` must produce isn't published as its own
+doc yet — see `boa.inputs.costs` and `boa.geo.geospatial.CountryMappings` for the shape the
+loaders currently expect.
