@@ -1,6 +1,6 @@
 [project]
 name = "baseload-optimisation-atlas"
-version = "1.7.0"
+version = "1.8.0"
 description = "Baseload Optimisation Atlas: optimal solar/wind/battery systems for a fixed baseload demand"
 readme = "README.md"
 requires-python = ">=3.13"
