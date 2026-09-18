@@ -11,6 +11,7 @@ dependencies = [
     "netcdf4>=1.6.0",  # preferred xarray NetCDF engine (see boa/geo/geospatial.py's engine fallback)
     "numba>=0.61.2",
     "numpy",
+    "openpyxl",  # pandas.read_excel/ExcelWriter engine for the cost workbook (boa/inputs/costs.py, boa/geo/geospatial.py)
     "pandas",
     "pycountry",
     "reverse-geocoder",
