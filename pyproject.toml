@@ -5,8 +5,10 @@ description = "Baseload Optimisation Atlas: optimal solar/wind/battery systems f
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "dask[array]>=2025.5.0",  # xarray/zarr chunked writes (Dataset.chunk())
     "geopandas",
     "matplotlib",
+    "netcdf4>=1.6.0",  # preferred xarray NetCDF engine (see boa/geo/geospatial.py's engine fallback)
     "numba>=0.61.2",
     "numpy",
     "pandas",
