@@ -16,6 +16,9 @@ demand normalised to 1: solar and wind in multiples of baseload MW, battery in
 baseload-hours. Nothing in this module reads a cost, a year, or a capacity ceiling
 -- costs enter only through `argmin_lcoe`, and the ceiling lives in
 `boa.model.capacity_box`.
+
+See `docs/methodology.md` for the conceptual walkthrough (with a worked figure) that this
+module's own docstrings assume as background.
 """
 
 from __future__ import annotations

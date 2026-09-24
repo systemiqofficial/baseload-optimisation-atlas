@@ -43,6 +43,7 @@ boa-run --load-density 1.0 --coverage 0.95 --dry-run # sanity-check, then drop -
 - [docs/running-the-model.md](docs/running-the-model.md) — `boa-run` in depth, and handing a run's LCOE to the steel simulation.
 - [docs/cds-data-pipeline.md](docs/cds-data-pipeline.md) — building the weather-side Zarr stores from raw CDS data.
 - [docs/cost-data-prep.md](docs/cost-data-prep.md) — the cost workbook, static geo data, and the on-disk data layout.
+- [docs/methodology.md](docs/methodology.md) — the bisection search: conceptual walkthrough, parameters, and a worked figure.
 - [docs/model-assumptions.md](docs/model-assumptions.md) — sourced references for the physical parameter assumptions.
 - [docs/roadmap.md](docs/roadmap.md) — open items.
 - [src/boa/CHANGELOG.md](src/boa/CHANGELOG.md) — the Monte-Carlo → grid-bisection search rewrite.
