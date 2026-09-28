@@ -31,7 +31,7 @@ cost data is a no-op; changed cost data replaces the workbook and rebuilds the s
 cost cache. The iso3 grid carries a fingerprint of its source shapefile and is rebuilt
 automatically if the NE 1:50m shapefile ever changes.
 
-Data lands under the boa data root (`$BOA_DATA_ROOT` → `$STEELO_HOME/boa` → `~/.steelo/boa`):
+Data lands under the boa data root (`$BOA_DATA_ROOT` → `~/.boa`):
 
 ```
 data/

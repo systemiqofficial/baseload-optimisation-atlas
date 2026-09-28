@@ -1,6 +1,10 @@
+import functools
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_SET = "default"
 
@@ -87,15 +91,29 @@ def resolve_run_dir(root: Path, run: str) -> Path:
 
 
 def default_root() -> Path:
-    """Resolve the BOA data root: ``$BOA_DATA_ROOT``, else ``$STEELO_HOME/boa``, else ``~/.steelo/boa``.
+    """Resolve the BOA data root: ``$BOA_DATA_ROOT``, else ``~/.boa``.
 
-    Mirrors steelo's ``STEELO_HOME`` convention without importing steelo, so the package stays standalone.
+    Warns, without falling back, when only the old root ``~/.steelo/boa`` exists.
     """
-    if (root := os.getenv("BOA_DATA_ROOT")) is not None:
-        return Path(root)
-    if (home := os.getenv("STEELO_HOME")) is not None:
-        return Path(home) / "boa"
-    return Path.home() / ".steelo" / "boa"
+    if (env_root := os.getenv("BOA_DATA_ROOT")) is not None:
+        return Path(env_root)
+    root = Path.home() / ".boa"
+    legacy_root = Path.home() / ".steelo" / "boa"
+    if not root.exists() and legacy_root.is_dir():
+        _warn_legacy_root(root, legacy_root)
+    return root
+
+
+@functools.cache
+def _warn_legacy_root(root: Path, legacy_root: Path) -> None:
+    """Cached so the hint shows once per process, however often the root is resolved."""
+    logger.warning(
+        "No BOA data root at %s, but data exists at the old root %s: "
+        "move it, or set BOA_DATA_ROOT=%s to keep using it.",
+        root,
+        legacy_root,
+        legacy_root,
+    )
 
 
 @dataclass

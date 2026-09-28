@@ -24,7 +24,7 @@ land-availability ceiling instead — it lands in its own input set (e.g.
 
 Already have the raw data (from another machine or an earlier checkout)? Drop the
 *extracted* per-year directories — 12 monthly NetCDFs each — into `data/cds/` under the
-boa data root (`$BOA_DATA_ROOT` → `$STEELO_HOME/boa` → `~/.steelo/boa`) and prepare will
+boa data root (`$BOA_DATA_ROOT` → `~/.boa`) and prepare will
 use them without downloading:
 
 ```
