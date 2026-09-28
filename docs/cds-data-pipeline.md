@@ -43,8 +43,8 @@ already exists, so partial reuse works too.
 ## Re-published years
 
 Downloading from CDS with your own account is preferred. As a fallback, the years in
-`PUBLISHED_CF_SHA256` ([src/boa/cds/spec.py](../src/boa/cds/spec.py)) are re-published on the
-public `steelo-data` bucket and need no CDS account:
+`PUBLISHED_CF_SHA256` ([src/boa/cds/spec.py](../src/boa/cds/spec.py)), currently 2020–2025,
+are re-published on the public `steelo-data` bucket and need no CDS account:
 
 ```bash
 boa-cds-prepare --weather_year 2024 --use-republished
