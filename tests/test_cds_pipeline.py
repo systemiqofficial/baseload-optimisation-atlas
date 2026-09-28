@@ -24,7 +24,7 @@ from boa.cds.convert import (
     global_store_path,
     load_cds_tech,
 )
-from boa.cds.spec import CDS_VARS, cf_extract_dir_name, cf_zip_name
+from boa.cds.spec import CDS_VARS, PUBLISHED_CF_SHA256, cf_extract_dir_name, cf_zip_name, published_cf_url
 from boa.cli import run_cds
 from boa.config.constants import EARTH_RADIUS_KM
 from boa.config.paths import PathConfig
@@ -463,9 +463,71 @@ def test_layer_set_separates_the_input_set():
 
 def test_prepare_missing_raw_year_names_download_command(tmp_path, monkeypatch, capsys):
     _seed_prepare_root(tmp_path, monkeypatch)
+
+    def no_fetch(*args, **kwargs):
+        raise AssertionError("an unpublished year must not be downloaded")
+
+    monkeypatch.setattr(run_cds, "fetch_verified_zip", no_fetch)
     assert run_cds.main_prepare(["--region", "TEST", "--inputs", "setA", "--weather_year", "2031"]) == 1
-    assert "boa-cds-download --year 2031" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "boa-cds-download --year 2031" in out
+    assert "--use-republished" not in out, "no alternative to offer for a year that isn't re-published"
     assert not (tmp_path / "inputs" / "setA" / "cds-zarr").exists()
+
+    args = ["--region", "TEST", "--inputs", "setA", "--weather_year", "2031", "--use-republished"]
+    assert run_cds.main_prepare(args) == 1
+    assert "No re-published copy exists for 2031" in capsys.readouterr().out
+
+
+def test_prepare_prefers_cds_and_only_offers_the_republished_copy(tmp_path, monkeypatch, capsys):
+    """Without --use-republished, a missing re-published year is not downloaded, just offered."""
+    monkeypatch.setenv("BOA_DATA_ROOT", str(tmp_path))
+    monkeypatch.setitem(REGION_COORDS, "TEST", [10.5, -30.5, 9.75, -29.75])
+
+    def no_fetch(*args, **kwargs):
+        raise AssertionError("the re-published copy needs --use-republished")
+
+    monkeypatch.setattr(run_cds, "fetch_verified_zip", no_fetch)
+    assert run_cds.main_prepare(["--region", "TEST", "--inputs", "setA"]) == 1
+    out = capsys.readouterr().out
+    assert f"Preferred: fetch it from CDS with boa-cds-download --year {ERA5_DATA_YEAR}" in out
+    assert "rerun with --use-republished" in out
+
+
+def test_prepare_downloads_the_republished_copy_when_asked(tmp_path, monkeypatch):
+    """With --use-republished, a re-published year needs no CDS account: prepare fetches the pinned zip."""
+    monkeypatch.setenv("BOA_DATA_ROOT", str(tmp_path))
+    monkeypatch.setitem(REGION_COORDS, "TEST", [10.5, -30.5, 9.75, -29.75])
+    fetched = []
+
+    def fake_fetch(url, sha256, extract_to, on_progress=None):
+        fetched.append((url, sha256))
+        for tech in ("solar", "wind"):
+            _write_cds_months(extract_to / cf_extract_dir_name(tech, ERA5_DATA_YEAR), tech, ERA5_DATA_YEAR)
+
+    monkeypatch.setattr(run_cds, "fetch_verified_zip", fake_fetch)
+    assert run_cds.main_prepare(["--region", "TEST", "--inputs", "setA", "--use-republished"]) == 0
+    assert fetched == [(published_cf_url(ERA5_DATA_YEAR), PUBLISHED_CF_SHA256[ERA5_DATA_YEAR])]
+    live = tmp_path / "inputs" / "setA" / "cds-zarr"
+    assert (live / (profile_store_stem("TEST", ERA5_DATA_YEAR) + ".zarr")).exists()
+
+    # Present raw data is never re-downloaded.
+    assert run_cds.main_prepare(["--region", "TEST", "--inputs", "setA", "--force", "--use-republished"]) == 0
+    assert len(fetched) == 1
+
+
+def test_prepare_reports_a_failed_download_and_names_the_cds_route(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("BOA_DATA_ROOT", str(tmp_path))
+    monkeypatch.setitem(REGION_COORDS, "TEST", [10.5, -30.5, 9.75, -29.75])
+
+    def failing_fetch(url, sha256, extract_to, on_progress=None):
+        raise ValueError(f"sha256 mismatch for {url}")
+
+    monkeypatch.setattr(run_cds, "fetch_verified_zip", failing_fetch)
+    assert run_cds.main_prepare(["--region", "TEST", "--inputs", "setA", "--use-republished"]) == 1
+    out = capsys.readouterr().out
+    assert "sha256 mismatch" in out
+    assert f"boa-cds-download --year {ERA5_DATA_YEAR}" in out
 
 
 def test_download_can_fetch_only_the_availability_inputs(tmp_path, monkeypatch):

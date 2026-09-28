@@ -12,11 +12,15 @@ the model reads.
 and builds + installs only what is missing for the requested weather year
 (`--force` rebuilds everything). The input set is tagged automatically as
 `cds-<year>`; pass `--inputs` only to override. `boa-cds-download` fetches the
-raw monthly files from CDS (needs ~/.cdsapirc and `uv sync --extra cds`).
+raw monthly files from CDS (needs ~/.cdsapirc and `uv sync --extra cds`), which is
+the preferred route. For a year re-published on steelo-data (`PUBLISHED_CF_SHA256`),
+`--use-republished` downloads that copy instead when the raw files are missing, with
+no CDS account needed.
 
 Examples:
     boa-cds-prepare --weather_year 2024          # builds + installs into inputs/cds-2024/
     boa-cds-prepare --weather_year 2024 --force  # rebuild everything
+    boa-cds-prepare --weather_year 2024 --use-republished
     boa-cds-download --year 2025
 """
 
@@ -34,11 +38,14 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.progress import (
     BarColumn,
+    DownloadColumn,
     MofNCompleteColumn,
     Progress,
     SpinnerColumn,
     TextColumn,
     TimeElapsedColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
     track,
 )
 
@@ -47,10 +54,19 @@ from boa.cds import convert as cds_convert
 from boa.cds import download as cds_download
 from boa.cds import install as cds_install
 from boa.cds import max_capacity as cds_max_capacity
-from boa.cds.spec import CDS_VARS, LULC_DATASET, TECHS, lulc_nc_name, masks_extract_dir_name
+from boa.cds.spec import (
+    CDS_VARS,
+    LULC_DATASET,
+    PUBLISHED_CF_SHA256,
+    TECHS,
+    lulc_nc_name,
+    masks_extract_dir_name,
+    published_cf_url,
+)
 from boa.cli import reconfigure_streams_utf8
 from boa.config.paths import DEFAULT_SET, PathConfig
 from boa.config.physical_parameters import CAPACITY_DENSITY_MW_PER_KM2, ERA5_DATA_YEAR, REGION_COORDS
+from boa.fetch import fetch_verified_zip
 from boa.store_schema import max_cap_store_stem, profile_store_stem
 
 
@@ -131,6 +147,33 @@ def _missing_raw_techs(cds_dir: Path, year: int) -> list[str]:
         except FileNotFoundError:
             missing.append(tech)
     return missing
+
+
+def _fetch_published_year(cds_dir: Path, year: int) -> bool:
+    """Download and extract a published year's raw files into `cds_dir`; False after printing why not."""
+    url = published_cf_url(year)
+    console.print(f"Raw CDS data for {year} is missing; downloading the re-published copy [dim]{url}[/dim]")
+    try:
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task(f"Downloading {year}", total=None)
+            fetch_verified_zip(
+                url,
+                PUBLISHED_CF_SHA256[year],
+                cds_dir,
+                on_progress=lambda done, total: progress.update(task, completed=done, total=total),
+            )
+    except (OSError, ValueError) as e:
+        console.print(f"[red]✗ Download failed: {e}[/red]")
+        return False
+    console.print(f"[green]✓ Extracted the {year} raw data into[/green] [dim]{cds_dir}[/dim]")
+    return True
 
 
 def _add_layer_args(parser: argparse.ArgumentParser) -> None:
@@ -216,6 +259,12 @@ def main_prepare(argv: list[str]) -> int:
         action="store_true",
         help="Also delete and rebuild the shared global intermediate (otherwise reused)",
     )
+    parser.add_argument(
+        "--use-republished",
+        action="store_true",
+        help="If the raw CDS data is missing, download the re-published copy of the year's capacity factors "
+        "instead of requiring boa-cds-download (re-published years only; boa-cds-download is preferred)",
+    )
     args = parser.parse_args(argv)
     _setup_logging(args.verbose)
     started = time.monotonic()
@@ -265,11 +314,23 @@ def main_prepare(argv: list[str]) -> int:
             shutil.rmtree(global_store)
         if not global_store.exists():
             missing = _missing_raw_techs(path_config.cds_dir, year)
+            republished = year in PUBLISHED_CF_SHA256
+            if missing and args.use_republished and republished and _fetch_published_year(path_config.cds_dir, year):
+                missing = _missing_raw_techs(path_config.cds_dir, year)
             if missing:
                 console.print(
                     f"[red]✗ Raw CDS data for {year} ({', '.join(missing)}) not found under {path_config.cds_dir}[/red]"
                 )
-                console.print(f"  Fetch it with [cyan]boa-cds-download --year {year}[/cyan]")
+                console.print(f"  Preferred: fetch it from CDS with [cyan]boa-cds-download --year {year}[/cyan]")
+                console.print("  (needs a CDS account, ~/.cdsapirc and `uv sync --extra cds`)")
+                if republished and not args.use_republished:
+                    console.print(
+                        f"  Alternative: a re-published copy of the {year} capacity factors exists (about 6.6 GB)."
+                    )
+                    console.print("  To use it, rerun with [cyan]--use-republished[/cyan]")
+                elif not republished and args.use_republished:
+                    available = ", ".join(str(y) for y in sorted(PUBLISHED_CF_SHA256))
+                    console.print(f"  No re-published copy exists for {year} (re-published years: {available})")
                 return 1
         use_global = global_store.exists() or len(need_profile) > 1
         if use_global:

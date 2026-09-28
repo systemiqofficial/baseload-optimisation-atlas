@@ -8,8 +8,7 @@ parameters (densities, LULC fractions) live in boa.config.physical_parameters in
 
 CDS_DATASET = "sis-energy-global-reanalysis"
 
-# Technology key -> full CDS variable name (request), short filename slug, and
-# variable name inside the delivered NetCDFs.
+# Technology key -> full CDS variable name (request), short filename slug and variable name inside the delivered NetCDFs
 TECHS = ("solar", "wind")
 CDS_CF_VARIABLES = {
     "solar": "solar_photovoltaic_generation_capacity_factor",
@@ -29,10 +28,8 @@ MASK_VARIABLES = [
     "wind_power_land_mask",
 ]
 
-# Combined exclusion masks, per technology: delivered filename and the variable inside
-# it. Both were read off the delivered files rather than the documentation, which names
-# the wind variable `m_rest`; the shipped file uses `wp_mask`. Values are binary with
-# 1 = excluded, so an availability factor is `1 - mask`.
+# Combined exclusion masks, per technology: delivered filename and the variable inside it
+# Values are binary with 1 = excluded, so an availability factor is `1 - mask`
 EXCLUSION_MASK_FILES = {
     "pv": "ANCI_SPVM-mask_C3S2LOT1_025d_v1.00.nc",
     "wind": "ANCI_WPM-mask_C3S2LOT1_025d_v1.00.nc",
@@ -44,6 +41,16 @@ CDS_RESOLUTION = "0_25_degree"
 CDS_TEMPORAL_RESOLUTION = "1_hour"
 CDS_VERSION = "1_00"
 ALL_MONTHS = [f"{m:02d}" for m in range(1, 13)]
+
+##################################################################################################
+# DOWNLOAD USING OWN CDS ACCOUNT IS PREFERRED, HOWEVER RE-PUBLISHED CAPACITY FACTORS CAN BE USED #
+##################################################################################################
+# Capacity factors re-published on the public bucket, so a published year needs no CDS account
+# Each zip holds the year's two extracted folders plus a provenance JSON carrying the Copernicus attribution
+PUBLISHED_CF_BASE_URL = "https://steelo-data.s3.eu-north-1.amazonaws.com/boa-standalone-input-data"
+PUBLISHED_CF_SHA256 = {
+    2024: "ea0ff1eddba1948604a2ce2a3efa59f248b7f6d3703fb07442c49cfce330e6dd",
+}
 
 # ESA-CCI land cover (used by boa_cds max-capacity), also served through CDS.
 LULC_DATASET = "satellite-land-cover"
@@ -63,6 +70,11 @@ def cf_extract_dir_name(
 ) -> str:
     """Directory the full-year zip is extracted to (12 monthly NetCDFs)."""
     return cf_zip_name(tech, year, "", tech_spec, resolution)[: -len(".zip")]
+
+
+def published_cf_url(year: int) -> str:
+    """URL of one year's re-published capacity-factor zip."""
+    return f"{PUBLISHED_CF_BASE_URL}/cds-capacity-factors-{year}.zip"
 
 
 def masks_zip_name(tech_spec: str = CDS_TECH_SPEC, resolution: str = CDS_RESOLUTION) -> str:
