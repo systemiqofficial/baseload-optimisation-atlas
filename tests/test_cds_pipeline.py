@@ -373,13 +373,15 @@ def test_install_refuses_half_region_pair(tmp_path):
         cds_install.install_regions(["EUROPE"], ERA5_DATA_YEAR, ["profile", "max-cap"], staging, tmp_path / "live")
 
 
-def test_install_warns_on_non_default_year(tmp_path, caplog):
+def test_install_takes_any_weather_year_without_warning(tmp_path, caplog):
+    """boa-run reads the weather year off the store filenames, so no year is special."""
     staging, live = tmp_path / "staging", tmp_path / "live"
     year = ERA5_DATA_YEAR + 1
     _stage_stores(staging, "EUROPE", year)
     with caplog.at_level("WARNING"):
         cds_install.install_regions(["EUROPE"], year, ["profile", "max-cap"], staging, live)
-    assert any("ERA5_DATA_YEAR" in message for message in caplog.messages)
+    assert (live / (profile_store_stem("EUROPE", year) + ".zarr")).exists()
+    assert not caplog.messages
 
 
 def test_missing_live_store_raises_actionable_error(tmp_config, monkeypatch):
