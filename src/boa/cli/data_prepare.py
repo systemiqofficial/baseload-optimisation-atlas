@@ -57,11 +57,9 @@ from boa.config.data_packages import (
 )
 from boa.config.paths import DEFAULT_SET, PathConfig
 from boa.fetch import fetch_verified_zip
-from boa.geo.geospatial import CountryMappings
 from boa.geo.iso3_grid_builder import BUILD_STAGE_COUNT, build_iso3_grid_from_shapefile, iso3_grid_is_current
 from boa.inputs.costs import (
     COST_WORKBOOK_COLUMNS,
-    preprocess_renewable_energy_cost_data,
     process_global_baseload_simulation_costs,
 )
 
@@ -150,12 +148,10 @@ def _validate_workbook(source: Path) -> list[int]:
     return years
 
 
-def _smoke_test(workbook: Path) -> None:
-    """Run boa's cost loader on the workbook so bad cost data fails at prepare time, not mid-run."""
-    mappings = CountryMappings.from_excel(workbook)
-    code_map = {k: v for k, v in mappings.code_to_irena_region_map.items() if isinstance(v, str)}
-    iso3_df = pd.DataFrame({"iso3": list(code_map)})
-    preprocess_renewable_energy_cost_data(iso3_df, code_map, workbook)
+def _smoke_test(workbook: Path, year: int) -> None:
+    """Build one year's costs in a throwaway folder, so bad cost data fails before the workbook is copied."""
+    with tempfile.TemporaryDirectory() as tmp:
+        process_global_baseload_simulation_costs(year, workbook, Path(tmp))
 
 
 def _cache_years(available: list[int], args: argparse.Namespace) -> range:
@@ -201,7 +197,7 @@ def _prepare_from(args: argparse.Namespace, source: Path, origin: dict) -> None:
     """Install the static geo data, then copy the checked cost workbook into costs/<scenario>/boa_cost_data.xlsx."""
     console.print(f"Checking the cost workbook [cyan]{source}[/cyan]")
     years = _validate_workbook(source)
-    _smoke_test(source)
+    _smoke_test(source, years[0])
 
     paths = PathConfig.from_auto_detect(cost_set=args.scenario)
     _prepare_geo_data(paths.data_dir, paths.iso3_grid_path, paths.subunits_50m_shapefile_path)

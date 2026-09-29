@@ -290,6 +290,26 @@ def test_missing_column_fails_and_keeps_previous_copy(tmp_path, boa_root, capsys
     assert copied.read_bytes() == previous
 
 
+def test_failure_in_the_per_year_build_keeps_previous_copy(tmp_path, boa_root, capsys, monkeypatch):
+    workbook = tmp_path / "boa-cost-data.xlsx"
+    _write_workbook(workbook)
+    _run(workbook)
+    copied = boa_root / "costs" / "test" / "boa_cost_data.xlsx"
+    previous = copied.read_bytes()
+    _write_workbook(workbook, europe_solar_capex=900.0)
+    capsys.readouterr()
+
+    def fail(*args, **kwargs):
+        raise ValueError("per-year build failed")
+
+    monkeypatch.setattr(data_prepare, "process_global_baseload_simulation_costs", fail)
+
+    assert _run(workbook) == 1
+
+    assert "per-year build failed" in capsys.readouterr().out
+    assert copied.read_bytes() == previous
+
+
 def test_without_input_file_records_the_pinned_cost_package(boa_root, core_downloads):
     assert data_prepare.main(["--scenario", "test"]) == 0
 
