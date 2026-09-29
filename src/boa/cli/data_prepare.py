@@ -6,7 +6,8 @@ mask) is downloaded from steelo-data into ``<root>/data/``, and the per-pixel is
 built locally from the 1:50m shapefile (``boa.geo.iso3_grid_builder``).
 
 Cost side: a scenario is a whole cost workbook. By default it is the pinned boa-cost-data
-package from steelo-data; ``--input-file`` takes a hand-edited workbook instead. Its sheet
+package from steelo-data, kept unchanged with its JSON in ``<root>/data/boa-cost-data/`` and
+downloaded again only when the pin changes; ``--input-file`` takes a hand-edited workbook instead. Its sheet
 and column names are the contract (``boa.inputs.costs.COST_WORKBOOK_COLUMNS``): the workbook
 is checked against them, smoke-tested with BOA's cost loader and copied unchanged to
 ``<root>/costs/<scenario>/boa_cost_data.xlsx``, which doubles as the provenance record of the
@@ -50,6 +51,7 @@ from boa.config.data_packages import (
     CORE_DATA_SHA256,
     CORE_DATA_URL,
     CORE_DATA_VERSION,
+    COST_DATA_FOLDER,
     COST_DATA_SHA256,
     COST_DATA_URL,
     COST_DATA_VERSION,
@@ -176,21 +178,52 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _installed_cost_sha256(package_dir: Path) -> str | None:
+    try:
+        return json.loads((package_dir / "installed.json").read_text())["sha256"]
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def _install_cost_data(package_dir: Path) -> None:
+    """Download the pinned cost data package into ``package_dir`` unless that exact zip is already installed."""
+    # Compared by sha256, not version, so a package re-published under the same version is fetched again.
+    if _installed_cost_sha256(package_dir) == COST_DATA_SHA256:
+        return
+    console.print(f"Fetching cost data v{COST_DATA_VERSION} [dim]{COST_DATA_URL}[/dim]")
+    # Unpack beside the installed package and swap it in, so a failed download leaves it intact.
+    staged = package_dir.with_name(package_dir.name + ".staged")
+    shutil.rmtree(staged, ignore_errors=True)
+    try:
+        fetch_verified_zip(COST_DATA_URL, COST_DATA_SHA256, staged)
+        installed = {
+            "version": COST_DATA_VERSION,
+            "url": COST_DATA_URL,
+            "sha256": COST_DATA_SHA256,
+            "installed_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        }
+        (staged / "installed.json").write_text(json.dumps(installed, indent=2) + "\n")
+        shutil.rmtree(package_dir, ignore_errors=True)
+        staged.rename(package_dir)
+    finally:
+        shutil.rmtree(staged, ignore_errors=True)
+    console.print(f"Installed cost data v{COST_DATA_VERSION} into [dim]{package_dir}[/dim]")
+
+
 def _prepare(args: argparse.Namespace) -> None:
-    """Prepare from --input-file, else from the pinned cost data package (fetched to a temporary folder)."""
+    """Prepare from --input-file, else from the pinned cost data package installed under data/."""
     if args.input_file is not None:
         if not args.input_file.exists():
             raise FileNotFoundError(f"Input workbook not found: {args.input_file}")
         _prepare_from(args, args.input_file, {"source_workbook": str(args.input_file.resolve())})
         return
-    with tempfile.TemporaryDirectory() as tmp:
-        console.print(f"Fetching cost data v{COST_DATA_VERSION} [dim]{COST_DATA_URL}[/dim]")
-        fetch_verified_zip(COST_DATA_URL, COST_DATA_SHA256, Path(tmp))
-        origin = {
-            "source_workbook": COST_DATA_WORKBOOK,
-            "source_package": {"version": COST_DATA_VERSION, "url": COST_DATA_URL, "sha256": COST_DATA_SHA256},
-        }
-        _prepare_from(args, Path(tmp) / COST_DATA_WORKBOOK, origin)
+    package_dir = PathConfig.from_auto_detect(cost_set=args.scenario).data_dir / COST_DATA_FOLDER
+    _install_cost_data(package_dir)
+    origin = {
+        "source_workbook": str(package_dir / COST_DATA_WORKBOOK),
+        "source_package": {"version": COST_DATA_VERSION, "url": COST_DATA_URL, "sha256": COST_DATA_SHA256},
+    }
+    _prepare_from(args, package_dir / COST_DATA_WORKBOOK, origin)
 
 
 def _prepare_from(args: argparse.Namespace, source: Path, origin: dict) -> None:

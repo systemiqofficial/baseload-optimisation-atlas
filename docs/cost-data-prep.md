@@ -21,7 +21,9 @@ boa-data-prepare --input-file wb.xlsx --scenario cheap_renewables --year_start 2
 Cost side: the default cost workbook is the `boa-cost-data` package on steelo-data, pinned
 by URL and sha256 in `boa/config/data_packages.py`. It holds the workbook and
 `boa-cost-data.json`, which records each sheet's last-changed date, columns, units and
-rounding. The package is ~36 KB and is fetched on every run without `--input-file`.
+rounding. The package (~36 KB) is installed unchanged in `data/boa-cost-data/`, next to an
+`installed.json` recording the zip's URL, version and sha256, and is downloaded again only
+when the pinned sha256 changes. Scenarios copy their workbook from there.
 
 Geo side: the pinned Natural Earth shapefiles (1:50m map subunits, 1:10m admin-1) and the
 ERA5 land-sea mask are installed from the `boa-core-data` package on steelo-data, pinned by
@@ -46,8 +48,11 @@ data/
 ├── ne_10m_admin_1_states_provinces/  NE 1:10m admin-1 shapefile (sub-national cost keys)
 ├── lsm_025_deg.nc                    ERA5 0.25 deg land-sea mask
 ├── boa-core-data.json                core data version + provenance
+├── boa-cost-data/                    the pinned cost package, unchanged: its workbook,
+│                                     boa-cost-data.json and installed.json
 ├── iso3_grid.nc                      per-pixel ISO3 grid, built locally
-└── cds/                              raw CDS NetCDFs (+ global_zarr/ build cache)
+└── cds/                              raw CDS NetCDFs (+ global_zarr/ build cache, and
+                                      cds-capacity-factors-<year>.json for a re-published year)
 inputs/<set>/                         e.g. cds-2024, tagged by weather year
 ├── cds-zarr/                         live profile + max-capacity stores the model reads
 └── staging/                          freshly built stores (transient; emptied on install)
@@ -162,11 +167,13 @@ workbook produces; refactors, log messages and new checks don't need it.
 
 ### Starting a custom scenario
 
-1. Copy `costs/default/boa_cost_data.xlsx`, a byte-identical copy of the package workbook.
+1. Copy the package workbook, `data/boa-cost-data/boa-cost-data-v0.1.xlsx`.
 2. Edit the copy, keeping the sheet and column names.
 3. Prepare it: `boa-data-prepare --input-file my_costs.xlsx --scenario my_scenario`.
 4. Run with it: `boa-run ... --cost-input my_scenario`.
 
 Only the workbook is copied into the scenario. Its `source.json` records where it came from:
-the file path, or for the default the package's URL, version and sha256. The package's
-`boa-cost-data.json` (sheet dates, units and rounding) stays in the package.
+the file path, plus the package's URL, version and sha256 when it is the package workbook.
+The package's `boa-cost-data.json` (sheet dates, units, rounding and notes) stays with the
+package in `data/boa-cost-data/`; it names the workbook `boa-cost-data-v<version>.xlsx`, and
+its `workbook.sha256` matches a scenario's `boa_cost_data.xlsx` prepared from it.

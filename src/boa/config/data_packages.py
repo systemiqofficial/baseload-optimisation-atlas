@@ -21,6 +21,8 @@ COST_DATA_VERSION = "0.1"
 COST_DATA_URL = f"{STEELO_DATA_URL}/boa-cost-data-v{COST_DATA_VERSION}.zip"
 COST_DATA_SHA256 = "d80f64f2ae8f9af41cdeff38671848ee0161e9211eb20c2a11d64e615b378fe2"
 COST_DATA_WORKBOOK = f"boa-cost-data-v{COST_DATA_VERSION}.xlsx"
+# Installed under <root>/data/, unchanged, with an installed.json recording the zip it came from.
+COST_DATA_FOLDER = "boa-cost-data"
 
 # Capacity factors re-published per weather year, so a published year needs no CDS account.
 # Downloading with your own CDS account is preferred; these are the fallback behind
