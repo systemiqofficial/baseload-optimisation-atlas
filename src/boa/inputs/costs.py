@@ -153,15 +153,41 @@ def preprocess_renewable_energy_cost_data(
     # merge_key already spans sub-national keys, bare-iso3 overrides, and region names.
     year_cols = [c for c in capex_projections.columns if isinstance(c, (int, np.integer))]
     authored = capex_projections.set_index(["merge_key", "tech"])[year_cols].apply(pd.to_numeric, errors="coerce")
+    # An all-blank row falls through the cascade; a partly blank one is an editing mistake.
+    blank = authored.isna()
+    partly_blank = blank.any(axis=1) & ~blank.all(axis=1)
+    if partly_blank.any():
+        sheet_label = {v: k for k, v in TECH_LABEL_MAP.items()}
+        gaps = [
+            f"{key} {sheet_label.get(tech, tech)}: {', '.join(str(y) for y in blank.columns[blank.loc[(key, tech)]])}"
+            for key, tech in authored.index[partly_blank]
+        ]
+        raise ValueError(f"Blank or non-numeric year cells in RES CAPEX projections: {'; '.join(gaps)}.")
+
     techs = list(capex_projections["tech"].dropna().unique())
     capex_per_country, provenance = _resolve_capex_cascade(
         authored, list(cost_per_country.index), techs, code_to_irena_region_map
     )
-    _log_capex_cascade(provenance, self_keyed=set(iso3_to_subregions))
 
-    capex_per_country = capex_per_country.apply(lambda col: col.fillna(col.mean()), axis=0)
+    region_capex = authored[capex_projections["subregion code"].isna().to_numpy()]
+    donors = _costliest_region_by_tech(region_capex)
+    for cost_key, tech in provenance.index[provenance == "terminal"]:
+        capex_per_country.loc[(cost_key, tech)] = region_capex.loc[(donors[tech], tech)].to_numpy()
+    _log_capex_cascade(provenance, self_keyed=set(iso3_to_subregions), donors=donors)
 
     return cost_per_country, capex_per_country
+
+
+def _costliest_region_by_tech(region_capex: pd.DataFrame) -> dict[str, str]:
+    """
+    For each technology, the IRENA region with the highest CAPEX summed over all its technologies
+    and years, among the regions with a row for that technology. Ties go to the first name
+    alphabetically. It fills a (cost key, technology) with no CAPEX at any level, as a whole series.
+    """
+    region_capex = region_capex[~region_capex.isna().all(axis=1)]
+    totals = region_capex.sum(axis=1).groupby(level="merge_key").sum().sort_index()
+    rows = region_capex.index.to_frame(index=False)
+    return {tech: totals[totals.index.isin(group["merge_key"])].idxmax() for tech, group in rows.groupby("tech")}
 
 
 def _resolve_capex_cascade(
@@ -175,7 +201,7 @@ def _resolve_capex_cascade(
         exact (cost_key, tech) -> national (iso3, tech) -> IRENA region (region, tech).
 
     A candidate is considered authored iff its row is not entirely NaN. Cells that resolve
-    at no level are left NaN for the caller's column-mean terminal.
+    at no level are left NaN for the caller's costliest-region terminal.
 
     Args:
         authored: year-column CAPEX indexed by (merge_key, Technology). merge_key spans
@@ -217,16 +243,16 @@ def _resolve_capex_cascade(
     return resolved, provenance
 
 
-def _log_capex_cascade(provenance: pd.Series, self_keyed: set[str]) -> None:
+def _log_capex_cascade(provenance: pd.Series, self_keyed: set[str], donors: dict[str, str]) -> None:
     """
     One INFO summary line, plus per-key detail only for *self-keyed* cost keys that dropped
     below their exact level (an iso3 that appears in the Subregion column — the only case
     where inheriting below the key is surprising; ordinary non-subregion countries resolving
-    at region level are the normal path and stay silent). Column-mean hits are WARNINGs.
+    at region level are the normal path and stay silent). Costliest-region fills are WARNINGs.
     """
     counts = provenance.value_counts()
     logging.info(
-        "CAPEX cascade: %d exact, %d national, %d region, %d column-mean.",
+        "CAPEX cascade: %d exact, %d national, %d region, %d costliest-region.",
         int(counts.get("exact", 0)),
         int(counts.get("national", 0)),
         int(counts.get("region", 0)),
@@ -238,9 +264,13 @@ def _log_capex_cascade(provenance: pd.Series, self_keyed: set[str]) -> None:
             logging.info("[CAPEX FALLBACK] %s %s inherited from %s level.", cost_key, tech, level)
         elif level == "terminal":
             logging.warning(
-                "[CAPEX FALLBACK] %s %s has no authored value at any level; using column mean.",
+                "[CAPEX FALLBACK] %s %s has no CAPEX for its key, country or IRENA region; using the %s "
+                "series of %s, the region with the highest total CAPEX. Check RES CAPEX projections for a "
+                "missing row.",
                 cost_key,
                 tech,
+                tech,
+                donors[tech],
             )
 
 
