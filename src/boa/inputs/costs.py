@@ -177,6 +177,16 @@ def preprocess_renewable_energy_cost_data(
         ]
         raise ValueError(f"Blank or non-numeric year cells in RES CAPEX projections: {'; '.join(gaps)}.")
 
+    # The model reads every year of the investment horizon, so fill years between the sheet's columns
+    # (e.g. a 5-yearly projection) by linear interpolation along each row.
+    all_years = list(range(min(year_cols), max(year_cols) + 1))
+    if missing_years := sorted(set(all_years) - set(year_cols)):
+        logging.info(
+            "RES CAPEX projections has no column for some years; interpolating %s linearly.",
+            _year_ranges(missing_years),
+        )
+        authored = authored.reindex(columns=all_years).interpolate(axis=1, limit_area="inside")
+
     techs = list(capex_projections["tech"].dropna().unique())
     capex_per_country, provenance = _resolve_capex_cascade(
         authored, list(cost_per_country.index), techs, code_to_irena_region_map
@@ -189,6 +199,17 @@ def preprocess_renewable_energy_cost_data(
     _log_capex_cascade(provenance, self_keyed=set(iso3_to_subregions), donors=donors)
 
     return cost_per_country, capex_per_country
+
+
+def _year_ranges(years: list[int]) -> str:
+    """Collapse sorted years into ranges, e.g. [2025, 2026, 2028] -> '2025–2026, 2028'."""
+    ranges: list[list[int]] = []
+    for year in years:
+        if ranges and year == ranges[-1][1] + 1:
+            ranges[-1][1] = year
+        else:
+            ranges.append([year, year])
+    return ", ".join(str(first) if first == last else f"{first}–{last}" for first, last in ranges)
 
 
 def _check_opex(renewable_opex: pd.DataFrame, irena_regions: set[str]) -> pd.Series:

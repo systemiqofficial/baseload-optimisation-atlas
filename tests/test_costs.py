@@ -182,3 +182,16 @@ def test_cost_cache_is_reused_only_for_the_same_loader_version(tmp_path, monkeyp
         process_global_baseload_simulation_costs(2024, path, cache_dir)
 
     assert "reprocessing" in caplog.text
+
+
+def test_missing_year_columns_are_interpolated_linearly(tmp_path, caplog):
+    sheets = _sheets()
+    sheets["RES CAPEX projections"] = sheets["RES CAPEX projections"].rename(columns={2025: 2027})
+    path = _write(tmp_path / "costs.xlsx", sheets)
+
+    with caplog.at_level(logging.INFO):
+        _, capex = _preprocess(path)
+
+    assert list(capex.columns) == [2024, 2025, 2026, 2027]
+    assert capex.loc[("DEU", "solar")].tolist() == pytest.approx([700.0, 676.667, 653.333, 630.0], abs=1e-3)
+    assert "interpolating 2025–2026" in caplog.text
