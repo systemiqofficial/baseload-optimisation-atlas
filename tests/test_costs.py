@@ -5,7 +5,8 @@ import pandas as pd
 import pytest
 
 from boa.geo.geospatial import CountryMappings
-from boa.inputs.costs import preprocess_renewable_energy_cost_data
+from boa.inputs import costs as costs_module
+from boa.inputs.costs import preprocess_renewable_energy_cost_data, process_global_baseload_simulation_costs
 
 COUNTRY_REGIONS = {"DEU": "Europe", "AUS": "Oceania", "KEN": "Africa"}
 
@@ -152,3 +153,32 @@ def test_opex_without_a_world_row_fails(tmp_path):
 
     with pytest.raises(ValueError, match=r"no World row for Battery"):
         _preprocess(path)
+
+
+def test_cost_cache_is_rebuilt_when_the_workbook_changes(tmp_path):
+    path = _write(tmp_path / "costs.xlsx", _sheets())
+    cache_dir = tmp_path / "cache"
+    first, _ = process_global_baseload_simulation_costs(2024, path, cache_dir)
+    assert first["Capex solar"].sel(iso3="DEU", year=2024) == 700_000
+
+    capex = dict(CAPEX)
+    capex[("Europe", "Solar PV")] = [500.0, 450.0]
+    _write(path, _sheets(capex))
+    second, _ = process_global_baseload_simulation_costs(2024, path, cache_dir)
+
+    assert second["Capex solar"].sel(iso3="DEU", year=2024) == 500_000
+
+
+def test_cost_cache_is_reused_only_for_the_same_loader_version(tmp_path, monkeypatch, caplog):
+    path = _write(tmp_path / "costs.xlsx", _sheets())
+    cache_dir = tmp_path / "cache"
+    process_global_baseload_simulation_costs(2024, path, cache_dir)
+
+    with caplog.at_level(logging.INFO):
+        process_global_baseload_simulation_costs(2024, path, cache_dir)
+        assert "Skipping processing" in caplog.text
+        caplog.clear()
+        monkeypatch.setattr(costs_module, "COST_CACHE_VERSION", costs_module.COST_CACHE_VERSION + 1)
+        process_global_baseload_simulation_costs(2024, path, cache_dir)
+
+    assert "reprocessing" in caplog.text

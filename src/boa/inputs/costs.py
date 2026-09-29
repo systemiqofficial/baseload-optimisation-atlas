@@ -1,3 +1,4 @@
+import hashlib
 import pandas as pd
 import numpy as np
 import xarray as xr
@@ -26,6 +27,9 @@ TECH_LABEL_MAP = {
     "Battery": "battery",
 }
 SHEET_TECH_LABEL = {tech: label for label, tech in TECH_LABEL_MAP.items()}
+
+# Bump when a change to this module changes the cached costs, so existing cost caches are rebuilt.
+COST_CACHE_VERSION = 1
 
 
 def preprocess_renewable_energy_cost_data(
@@ -347,12 +351,12 @@ def process_global_baseload_simulation_costs(
 
     The per-year result is cached as ``cost_of_renewables_<year>_investment_year.nc`` under
     ``cost_cache_dir`` (``PathConfig.cost_cache_dir``, i.e. ``costs/<set>/cache_costs/``)
-    and reused on subsequent runs; the cache is shared across all baseloads/coverages/regions
-    since costs depend only on year + the Excel inputs.
+    and reused while its workbook sha256 and ``COST_CACHE_VERSION`` match; the cache is shared
+    across all baseloads/coverages/regions since costs depend only on year + the Excel inputs.
 
     Outputs:
         - projected_cost_per_country: xarray with CAPEX (solar/wind in USD/MW, battery in USD/MWh)
-          on (iso3, year), plus per-country OPEX percentages and cost of capital.
+          on (iso3, year), plus per-country OPEX and cost of capital as fractions.
         - investment_horizon: max of solar/wind/battery lifetimes (years).
     """
 
@@ -362,17 +366,24 @@ def process_global_baseload_simulation_costs(
     renewables_costs_file = cost_cache_dir / f"cost_of_renewables_{investment_year}_investment_year.nc"
     cost_cache_dir.mkdir(parents=True, exist_ok=True)
 
+    workbook_sha256 = hashlib.sha256(input_data_path.read_bytes()).hexdigest()
     needs_reprocess = True
     if renewables_costs_file.exists():
         cached = xr.open_dataset(renewables_costs_file)
-        if "Capex battery" in cached.data_vars and cached.attrs.get("subregion_aware") == 1:
+        if (
+            cached.attrs.get("cost_cache_version") == COST_CACHE_VERSION
+            and cached.attrs.get("workbook_sha256") == workbook_sha256
+        ):
             logging.info(f"Loading cost of renewables data from {renewables_costs_file}. Skipping processing.")
             # Eager-load: downstream `.sel(iso3=...)` is called ~210k times / region-year; lazy xarray is ~3x slower per call.
             projected_cost_per_country = cached.load()
             cached.close()
             needs_reprocess = False
         else:
-            logging.info(f"Cached cost file {renewables_costs_file} is stale; reprocessing.")
+            logging.info(
+                f"Cached cost file {renewables_costs_file} was built from another workbook or cost-loader "
+                "version; reprocessing."
+            )
             cached.close()
 
     if needs_reprocess:
@@ -405,12 +416,12 @@ def process_global_baseload_simulation_costs(
                 "Capex solar": (("iso3", "year"), capex_solar, {"units": "USD/MW"}),
                 "Capex wind": (("iso3", "year"), capex_wind, {"units": "USD/MW"}),
                 "Capex battery": (("iso3", "year"), capex_battery, {"units": "USD/MWh"}),
-                "Opex solar": (("iso3",), cost_per_country["Opex solar"].values, {"units": "%"}),
-                "Opex wind": (("iso3",), cost_per_country["Opex wind"].values, {"units": "%"}),
-                "Opex battery": (("iso3",), cost_per_country["Opex battery"].values, {"units": "%"}),
-                "Cost of capital": (("iso3",), cost_per_country["Cost of capital (%)"].values, {"units": "%"}),
+                "Opex solar": (("iso3",), cost_per_country["Opex solar"].values, {"units": "fraction"}),
+                "Opex wind": (("iso3",), cost_per_country["Opex wind"].values, {"units": "fraction"}),
+                "Opex battery": (("iso3",), cost_per_country["Opex battery"].values, {"units": "fraction"}),
+                "Cost of capital": (("iso3",), cost_per_country["Cost of capital (%)"].values, {"units": "fraction"}),
             },
-            attrs={"subregion_aware": 1},
+            attrs={"cost_cache_version": COST_CACHE_VERSION, "workbook_sha256": workbook_sha256},
         )
 
         projected_cost_per_country.to_netcdf(renewables_costs_file, mode="w", format="NETCDF4")
