@@ -194,6 +194,10 @@ def test_year_flags_narrow_cache(tmp_path, boa_root):
     assert sorted(p.name for p in cache_dir.iterdir()) == ["cost_of_renewables_2025_investment_year.nc"]
 
 
+def _core_package_dir(boa_root: Path) -> Path:
+    return boa_root / "data" / data_prepare.CORE_DATA_FOLDER
+
+
 def test_core_data_installed_and_grid_built(tmp_path, boa_root, core_downloads):
     workbook = tmp_path / "boa-cost-data.xlsx"
     _write_workbook(workbook)
@@ -201,11 +205,11 @@ def test_core_data_installed_and_grid_built(tmp_path, boa_root, core_downloads):
     _run(workbook)
 
     assert core_downloads == [data_prepare.CORE_DATA_URL]
-    data_dir = boa_root / "data"
-    assert (data_dir / "ne_50m_admin_0_map_subunits" / "ne_50m_admin_0_map_subunits.shp").exists()
-    assert (data_dir / "ne_10m_admin_1_states_provinces" / "ne_10m_admin_1_states_provinces.shp").exists()
-    assert (data_dir / "lsm_025_deg.nc").exists()
-    assert (data_dir / "iso3_grid.nc").read_bytes() == b"fake-grid"
+    package = _core_package_dir(boa_root)
+    assert (package / "ne_50m_admin_0_map_subunits" / "ne_50m_admin_0_map_subunits.shp").exists()
+    assert (package / "ne_10m_admin_1_states_provinces" / "ne_10m_admin_1_states_provinces.shp").exists()
+    assert (package / "lsm_025_deg.nc").exists()
+    assert (boa_root / "data" / "iso3_grid.nc").read_bytes() == b"fake-grid"
 
 
 def test_core_data_skips_download_and_build_when_current(tmp_path, boa_root, core_downloads):
@@ -228,7 +232,7 @@ def test_core_data_refetched_unless_pinned_zip_installed(tmp_path, boa_root, cor
     _write_workbook(workbook)
     _run(workbook)
     core_downloads.clear()
-    installed = boa_root / "data" / data_prepare.CORE_DATA_INSTALLED
+    installed = _core_package_dir(boa_root) / data_prepare.CORE_DATA_INSTALLED
     if marker is None:
         installed.unlink()  # an install from before the sha256 check
     else:
@@ -240,7 +244,7 @@ def test_core_data_refetched_unless_pinned_zip_installed(tmp_path, boa_root, cor
 
 
 def test_core_data_installs_from_pinned_zip(tmp_path, boa_root, monkeypatch):
-    """The real download path: fetch_verified_zip checks the pinned sha256 and unzips into data/."""
+    """The real download path: fetch_verified_zip checks the pinned sha256 and unzips into data/boa-core-data/."""
     package = tmp_path / "boa-core-data.zip"
     sha256 = _zip(package, _core_members())
     monkeypatch.setattr(data_prepare, "fetch_verified_zip", fetch_verified_zip)
@@ -251,13 +255,34 @@ def test_core_data_installs_from_pinned_zip(tmp_path, boa_root, monkeypatch):
 
     assert _run(workbook) == 0
 
-    data_dir = boa_root / "data"
-    installed = json.loads((data_dir / data_prepare.CORE_DATA_INSTALLED).read_text())
+    package = _core_package_dir(boa_root)
+    installed = json.loads((package / data_prepare.CORE_DATA_INSTALLED).read_text())
     assert installed["sha256"] == sha256
     assert installed["version"] == data_prepare.CORE_DATA_VERSION
-    assert (data_dir / "boa-core-data.json").exists()
-    assert (data_dir / "lsm_025_deg.nc").read_bytes() == b"fake-nc"
-    assert not list(data_dir.glob("*.part"))
+    assert (package / "boa-core-data.json").exists()
+    assert (package / "lsm_025_deg.nc").read_bytes() == b"fake-nc"
+    assert sorted(p.name for p in (boa_root / "data").iterdir()) == sorted(
+        [data_prepare.CORE_DATA_FOLDER, "iso3_grid.nc"]
+    )
+
+
+def test_failed_core_download_keeps_the_installed_package(tmp_path, boa_root, core_downloads, monkeypatch):
+    workbook = tmp_path / "boa-cost-data.xlsx"
+    _write_workbook(workbook)
+    _run(workbook)
+    monkeypatch.setattr(data_prepare, "CORE_DATA_SHA256", "0" * 64)
+
+    def failing_fetch(url, sha256, extract_to, on_progress=None):
+        raise ValueError(f"sha256 mismatch for {url}")
+
+    monkeypatch.setattr(data_prepare, "fetch_verified_zip", failing_fetch)
+
+    assert _run(workbook) == 1
+
+    package = _core_package_dir(boa_root)
+    assert (package / "lsm_025_deg.nc").read_bytes() == b"fake-nc"
+    assert json.loads((package / data_prepare.CORE_DATA_INSTALLED).read_text())["sha256"] != "0" * 64
+    assert [p.name for p in (boa_root / "data").iterdir() if p.name.endswith(".staged")] == []
 
 
 def test_stale_iso3_grid_is_rebuilt(tmp_path, boa_root):

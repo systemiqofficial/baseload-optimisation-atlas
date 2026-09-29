@@ -11,11 +11,8 @@ being lost by point-in-polygon at the cell centre.
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import logging
-import urllib.request
-import zipfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -25,9 +22,6 @@ import xarray as xr
 from shapely.geometry import box
 
 logger = logging.getLogger(__name__)
-
-NE_50M_SUBUNITS_URL = "https://naciscdn.org/naturalearth/50m/cultural/ne_50m_admin_0_map_subunits.zip"
-NE_10M_ADMIN1_URL = "https://naciscdn.org/naturalearth/10m/cultural/ne_10m_admin_1_states_provinces.zip"
 
 # NE subunit codes -> BOA Country mapping iso3. Applied at build time so the
 # grid stores BOA-canonical codes and lookups don't need a runtime remap.
@@ -43,58 +37,6 @@ NE_TO_BOA: dict[str, str] = {
     "ATC": "AUS",  # Ashmore and Cartier Islands -> Australia
     "MAC": "CHN",  # Macao -> China (no MAC row in BOA Country mapping)
 }
-
-
-def ensure_ne_50m_shapefile(shapefile_path: Path, *, force: bool = False) -> Path:
-    """Ensure the NE 1:50m map_subunits shapefile is unpacked at ``shapefile_path``.
-
-    The map_subunits layer splits sovereigns into their constituent iso3s
-    (e.g. France into FRA + GUF + MTQ + GLP + REU + MYT), which the
-    admin_0_countries layer collapses into a single FRA polygon. Downloads
-    the 836 KB ZIP from naciscdn.org if the .shp is missing.
-    """
-    if shapefile_path.exists() and not force:
-        return shapefile_path
-    target_dir = shapefile_path.parent
-    target_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("Downloading NE 1:50m map_subunits shapefile from %s", NE_50M_SUBUNITS_URL)
-    with urllib.request.urlopen(NE_50M_SUBUNITS_URL, timeout=60) as resp:
-        raw = resp.read()
-    with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-        zf.extractall(target_dir)
-    if not shapefile_path.exists():
-        raise FileNotFoundError(
-            f"After extracting NE 1:50m ZIP to {target_dir}, expected {shapefile_path} "
-            "but it is still missing. Inspect the extracted files."
-        )
-    logger.info("Extracted NE 1:50m map_subunits to %s", target_dir)
-    return shapefile_path
-
-
-def ensure_ne_10m_admin1_shapefile(shapefile_path: Path, *, force: bool = False) -> Path:
-    """Ensure the NE 1:10m admin-1 states/provinces shapefile is unpacked at ``shapefile_path``.
-
-    This is the first-order (province/state) layer, source of sub-national
-    geometry for the geo_hierarchy (China now, others later). Distinct from the
-    50m country grid — see ``boa.config.paths`` for why it is not a replacement.
-    Downloads the ZIP from naciscdn.org if the .shp is missing.
-    """
-    if shapefile_path.exists() and not force:
-        return shapefile_path
-    target_dir = shapefile_path.parent
-    target_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("Downloading NE 1:10m admin-1 shapefile from %s", NE_10M_ADMIN1_URL)
-    with urllib.request.urlopen(NE_10M_ADMIN1_URL, timeout=120) as resp:
-        raw = resp.read()
-    with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-        zf.extractall(target_dir)
-    if not shapefile_path.exists():
-        raise FileNotFoundError(
-            f"After extracting NE 1:10m admin-1 ZIP to {target_dir}, expected {shapefile_path} "
-            "but it is still missing. Inspect the extracted files."
-        )
-    logger.info("Extracted NE 1:10m admin-1 to %s", target_dir)
-    return shapefile_path
 
 
 def _build_cell_grid(resolution: float) -> tuple[np.ndarray, np.ndarray, gpd.GeoDataFrame]:
@@ -148,16 +90,17 @@ def _load_countries(shapefile_path: Path) -> gpd.GeoDataFrame:
     return out
 
 
-def shapefile_fingerprint(shapefile_path: Path) -> str:
-    """sha256 over the shapefile's .shp + .dbf pair (geometry + attribute table)."""
+def iso3_grid_fingerprint(shapefile_path: Path) -> str:
+    """sha256 over what the grid is built from: the shapefile's .shp + .dbf pair and ``NE_TO_BOA``."""
     digest = hashlib.sha256()
     for suffix in (".shp", ".dbf"):
         digest.update(shapefile_path.with_suffix(suffix).read_bytes())
+    digest.update(json.dumps(NE_TO_BOA, sort_keys=True).encode())
     return digest.hexdigest()
 
 
 def iso3_grid_is_current(grid_path: Path, shapefile_path: Path) -> bool:
-    """True if the grid's ``source_sha256`` attr matches ``shapefile_path``; missing/unreadable/attr-less grids are stale."""
+    """True if the grid's ``source_sha256`` attr matches its inputs now; missing/unreadable/attr-less grids are stale."""
     if not grid_path.exists():
         return False
     try:
@@ -165,7 +108,7 @@ def iso3_grid_is_current(grid_path: Path, shapefile_path: Path) -> bool:
             stored = ds.attrs.get("source_sha256")
     except Exception:
         return False
-    return stored == shapefile_fingerprint(shapefile_path)
+    return stored == iso3_grid_fingerprint(shapefile_path)
 
 
 # Number of ``on_stage`` callbacks build_iso3_grid_from_shapefile makes — for progress bars.
@@ -297,8 +240,8 @@ def build_iso3_grid_from_shapefile(
                 f"Natural Earth 1:50m countries ({shapefile_path.name}) -> "
                 "build_iso3_grid_from_shapefile (NE_TO_BOA remap applied)"
             ),
-            # Source-shapefile fingerprint; iso3_grid_is_current uses it to detect staleness.
-            "source_sha256": shapefile_fingerprint(shapefile_path),
+            # Fingerprint of the shapefile and NE_TO_BOA; iso3_grid_is_current uses it to detect staleness.
+            "source_sha256": iso3_grid_fingerprint(shapefile_path),
         },
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)

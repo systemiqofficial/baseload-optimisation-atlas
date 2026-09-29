@@ -27,8 +27,9 @@ when the pinned sha256 changes. Scenarios copy their workbook from there.
 
 Geo side: the pinned Natural Earth shapefiles (1:50m map subunits, 1:10m admin-1) and the
 ERA5 land-sea mask are installed from the `boa-core-data` package on steelo-data, pinned by
-URL and sha256 in `boa/config/data_packages.py`. Its `boa-core-data.json` records each
-source's version, licence, attribution and file hashes. The per-pixel iso3 grid is built
+URL and sha256 in `boa/config/data_packages.py`, and kept unchanged in `data/boa-core-data/`
+like the cost package. Its `boa-core-data.json` records each source's version, licence,
+attribution and file hashes. The per-pixel iso3 grid is built
 locally from the 1:50m shapefile (`geo/iso3_grid_builder.py`).
 The shapefiles are pinned on S3 rather than fetched from naciscdn.org because Natural Earth
 releases change polygons, which would silently change the iso3 grid.
@@ -37,18 +38,19 @@ The first run downloads ~16 MB and builds the iso3 grid in about a minute; re-ru
 in seconds. Re-running is an idempotent upsert: the core and cost packages are downloaded again
 only when the pinned sha256 differs from the installed zip's, an unchanged workbook (same sha256) is a
 no-op, and a changed one replaces the copy and rebuilds the scenario's cost cache. The iso3
-grid carries a fingerprint of its source shapefile and is rebuilt automatically if the NE
-1:50m shapefile ever changes.
+grid carries a fingerprint of the NE 1:50m shapefile and of `NE_TO_BOA` (the subunit-to-iso3
+remap in `geo/iso3_grid_builder.py`), and is rebuilt automatically if either changes.
 
 Data lands under the boa data root (`$BOA_DATA_ROOT` → `~/.boa`):
 
 ```
 data/
-├── ne_50m_admin_0_map_subunits/      NE 1:50m shapefile (source of the iso3 grid)
-├── ne_10m_admin_1_states_provinces/  NE 1:10m admin-1 shapefile (sub-national cost keys)
-├── lsm_025_deg.nc                    ERA5 0.25 deg land-sea mask
-├── boa-core-data.json                core data provenance (from the package)
-├── boa-core-data.installed.json      the installed zip's version, URL and sha256
+├── boa-core-data/                    the pinned core package, unchanged:
+│   ├── ne_50m_admin_0_map_subunits/      NE 1:50m shapefile (source of the iso3 grid)
+│   ├── ne_10m_admin_1_states_provinces/  NE 1:10m admin-1 shapefile (sub-national cost keys)
+│   ├── lsm_025_deg.nc                    ERA5 0.25 deg land-sea mask
+│   ├── boa-core-data.json                core data provenance
+│   └── installed.json                    the installed zip's version, URL and sha256
 ├── boa-cost-data/                    the pinned cost package, unchanged: its workbook,
 │                                     boa-cost-data.json and installed.json
 ├── iso3_grid.nc                      per-pixel ISO3 grid, built locally
@@ -56,7 +58,7 @@ data/
                                       cds-capacity-factors-<year>.json for a re-published year)
 inputs/<set>/                         e.g. cds-2024, tagged by weather year
 ├── cds-zarr/                         live profile + max-capacity stores the model reads
-└── staging/                          freshly built stores (transient; emptied on install)
+└── staging/                          freshly built stores (transient; removed once installed)
 inputs/cds-<year>/cache_frontiers/    frontier cache, built by boa-run; keyed on the
                                        weather year alone, shared across every land-
                                        availability layer set built on that weather

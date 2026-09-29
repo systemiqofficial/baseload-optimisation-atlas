@@ -179,21 +179,20 @@ def test_pixel_area_spot_values():
 def test_geometry_default_is_pure_geometry_and_installable(tmp_path, tmp_config):
     """Default build has no land-use term, writes plain names, and passes install validation."""
     out = cds_max_capacity.build_region("EUROPE", tmp_path, tmp_config)
-    ds = xr.open_dataset(out)
+    ds = xr.open_zarr(out)
     expected = cds_max_capacity.pixel_area(ds.y.values)[:, None] * CAPACITY_DENSITY_MW_PER_KM2["pv"]
     np.testing.assert_array_equal(ds["pv"].values, np.broadcast_to(expected, ds["pv"].shape))
     assert ds.attrs["lulc_source"] == "none"
-    assert out.name == max_cap_store_stem("EUROPE", ERA5_DATA_YEAR) + ".nc"
+    assert out == tmp_path / (max_cap_store_stem("EUROPE", ERA5_DATA_YEAR) + ".zarr")
     ds.close()
 
-    zarr_twin = tmp_path / (max_cap_store_stem("EUROPE", ERA5_DATA_YEAR) + ".zarr")
-    assert zarr_twin.exists()
-    cds_install.validate_store(zarr_twin, "max-cap")  # must not raise
+    assert [p.name for p in tmp_path.iterdir()] == [out.name]
+    cds_install.validate_store(out, "max-cap")  # must not raise
 
 
 def test_density_overrides_propagate(tmp_path, tmp_config):
     out = cds_max_capacity.build_region("EUROPE", tmp_path, tmp_config, pv_density=100.0, wind_density=10.42)
-    ds = xr.open_dataset(out)
+    ds = xr.open_zarr(out)
     ratio = ds["wind"].values / ds["pv"].values
     np.testing.assert_allclose(ratio, 10.42 / 100.0, rtol=1e-12)
     assert "10.42" in ds.attrs["density_mw_per_km2"]
@@ -374,13 +373,15 @@ def test_install_refuses_half_region_pair(tmp_path):
         cds_install.install_regions(["EUROPE"], ERA5_DATA_YEAR, ["profile", "max-cap"], staging, tmp_path / "live")
 
 
-def test_install_warns_on_non_default_year(tmp_path, caplog):
+def test_install_takes_any_weather_year_without_warning(tmp_path, caplog):
+    """boa-run reads the weather year off the store filenames, so no year is special."""
     staging, live = tmp_path / "staging", tmp_path / "live"
     year = ERA5_DATA_YEAR + 1
     _stage_stores(staging, "EUROPE", year)
     with caplog.at_level("WARNING"):
         cds_install.install_regions(["EUROPE"], year, ["profile", "max-cap"], staging, live)
-    assert any("ERA5_DATA_YEAR" in message for message in caplog.messages)
+    assert (live / (profile_store_stem("EUROPE", year) + ".zarr")).exists()
+    assert not caplog.messages
 
 
 def test_missing_live_store_raises_actionable_error(tmp_config, monkeypatch):
@@ -424,6 +425,7 @@ def test_prepare_builds_reuses_and_forces(tmp_path, monkeypatch):
     prof = live / (profile_store_stem("TEST", ERA5_DATA_YEAR) + ".zarr")
     assert prof.exists()
     assert (live / (max_cap_store_stem("TEST", ERA5_DATA_YEAR) + ".zarr")).exists()
+    assert not (tmp_path / "inputs" / "setA" / "staging").exists()
 
     # Second run reuses the installed stores untouched.
     marker = prof / ".zmetadata"
@@ -434,6 +436,17 @@ def test_prepare_builds_reuses_and_forces(tmp_path, monkeypatch):
     # --force rebuilds and reinstalls.
     assert run_cds.main_prepare(["--region", "TEST", "--inputs", "setA", "--force"]) == 0
     assert marker.stat().st_mtime_ns > mtime
+
+
+def test_prepare_clears_what_an_earlier_prepare_left_in_staging(tmp_path, monkeypatch):
+    _seed_prepare_root(tmp_path, monkeypatch)
+    leftover = tmp_path / "inputs" / "setA" / "staging" / "cav" / (max_cap_store_stem("TEST", ERA5_DATA_YEAR) + ".nc")
+    leftover.parent.mkdir(parents=True)
+    leftover.write_bytes(b"old")
+
+    assert run_cds.main_prepare(["--region", "TEST", "--inputs", "setA"]) == 0
+
+    assert not (tmp_path / "inputs" / "setA" / "staging").exists()
 
 
 def test_prepare_auto_tags_input_set_by_year(tmp_path, monkeypatch):

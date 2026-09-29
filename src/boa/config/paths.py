@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from boa.config.data_packages import CORE_DATA_FOLDER
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_SET = "default"
@@ -124,10 +126,11 @@ class PathConfig:
     reusing a stale cache:
 
         <root>/
-        ├── data/                          single slot: shapefiles, lsm, iso3 grid, cds/ raw NetCDFs,
-        │                                  lulc/ land-cover raster, boa-cost-data/ pinned cost package
+        ├── data/                          single slot: boa-core-data/ pinned shapefiles + lsm, iso3 grid,
+        │                                  cds/ raw NetCDFs, lulc/ land-cover raster,
+        │                                  boa-cost-data/ pinned cost package
         ├── inputs/<input_set>/            profile + max-capacity stores (cds-zarr/, atlite/)
-        │   └── staging/                   freshly built stores (transient; emptied by boa_cds install)
+        │   └── staging/                   freshly built stores (transient; removed once installed)
         ├── inputs/cds-<year>/cache_frontiers/
         │                                  schema v3 frontier stores, keyed on the weather year alone:
         │                                  they hold no availability assumption, so every layer set
@@ -314,6 +317,7 @@ class PathConfig:
         root = Path(root)
         run = run or f"{input_set}__{cost_set}"
         data_dir = root / "data"
+        core_data_dir = data_dir / CORE_DATA_FOLDER
         inputs_dir = root / "inputs" / input_set
         costs_dir = root / "costs" / cost_set
         run_dir = root / "runs" / run
@@ -326,12 +330,14 @@ class PathConfig:
             input_data_path=costs_dir / "boa_cost_data.xlsx",
             # NE 1:50m map_subunits: source of the per-pixel iso3 grid; splits
             # sovereigns into constituent iso3s (France -> FRA + GUF + ...).
-            subunits_50m_shapefile_path=data_dir / "ne_50m_admin_0_map_subunits" / "ne_50m_admin_0_map_subunits.shp",
+            subunits_50m_shapefile_path=core_data_dir
+            / "ne_50m_admin_0_map_subunits"
+            / "ne_50m_admin_0_map_subunits.shp",
             # NE 1:10m admin-1: province geometry for sub-national cost keys.
-            admin1_10m_shapefile_path=data_dir
+            admin1_10m_shapefile_path=core_data_dir
             / "ne_10m_admin_1_states_provinces"
             / "ne_10m_admin_1_states_provinces.shp",
-            lsm_path=data_dir / "lsm_025_deg.nc",
+            lsm_path=core_data_dir / "lsm_025_deg.nc",
             # Per-pixel ISO3 grid on the 0.25 deg ERA5 grid, used for cost_key derivation.
             iso3_grid_path=data_dir / "iso3_grid.nc",
             data_dir=data_dir,

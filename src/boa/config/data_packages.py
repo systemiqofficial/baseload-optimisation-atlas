@@ -9,13 +9,14 @@ again once re-pinned.
 
 STEELO_DATA_URL = "https://steelo-data.s3.eu-north-1.amazonaws.com/boa-standalone-input-data"
 
-# Static geo inputs (Natural Earth shapefiles, ERA5 land-sea mask), unzipped into <root>/data/
-# by boa-data-prepare. Built by scripts/package_core.sh.
+# Static geo inputs (Natural Earth shapefiles, ERA5 land-sea mask), used by boa-data-prepare.
+# Built by scripts/package_core.sh.
 CORE_DATA_VERSION = "0.1"
 CORE_DATA_URL = f"{STEELO_DATA_URL}/boa-core-data-v{CORE_DATA_VERSION}.zip"
 CORE_DATA_SHA256 = "eb236ce9f2231a0fc413ccb78d07cab789a0a1835da3b6ad1083ddff66a94b59"
-# Written next to the unzipped files once extraction completes; records the zip's version, URL and sha256.
-CORE_DATA_INSTALLED = "boa-core-data.installed.json"
+# Installed under <root>/data/, unchanged, with an installed.json recording the zip it came from.
+CORE_DATA_FOLDER = "boa-core-data"
+CORE_DATA_INSTALLED = "installed.json"
 
 # The default cost workbook plus its boa-cost-data.json, used by boa-data-prepare when
 # --input-file is not given. Built by scripts/package_cost.sh.
