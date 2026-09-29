@@ -127,9 +127,15 @@ def preprocess_renewable_energy_cost_data(
     for col, val in global_opex.items():
         cost_per_country[col] = val
     cost_per_country = cost_per_country.join(cost_of_capital_renewables, on="iso3", how="left")
-    cost_per_country["Cost of capital (%)"] = cost_per_country["Cost of capital (%)"].fillna(
-        cost_per_country["Cost of capital (%)"].max()
-    )
+    highest_coc = cost_per_country["Cost of capital (%)"].max()
+    for iso3 in sorted(cost_per_country.loc[cost_per_country["Cost of capital (%)"].isna(), "iso3"].unique()):
+        logging.warning(
+            "[COST OF CAPITAL FALLBACK] %s has no Renewables row in Cost of capital; using the highest cost of "
+            "capital among the mapped countries (%s).",
+            iso3,
+            highest_coc,
+        )
+    cost_per_country["Cost of capital (%)"] = cost_per_country["Cost of capital (%)"].fillna(highest_coc)
     cost_per_country = cost_per_country.drop(columns=["iso3"])
     cost_per_country.index.name = "iso3"
 

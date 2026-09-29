@@ -22,35 +22,39 @@ CAPEX = {
 }
 
 
-def _write_workbook(path: Path, capex: dict[tuple[str, str], list[float]]) -> None:
+def _sheets(capex: dict[tuple[str, str], list[float]] = CAPEX) -> dict[str, pd.DataFrame]:
     rows = [[region, tech, *values] for (region, tech), values in capex.items()]
-    capex_sheet = pd.DataFrame(rows, columns=["irena region", "tech", 2024, 2025])
-    opex = pd.DataFrame(
-        {"region": ["World"] * 3, "tech": ["Solar PV", "Onshore wind", "Battery"], "opex": [0.02, 0.03, 0.025]}
-    )
-    cost_of_capital = pd.DataFrame(
-        {"code": list(COUNTRY_REGIONS), "tech": ["Renewables"] * 3, "cost of capital": [0.05, 0.07, 0.1]}
-    )
-    country = pd.DataFrame({"code": list(COUNTRY_REGIONS), "irena region": list(COUNTRY_REGIONS.values())})
+    return {
+        "RES CAPEX projections": pd.DataFrame(rows, columns=["irena region", "tech", 2024, 2025]),
+        "RES OPEX": pd.DataFrame(
+            {"region": ["World"] * 3, "tech": ["Solar PV", "Onshore wind", "Battery"], "opex": [0.02, 0.03, 0.025]}
+        ),
+        "Cost of capital": pd.DataFrame(
+            {"code": list(COUNTRY_REGIONS), "tech": ["Renewables"] * 3, "cost of capital": [0.05, 0.07, 0.1]}
+        ),
+        "Country mapping": pd.DataFrame(
+            {"code": list(COUNTRY_REGIONS), "irena region": list(COUNTRY_REGIONS.values())}
+        ),
+    }
+
+
+def _write(path: Path, sheets: dict[str, pd.DataFrame]) -> Path:
     with pd.ExcelWriter(path) as writer:
-        capex_sheet.to_excel(writer, sheet_name="RES CAPEX projections", index=False)
-        opex.to_excel(writer, sheet_name="RES OPEX", index=False)
-        cost_of_capital.to_excel(writer, sheet_name="Cost of capital", index=False)
-        country.to_excel(writer, sheet_name="Country mapping", index=False)
+        for name, df in sheets.items():
+            df.to_excel(writer, sheet_name=name, index=False)
+    return path
 
 
-def _preprocess(path: Path) -> pd.DataFrame:
+def _preprocess(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     code_df = pd.DataFrame({"iso3": list(COUNTRY_REGIONS)})
-    _, capex_per_country = preprocess_renewable_energy_cost_data(code_df, COUNTRY_REGIONS, path)
-    return capex_per_country
+    return preprocess_renewable_energy_cost_data(code_df, COUNTRY_REGIONS, path)
 
 
 def test_missing_capex_takes_the_costliest_regions_series(tmp_path, caplog):
-    path = tmp_path / "costs.xlsx"
-    _write_workbook(path, CAPEX)
+    path = _write(tmp_path / "costs.xlsx", _sheets())
 
     with caplog.at_level(logging.WARNING):
-        capex = _preprocess(path)
+        _, capex = _preprocess(path)
 
     assert capex.loc[("KEN", "battery")].tolist() == CAPEX[("Oceania", "Battery")]
     assert capex.loc[("KEN", "solar")].tolist() == CAPEX[("Africa", "Solar PV")]
@@ -61,8 +65,21 @@ def test_missing_capex_takes_the_costliest_regions_series(tmp_path, caplog):
 def test_blank_capex_cell_fails(tmp_path):
     capex = dict(CAPEX)
     capex[("Europe", "Battery")] = [300.0, float("nan")]
-    path = tmp_path / "costs.xlsx"
-    _write_workbook(path, capex)
+    path = _write(tmp_path / "costs.xlsx", _sheets(capex))
 
-    with pytest.raises(ValueError, match=r"Europe.*Battery.*2025"):
+    with pytest.raises(ValueError, match=r"Europe Battery: 2025"):
         _preprocess(path)
+
+
+def test_missing_cost_of_capital_takes_the_highest_and_warns(tmp_path, caplog):
+    sheets = _sheets()
+    coc = sheets["Cost of capital"]
+    sheets["Cost of capital"] = coc[coc["code"] != "DEU"]
+    path = _write(tmp_path / "costs.xlsx", sheets)
+
+    with caplog.at_level(logging.WARNING):
+        costs, _ = _preprocess(path)
+
+    assert costs.loc["DEU", "Cost of capital (%)"] == 0.1
+    assert "[COST OF CAPITAL FALLBACK] DEU" in caplog.text
+    assert "AUS" not in caplog.text
