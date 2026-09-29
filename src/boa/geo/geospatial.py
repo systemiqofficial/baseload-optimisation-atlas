@@ -10,6 +10,14 @@ from boa.config.constants import EARTH_RADIUS_KM
 from boa.config.physical_parameters import ERA5_DATA_RESOLUTION, REGION_COORDS
 
 
+def strip_cells(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """Strip surrounding whitespace (including non-breaking spaces) from the text cells of the key columns present."""
+    for column in columns:
+        if column in df.columns:
+            df[column] = df[column].map(lambda v: v.strip() if isinstance(v, str) else v)
+    return df
+
+
 @dataclass
 class Coordinate:
     """Represents a geographic coordinate with its ISO3 country code."""
@@ -40,7 +48,7 @@ class CountryMappings:
             raise FileNotFoundError(f"Input data Excel file not found at {excel_path}")
 
         # Read the Country mapping sheet
-        df = pd.read_excel(excel_path, sheet_name="Country mapping")
+        df = strip_cells(pd.read_excel(excel_path, sheet_name="Country mapping"), ["code", "irena region"])
 
         # One code = one location; duplicates would silently resolve last-wins below.
         dup_mask = df["code"].duplicated(keep=False)

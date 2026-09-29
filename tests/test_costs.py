@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from boa.geo.geospatial import CountryMappings
 from boa.inputs.costs import preprocess_renewable_energy_cost_data
 
 COUNTRY_REGIONS = {"DEU": "Europe", "AUS": "Oceania", "KEN": "Africa"}
@@ -83,3 +84,29 @@ def test_missing_cost_of_capital_takes_the_highest_and_warns(tmp_path, caplog):
     assert costs.loc["DEU", "Cost of capital (%)"] == 0.1
     assert "[COST OF CAPITAL FALLBACK] DEU" in caplog.text
     assert "AUS" not in caplog.text
+
+
+def test_surrounding_spaces_in_key_columns_are_ignored(tmp_path, caplog):
+    sheets = _sheets()
+    capex = sheets["RES CAPEX projections"]
+    capex["tech"] = capex["tech"] + " "
+    capex["subregion code"] = pd.NA
+    province = pd.DataFrame(
+        [{"irena region": "Europe", "tech": "Solar PV", "subregion code": " DEU:DE-BY ", 2024: 650.0, 2025: 600.0}]
+    )
+    sheets["RES CAPEX projections"] = pd.concat([capex, province], ignore_index=True)
+    sheets["RES OPEX"]["tech"] = " " + sheets["RES OPEX"]["tech"]
+    sheets["Cost of capital"]["code"] = sheets["Cost of capital"]["code"] + " "
+    sheets["Cost of capital"]["tech"] = " Renewables"
+    sheets["Country mapping"]["code"] = " " + sheets["Country mapping"]["code"]
+    sheets["Country mapping"]["irena region"] = sheets["Country mapping"]["irena region"] + "\xa0"
+    path = _write(tmp_path / "costs.xlsx", sheets)
+
+    mapping = CountryMappings.from_excel(path).code_to_irena_region_map
+    assert mapping == COUNTRY_REGIONS
+    with caplog.at_level(logging.WARNING):
+        costs, capex_per_country = _preprocess(path)
+
+    assert costs.loc["DEU", "Cost of capital (%)"] == 0.05
+    assert capex_per_country.loc[("DEU:DE-BY", "solar")].tolist() == [650.0, 600.0]
+    assert "COST OF CAPITAL FALLBACK" not in caplog.text

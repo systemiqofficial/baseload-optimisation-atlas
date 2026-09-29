@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from boa.config.physical_parameters import LIFETIMES
 from boa.config.constants import KILO_TO_MEGA
-from boa.geo.geospatial import CountryMappings
+from boa.geo.geospatial import CountryMappings, strip_cells
 
 
 ALLOWED_TECHS = {"solar", "wind", "battery"}
@@ -51,9 +51,11 @@ def preprocess_renewable_energy_cost_data(
     """
     logging.info("Preprocessing renewable energy cost data")
 
-    renewable_opex = pd.read_excel(input_data_path, sheet_name="RES OPEX")
-    cost_of_capital = pd.read_excel(input_data_path, sheet_name="Cost of capital")
-    capex_projections = pd.read_excel(input_data_path, sheet_name="RES CAPEX projections")
+    renewable_opex = strip_cells(pd.read_excel(input_data_path, sheet_name="RES OPEX"), ["region", "tech"])
+    cost_of_capital = strip_cells(pd.read_excel(input_data_path, sheet_name="Cost of capital"), ["code", "tech"])
+    capex_projections = strip_cells(
+        pd.read_excel(input_data_path, sheet_name="RES CAPEX projections"), ["tech", "subregion code"]
+    )
 
     # The subregion code column is optional; synthesize an all-NA one so downstream merge logic is uniform.
     if "subregion code" not in capex_projections.columns:
