@@ -146,8 +146,40 @@ def test_query_prices_a_live_pixel_and_passes_through_a_dead_one(
     assert results[0]["status"] == STATUS_OK
     assert results[0]["lcoe"] > 0.0
     assert results[1]["status"] == STATUS_ZERO_POTENTIAL
-    assert results[1]["lcoe"] == 0.0
+    assert np.isnan(results[1]["lcoe"])
     assert counters["zero_potential"] == 1
+
+
+def test_a_pixel_without_an_optimum_is_nan_where_nothing_was_found(
+    profiles, dead_profiles, anchor_costs, tmp_path, query_inputs
+):
+    """
+    Zero would read as free power to anyone who takes `lcoe` alone. NaN marks what the search
+    didn't produce, while what is known about the pixel (its cost key, cost of capital and
+    demand) stays visible for tracing why.
+    """
+    from boa.model.global_extension import _assemble_optimal_sol, _query_frontier_tile
+
+    cache = _region_cache(profiles, dead_profiles, anchor_costs, tmp_path)
+    capex, opex, coc, keys = query_inputs
+    _, results, _ = _query_frontier_tile(np.arange(2), cache, capex, opex, coc, keys, np.full(2, 500.0), 25)
+    # A 2 x 2 region grid: the two land points sit in column 0, column 1 is sea.
+    ds = _assemble_optimal_sol(
+        [np.arange(2)], [results], 2, cache.all_lats, cache.all_lons, cache.iy, cache.ix, {}, tmp_path / "out.nc"
+    )
+    live, dead, sea = ds.isel(lat=0, lon=0), ds.isel(lat=1, lon=0), ds.isel(lat=0, lon=1)
+
+    assert live["status"] == STATUS_OK and live["lcoe"] > 0.0
+
+    assert dead["status"] == STATUS_ZERO_POTENTIAL
+    for var in ("lcoe", "lcoe_coverage_based", "installation_cost", "solar_factor", "coverage", "served_fraction"):
+        assert np.isnan(dead[var]), var
+    assert dead["cost_of_capital"] == pytest.approx(0.08)
+    assert dead["load_mw"] == pytest.approx(500.0)
+    assert dead["cost_key"] == "DEU"
+
+    assert sea["status"] == 0
+    assert all(np.isnan(sea[var]) for var in ds.data_vars if ds[var].dtype.kind == "f")
 
 
 def test_ranking_and_reporting_use_the_same_lcoe(profiles, dead_profiles, anchor_costs, tmp_path, query_inputs):
