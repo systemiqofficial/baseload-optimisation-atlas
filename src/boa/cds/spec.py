@@ -8,8 +8,7 @@ parameters (densities, LULC fractions) live in boa.config.physical_parameters in
 
 CDS_DATASET = "sis-energy-global-reanalysis"
 
-# Technology key -> full CDS variable name (request), short filename slug, and
-# variable name inside the delivered NetCDFs.
+# Technology key -> full CDS variable name (request), short filename slug and variable name inside the delivered NetCDFs
 TECHS = ("solar", "wind")
 CDS_CF_VARIABLES = {
     "solar": "solar_photovoltaic_generation_capacity_factor",
@@ -29,10 +28,8 @@ MASK_VARIABLES = [
     "wind_power_land_mask",
 ]
 
-# Combined exclusion masks, per technology: delivered filename and the variable inside
-# it. Both were read off the delivered files rather than the documentation, which names
-# the wind variable `m_rest`; the shipped file uses `wp_mask`. Values are binary with
-# 1 = excluded, so an availability factor is `1 - mask`.
+# Combined exclusion masks, per technology: delivered filename and the variable inside it
+# Values are binary with 1 = excluded, so an availability factor is `1 - mask`
 EXCLUSION_MASK_FILES = {
     "pv": "ANCI_SPVM-mask_C3S2LOT1_025d_v1.00.nc",
     "wind": "ANCI_WPM-mask_C3S2LOT1_025d_v1.00.nc",

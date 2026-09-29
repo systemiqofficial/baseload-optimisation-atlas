@@ -1,20 +1,36 @@
-from pathlib import Path
+import logging
 
 import pytest
 
-from boa.config.paths import PathConfig, default_root
+from boa.config.paths import PathConfig, _warn_legacy_root, default_root
 
 
 def test_default_root_precedence(monkeypatch, tmp_path):
     monkeypatch.delenv("BOA_DATA_ROOT", raising=False)
-    monkeypatch.delenv("STEELO_HOME", raising=False)
-    assert default_root() == Path.home() / ".steelo" / "boa"
-
-    monkeypatch.setenv("STEELO_HOME", str(tmp_path / "home"))
-    assert default_root() == tmp_path / "home" / "boa"
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("STEELO_HOME", str(tmp_path / "steelo"))
+    assert default_root() == tmp_path / ".boa"
 
     monkeypatch.setenv("BOA_DATA_ROOT", str(tmp_path / "explicit"))
     assert default_root() == tmp_path / "explicit"
+
+
+def test_default_root_warns_once_when_only_the_old_root_exists(monkeypatch, tmp_path, caplog):
+    monkeypatch.delenv("BOA_DATA_ROOT", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".steelo" / "boa").mkdir(parents=True)
+
+    with caplog.at_level(logging.WARNING, logger="boa.config.paths"):
+        assert default_root() == tmp_path / ".boa"
+        assert default_root() == tmp_path / ".boa"
+    assert len(caplog.records) == 1
+
+    _warn_legacy_root.cache_clear()
+    caplog.clear()
+    (tmp_path / ".boa").mkdir()
+    with caplog.at_level(logging.WARNING, logger="boa.config.paths"):
+        default_root()
+    assert not caplog.records
 
 
 def test_layout_splits_by_provenance(tmp_path):
