@@ -2,7 +2,9 @@
 Published input data on steelo-data: the zips BOA downloads, each pinned by its sha256.
 
 The core and cost data are versioned; the capacity factors have one zip per weather year. A
-published zip is never overwritten, so a change means uploading a new one and pinning it here.
+change to a package's data means uploading a new version and pinning it here. An install records
+the sha256 of the zip it came from, so a zip re-published under the same version is downloaded
+again once re-pinned.
 """
 
 STEELO_DATA_URL = "https://steelo-data.s3.eu-north-1.amazonaws.com/boa-standalone-input-data"
@@ -12,15 +14,18 @@ STEELO_DATA_URL = "https://steelo-data.s3.eu-north-1.amazonaws.com/boa-standalon
 CORE_DATA_VERSION = "0.1"
 CORE_DATA_URL = f"{STEELO_DATA_URL}/boa-core-data-v{CORE_DATA_VERSION}.zip"
 CORE_DATA_SHA256 = "eb236ce9f2231a0fc413ccb78d07cab789a0a1835da3b6ad1083ddff66a94b59"
-# The package's provenance JSON; its "version" records which package is installed.
-CORE_DATA_MARKER = "boa-core-data.json"
+# Written next to the unzipped files once extraction completes; records the zip's version, URL and sha256.
+CORE_DATA_INSTALLED = "boa-core-data.installed.json"
 
 # The default cost workbook plus its boa-cost-data.json, used by boa-data-prepare when
 # --input-file is not given. Built by scripts/package_cost.sh.
 COST_DATA_VERSION = "0.1"
 COST_DATA_URL = f"{STEELO_DATA_URL}/boa-cost-data-v{COST_DATA_VERSION}.zip"
-COST_DATA_SHA256 = "b9f83cd19a56c20e3f4cbe1ae1812b6fefeb29eaafc47f17fcbdb49cf4cb7faa"
+COST_DATA_SHA256 = "d80f64f2ae8f9af41cdeff38671848ee0161e9211eb20c2a11d64e615b378fe2"
 COST_DATA_WORKBOOK = f"boa-cost-data-v{COST_DATA_VERSION}.xlsx"
+# Installed under <root>/data/, unchanged, with an installed.json recording the zip it came from.
+COST_DATA_FOLDER = "boa-cost-data"
+COST_DATA_INSTALLED = "installed.json"
 
 # Capacity factors re-published per weather year, so a published year needs no CDS account.
 # Downloading with your own CDS account is preferred; these are the fallback behind

@@ -52,13 +52,13 @@ def _write_workbook(path: Path, europe_solar_capex: float = 700.0, country_code_
 
 
 def _core_members(version: str = data_prepare.CORE_DATA_VERSION) -> dict[str, bytes]:
-    """A stand-in core data package, marker last as in the real one."""
+    """A stand-in core data package, its provenance JSON last as in the real one."""
     members = {}
     for folder in NE_FOLDERS:
         for suffix in (".shp", ".dbf"):
             members[f"{folder}/{folder}{suffix}"] = f"fake-{suffix}".encode()
     members["lsm_025_deg.nc"] = b"fake-nc"
-    members[data_prepare.CORE_DATA_MARKER] = json.dumps({"package": "boa-core-data", "version": version}).encode()
+    members["boa-core-data.json"] = json.dumps({"package": "boa-core-data", "version": version}).encode()
     return members
 
 
@@ -86,6 +86,7 @@ def core_downloads(monkeypatch):
         extract_to.mkdir(parents=True, exist_ok=True)
         if url == data_prepare.COST_DATA_URL:
             _write_workbook(extract_to / data_prepare.COST_DATA_WORKBOOK)
+            (extract_to / "boa-cost-data.json").write_text('{"package": "boa-cost-data"}')
             return
         for name, data in _core_members().items():
             (extract_to / name).parent.mkdir(parents=True, exist_ok=True)
@@ -221,13 +222,17 @@ def test_core_data_skips_download_and_build_when_current(tmp_path, boa_root, cor
     assert grid.stat().st_mtime_ns == grid_mtime
 
 
-@pytest.mark.parametrize("marker", [json.dumps({"version": "0.0"}), "not json"])
-def test_core_data_refetched_unless_pinned_version_installed(tmp_path, boa_root, core_downloads, marker):
+@pytest.mark.parametrize("marker", [json.dumps({"sha256": "0" * 64}), "not json", None])
+def test_core_data_refetched_unless_pinned_zip_installed(tmp_path, boa_root, core_downloads, marker):
     workbook = tmp_path / "boa-cost-data.xlsx"
     _write_workbook(workbook)
     _run(workbook)
     core_downloads.clear()
-    (boa_root / "data" / data_prepare.CORE_DATA_MARKER).write_text(marker)
+    installed = boa_root / "data" / data_prepare.CORE_DATA_INSTALLED
+    if marker is None:
+        installed.unlink()  # an install from before the sha256 check
+    else:
+        installed.write_text(marker)
 
     _run(workbook)
 
@@ -247,9 +252,10 @@ def test_core_data_installs_from_pinned_zip(tmp_path, boa_root, monkeypatch):
     assert _run(workbook) == 0
 
     data_dir = boa_root / "data"
-    assert (
-        json.loads((data_dir / data_prepare.CORE_DATA_MARKER).read_text())["version"] == data_prepare.CORE_DATA_VERSION
-    )
+    installed = json.loads((data_dir / data_prepare.CORE_DATA_INSTALLED).read_text())
+    assert installed["sha256"] == sha256
+    assert installed["version"] == data_prepare.CORE_DATA_VERSION
+    assert (data_dir / "boa-core-data.json").exists()
     assert (data_dir / "lsm_025_deg.nc").read_bytes() == b"fake-nc"
     assert not list(data_dir.glob("*.part"))
 
@@ -290,18 +296,78 @@ def test_missing_column_fails_and_keeps_previous_copy(tmp_path, boa_root, capsys
     assert copied.read_bytes() == previous
 
 
+def test_failure_in_the_per_year_build_keeps_previous_copy(tmp_path, boa_root, capsys, monkeypatch):
+    workbook = tmp_path / "boa-cost-data.xlsx"
+    _write_workbook(workbook)
+    _run(workbook)
+    copied = boa_root / "costs" / "test" / "boa_cost_data.xlsx"
+    previous = copied.read_bytes()
+    _write_workbook(workbook, europe_solar_capex=900.0)
+    capsys.readouterr()
+
+    def fail(*args, **kwargs):
+        raise ValueError("per-year build failed")
+
+    monkeypatch.setattr(data_prepare, "process_global_baseload_simulation_costs", fail)
+
+    assert _run(workbook) == 1
+
+    assert "per-year build failed" in capsys.readouterr().out
+    assert copied.read_bytes() == previous
+
+
 def test_without_input_file_records_the_pinned_cost_package(boa_root, core_downloads):
     assert data_prepare.main(["--scenario", "test"]) == 0
 
     assert data_prepare.COST_DATA_URL in core_downloads
     assert (boa_root / "costs" / "test" / "boa_cost_data.xlsx").exists()
     provenance = json.loads((boa_root / "costs" / "test" / "source.json").read_text())
-    assert provenance["source_workbook"] == data_prepare.COST_DATA_WORKBOOK
+    assert provenance["source_workbook"] == str(_cost_package_dir(boa_root) / data_prepare.COST_DATA_WORKBOOK)
     assert provenance["source_package"] == {
         "version": data_prepare.COST_DATA_VERSION,
         "url": data_prepare.COST_DATA_URL,
         "sha256": data_prepare.COST_DATA_SHA256,
     }
+
+
+def _cost_package_dir(boa_root: Path) -> Path:
+    return boa_root / "data" / data_prepare.COST_DATA_FOLDER
+
+
+def test_without_input_file_keeps_the_cost_package_with_its_json(boa_root):
+    assert data_prepare.main(["--scenario", "test"]) == 0
+
+    package = _cost_package_dir(boa_root)
+    assert sorted(p.name for p in package.iterdir()) == sorted(
+        ["boa-cost-data.json", data_prepare.COST_DATA_WORKBOOK, "installed.json"]
+    )
+    installed = json.loads((package / "installed.json").read_text())
+    assert installed["sha256"] == data_prepare.COST_DATA_SHA256
+    assert installed["version"] == data_prepare.COST_DATA_VERSION
+    copied = boa_root / "costs" / "test" / "boa_cost_data.xlsx"
+    assert copied.read_bytes() == (package / data_prepare.COST_DATA_WORKBOOK).read_bytes()
+
+
+def test_installed_cost_package_is_not_downloaded_again(boa_root, core_downloads):
+    data_prepare.main(["--scenario", "test"])
+    data_prepare.main(["--scenario", "other"])
+
+    assert core_downloads.count(data_prepare.COST_DATA_URL) == 1
+    assert (boa_root / "costs" / "other" / "boa_cost_data.xlsx").exists()
+
+
+def test_changed_cost_pin_downloads_again_and_replaces_the_package(boa_root, core_downloads, monkeypatch):
+    data_prepare.main(["--scenario", "test"])
+    stray = _cost_package_dir(boa_root) / "boa-cost-data-v0.0.xlsx"
+    stray.write_bytes(b"old")
+    monkeypatch.setattr(data_prepare, "COST_DATA_SHA256", "0" * 64)
+
+    assert data_prepare.main(["--scenario", "test"]) == 0
+
+    assert core_downloads.count(data_prepare.COST_DATA_URL) == 2
+    assert not stray.exists()
+    installed = json.loads((_cost_package_dir(boa_root) / "installed.json").read_text())
+    assert installed["sha256"] == "0" * 64
 
 
 def test_without_input_file_installs_the_pinned_cost_package(tmp_path, boa_root, monkeypatch):
@@ -321,3 +387,4 @@ def test_without_input_file_installs_the_pinned_cost_package(tmp_path, boa_root,
     assert data_prepare.main(["--scenario", "test"]) == 0
 
     assert (boa_root / "costs" / "test" / "boa_cost_data.xlsx").read_bytes() == workbook.read_bytes()
+    assert (_cost_package_dir(boa_root) / "boa-cost-data.json").read_bytes() == b"{}"

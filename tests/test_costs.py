@@ -1,0 +1,197 @@
+import logging
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from boa.geo.geospatial import CountryMappings
+from boa.inputs import costs as costs_module
+from boa.inputs.costs import preprocess_renewable_energy_cost_data, process_global_baseload_simulation_costs
+
+COUNTRY_REGIONS = {"DEU": "Europe", "AUS": "Oceania", "KEN": "Africa"}
+
+# Oceania has the highest CAPEX summed over all technologies and years, but not the highest
+# Battery CAPEX, so a fill from Oceania can't be mistaken for a per-technology maximum.
+CAPEX = {
+    ("Europe", "Solar PV"): [700.0, 630.0],
+    ("Europe", "Onshore wind"): [1000.0, 900.0],
+    ("Europe", "Battery"): [300.0, 270.0],
+    ("Oceania", "Solar PV"): [900.0, 810.0],
+    ("Oceania", "Onshore wind"): [1400.0, 1260.0],
+    ("Oceania", "Battery"): [250.0, 225.0],
+    ("Africa", "Solar PV"): [800.0, 720.0],
+    ("Africa", "Onshore wind"): [1100.0, 990.0],
+}
+
+
+def _sheets(capex: dict[tuple[str, str], list[float]] = CAPEX) -> dict[str, pd.DataFrame]:
+    rows = [[region, tech, *values] for (region, tech), values in capex.items()]
+    return {
+        "RES CAPEX projections": pd.DataFrame(rows, columns=["irena region", "tech", 2024, 2025]),
+        "RES OPEX": pd.DataFrame(
+            {"region": ["World"] * 3, "tech": ["Solar PV", "Onshore wind", "Battery"], "opex": [0.02, 0.03, 0.025]}
+        ),
+        "Cost of capital": pd.DataFrame(
+            {"code": list(COUNTRY_REGIONS), "tech": ["Renewables"] * 3, "cost of capital": [0.05, 0.07, 0.1]}
+        ),
+        "Country mapping": pd.DataFrame(
+            {"code": list(COUNTRY_REGIONS), "irena region": list(COUNTRY_REGIONS.values())}
+        ),
+    }
+
+
+def _write(path: Path, sheets: dict[str, pd.DataFrame]) -> Path:
+    with pd.ExcelWriter(path) as writer:
+        for name, df in sheets.items():
+            df.to_excel(writer, sheet_name=name, index=False)
+    return path
+
+
+def _preprocess(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    code_df = pd.DataFrame({"iso3": list(COUNTRY_REGIONS)})
+    return preprocess_renewable_energy_cost_data(code_df, COUNTRY_REGIONS, path)
+
+
+def test_missing_capex_takes_the_costliest_regions_series(tmp_path, caplog):
+    path = _write(tmp_path / "costs.xlsx", _sheets())
+
+    with caplog.at_level(logging.WARNING):
+        _, capex = _preprocess(path)
+
+    assert capex.loc[("KEN", "battery")].tolist() == CAPEX[("Oceania", "Battery")]
+    assert capex.loc[("KEN", "solar")].tolist() == CAPEX[("Africa", "Solar PV")]
+    assert "KEN battery" in caplog.text
+    assert "Oceania" in caplog.text
+
+
+def test_blank_capex_cell_fails(tmp_path):
+    capex = dict(CAPEX)
+    capex[("Europe", "Battery")] = [300.0, float("nan")]
+    path = _write(tmp_path / "costs.xlsx", _sheets(capex))
+
+    with pytest.raises(ValueError, match=r"Europe Battery: 2025"):
+        _preprocess(path)
+
+
+def test_missing_cost_of_capital_takes_the_highest_and_warns(tmp_path, caplog):
+    sheets = _sheets()
+    coc = sheets["Cost of capital"]
+    sheets["Cost of capital"] = coc[coc["code"] != "DEU"]
+    path = _write(tmp_path / "costs.xlsx", sheets)
+
+    with caplog.at_level(logging.WARNING):
+        costs, _ = _preprocess(path)
+
+    assert costs.loc["DEU", "Cost of capital (%)"] == 0.1
+    assert "[COST OF CAPITAL FALLBACK] DEU" in caplog.text
+    assert "AUS" not in caplog.text
+
+
+def test_surrounding_spaces_in_key_columns_are_ignored(tmp_path, caplog):
+    sheets = _sheets()
+    capex = sheets["RES CAPEX projections"]
+    capex["tech"] = capex["tech"] + " "
+    capex["subregion code"] = pd.NA
+    province = pd.DataFrame(
+        [{"irena region": "Europe", "tech": "Solar PV", "subregion code": " DEU:DE-BY ", 2024: 650.0, 2025: 600.0}]
+    )
+    sheets["RES CAPEX projections"] = pd.concat([capex, province], ignore_index=True)
+    sheets["RES OPEX"]["tech"] = " " + sheets["RES OPEX"]["tech"]
+    sheets["Cost of capital"]["code"] = sheets["Cost of capital"]["code"] + " "
+    sheets["Cost of capital"]["tech"] = " Renewables"
+    sheets["Country mapping"]["code"] = " " + sheets["Country mapping"]["code"]
+    sheets["Country mapping"]["irena region"] = sheets["Country mapping"]["irena region"] + "\xa0"
+    path = _write(tmp_path / "costs.xlsx", sheets)
+
+    mapping = CountryMappings.from_excel(path).code_to_irena_region_map
+    assert mapping == COUNTRY_REGIONS
+    with caplog.at_level(logging.WARNING):
+        costs, capex_per_country = _preprocess(path)
+
+    assert costs.loc["DEU", "Cost of capital (%)"] == 0.05
+    assert capex_per_country.loc[("DEU:DE-BY", "solar")].tolist() == [650.0, 600.0]
+    assert "COST OF CAPITAL FALLBACK" not in caplog.text
+
+
+def _with_opex_rows(*rows: tuple[str, str, object]) -> dict[str, pd.DataFrame]:
+    sheets = _sheets()
+    extra = pd.DataFrame(rows, columns=["region", "tech", "opex"])
+    sheets["RES OPEX"] = pd.concat([sheets["RES OPEX"], extra], ignore_index=True)
+    return sheets
+
+
+def test_regional_opex_overrides_world(tmp_path):
+    path = _write(tmp_path / "costs.xlsx", _with_opex_rows(("Europe", "Solar PV", 0.05)))
+
+    costs, _ = _preprocess(path)
+
+    assert costs.loc["DEU", "Opex solar"] == 0.05
+    assert costs.loc["DEU", "Opex wind"] == 0.03
+    assert costs.loc["AUS", "Opex solar"] == 0.02
+
+
+@pytest.mark.parametrize(
+    ("sheets", "message"),
+    [
+        (_with_opex_rows(("Eurpoe", "Solar PV", 0.05)), r"\['Eurpoe'\] are neither World nor an irena region"),
+        (_with_opex_rows(("World", "Battery", 0.03)), r"duplicate rows for World Battery"),
+        (_with_opex_rows(("Europe", "Battery", "n/a")), r"blank or non-numeric opex for Europe Battery"),
+    ],
+)
+def test_invalid_opex_rows_fail(tmp_path, sheets, message):
+    path = _write(tmp_path / "costs.xlsx", sheets)
+
+    with pytest.raises(ValueError, match=message):
+        _preprocess(path)
+
+
+def test_opex_without_a_world_row_fails(tmp_path):
+    sheets = _sheets()
+    opex = sheets["RES OPEX"]
+    sheets["RES OPEX"] = opex[opex["tech"] != "Battery"]
+    path = _write(tmp_path / "costs.xlsx", sheets)
+
+    with pytest.raises(ValueError, match=r"no World row for Battery"):
+        _preprocess(path)
+
+
+def test_cost_cache_is_rebuilt_when_the_workbook_changes(tmp_path):
+    path = _write(tmp_path / "costs.xlsx", _sheets())
+    cache_dir = tmp_path / "cache"
+    first, _ = process_global_baseload_simulation_costs(2024, path, cache_dir)
+    assert first["Capex solar"].sel(iso3="DEU", year=2024) == 700_000
+
+    capex = dict(CAPEX)
+    capex[("Europe", "Solar PV")] = [500.0, 450.0]
+    _write(path, _sheets(capex))
+    second, _ = process_global_baseload_simulation_costs(2024, path, cache_dir)
+
+    assert second["Capex solar"].sel(iso3="DEU", year=2024) == 500_000
+
+
+def test_cost_cache_is_reused_only_for_the_same_loader_version(tmp_path, monkeypatch, caplog):
+    path = _write(tmp_path / "costs.xlsx", _sheets())
+    cache_dir = tmp_path / "cache"
+    process_global_baseload_simulation_costs(2024, path, cache_dir)
+
+    with caplog.at_level(logging.INFO):
+        process_global_baseload_simulation_costs(2024, path, cache_dir)
+        assert "Skipping processing" in caplog.text
+        caplog.clear()
+        monkeypatch.setattr(costs_module, "COST_CACHE_VERSION", costs_module.COST_CACHE_VERSION + 1)
+        process_global_baseload_simulation_costs(2024, path, cache_dir)
+
+    assert "reprocessing" in caplog.text
+
+
+def test_missing_year_columns_are_interpolated_linearly(tmp_path, caplog):
+    sheets = _sheets()
+    sheets["RES CAPEX projections"] = sheets["RES CAPEX projections"].rename(columns={2025: 2027})
+    path = _write(tmp_path / "costs.xlsx", sheets)
+
+    with caplog.at_level(logging.INFO):
+        _, capex = _preprocess(path)
+
+    assert list(capex.columns) == [2024, 2025, 2026, 2027]
+    assert capex.loc[("DEU", "solar")].tolist() == pytest.approx([700.0, 676.667, 653.333, 630.0], abs=1e-3)
+    assert "interpolating 2025–2026" in caplog.text

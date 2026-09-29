@@ -1,3 +1,4 @@
+import hashlib
 import pandas as pd
 import numpy as np
 import xarray as xr
@@ -5,7 +6,7 @@ import logging
 from pathlib import Path
 from boa.config.physical_parameters import LIFETIMES
 from boa.config.constants import KILO_TO_MEGA
-from boa.geo.geospatial import CountryMappings
+from boa.geo.geospatial import CountryMappings, strip_cells
 
 
 ALLOWED_TECHS = {"solar", "wind", "battery"}
@@ -25,6 +26,10 @@ TECH_LABEL_MAP = {
     "Onshore wind": "wind",
     "Battery": "battery",
 }
+SHEET_TECH_LABEL = {tech: label for label, tech in TECH_LABEL_MAP.items()}
+
+# Bump when a change to this module changes the cached costs, so existing cost caches are rebuilt.
+COST_CACHE_VERSION = 1
 
 
 def preprocess_renewable_energy_cost_data(
@@ -38,7 +43,8 @@ def preprocess_renewable_energy_cost_data(
     Data sources:
         - CAPEX projections: regional time series 2024–2050 for solar, wind, and battery
           ("RES CAPEX projections" sheet). Replaces the IRENA-2022-baseline + learning-curve path.
-        - OPEX: world-wide percentage of CAPEX, applied uniformly to every country.
+        - OPEX: fraction of CAPEX per year; a World row per technology, optionally overridden
+          per IRENA region.
         - Cost of capital: country-level WACC; missing values filled with the global max.
 
     The `iso3` index of both outputs has a hybrid value-set: a plain iso3 for most countries,
@@ -51,9 +57,11 @@ def preprocess_renewable_energy_cost_data(
     """
     logging.info("Preprocessing renewable energy cost data")
 
-    renewable_opex = pd.read_excel(input_data_path, sheet_name="RES OPEX")
-    cost_of_capital = pd.read_excel(input_data_path, sheet_name="Cost of capital")
-    capex_projections = pd.read_excel(input_data_path, sheet_name="RES CAPEX projections")
+    renewable_opex = strip_cells(pd.read_excel(input_data_path, sheet_name="RES OPEX"), ["region", "tech"])
+    cost_of_capital = strip_cells(pd.read_excel(input_data_path, sheet_name="Cost of capital"), ["code", "tech"])
+    capex_projections = strip_cells(
+        pd.read_excel(input_data_path, sheet_name="RES CAPEX projections"), ["tech", "subregion code"]
+    )
 
     # The subregion code column is optional; synthesize an all-NA one so downstream merge logic is uniform.
     if "subregion code" not in capex_projections.columns:
@@ -72,10 +80,7 @@ def preprocess_renewable_energy_cost_data(
             )
         df["tech"] = df["tech"].replace(TECH_LABEL_MAP)
 
-    # OPEX: one global row per technology; pivot, then broadcast to every country
-    opex_pivoted = renewable_opex.pivot(index="region", columns="tech", values="opex")
-    opex_pivoted.columns = [f"Opex {tech}" for tech in opex_pivoted.columns]
-    global_opex = opex_pivoted.iloc[0]
+    opex = _check_opex(renewable_opex, set(code_to_irena_region_map.values()))
 
     # Sheet is long-format: one row per (iso3, Tech). Hydrogen rows stay in the sheet for
     # visibility but are not consumed by the model.
@@ -122,14 +127,23 @@ def preprocess_renewable_energy_cost_data(
     cost_key_index = pd.DataFrame(rows)
     cost_key_index = cost_key_index[cost_key_index["iso3"].isin(code_df["iso3"])]
 
-    # Per-key table: OPEX broadcast + WACC joined by iso3 (broadcasts across subregion keys).
-    cost_per_country = cost_key_index.set_index("cost_key").sort_index()[["iso3"]]
-    for col, val in global_opex.items():
-        cost_per_country[col] = val
+    # Per-key table: OPEX from the key's IRENA region row, else World; WACC joined by iso3
+    # (broadcasts across subregion keys).
+    cost_per_country = cost_key_index.set_index("cost_key").sort_index()[["iso3", "Region"]]
+    for tech in sorted(ALLOWED_TECHS):
+        by_region = opex.xs(tech, level="tech")
+        cost_per_country[f"Opex {tech}"] = cost_per_country["Region"].map(by_region).fillna(by_region["World"])
+    cost_per_country = cost_per_country.drop(columns=["Region"])
     cost_per_country = cost_per_country.join(cost_of_capital_renewables, on="iso3", how="left")
-    cost_per_country["Cost of capital (%)"] = cost_per_country["Cost of capital (%)"].fillna(
-        cost_per_country["Cost of capital (%)"].max()
-    )
+    highest_coc = cost_per_country["Cost of capital (%)"].max()
+    for iso3 in sorted(cost_per_country.loc[cost_per_country["Cost of capital (%)"].isna(), "iso3"].unique()):
+        logging.warning(
+            "[COST OF CAPITAL FALLBACK] %s has no Renewables row in Cost of capital; using the highest cost of "
+            "capital among the mapped countries (%s).",
+            iso3,
+            highest_coc,
+        )
+    cost_per_country["Cost of capital (%)"] = cost_per_country["Cost of capital (%)"].fillna(highest_coc)
     cost_per_country = cost_per_country.drop(columns=["iso3"])
     cost_per_country.index.name = "iso3"
 
@@ -153,15 +167,90 @@ def preprocess_renewable_energy_cost_data(
     # merge_key already spans sub-national keys, bare-iso3 overrides, and region names.
     year_cols = [c for c in capex_projections.columns if isinstance(c, (int, np.integer))]
     authored = capex_projections.set_index(["merge_key", "tech"])[year_cols].apply(pd.to_numeric, errors="coerce")
+    # An all-blank row falls through the cascade; a partly blank one is an editing mistake.
+    blank = authored.isna()
+    partly_blank = blank.any(axis=1) & ~blank.all(axis=1)
+    if partly_blank.any():
+        gaps = [
+            f"{key} {SHEET_TECH_LABEL.get(tech, tech)}: {', '.join(str(y) for y in blank.columns[blank.loc[(key, tech)]])}"
+            for key, tech in authored.index[partly_blank]
+        ]
+        raise ValueError(f"Blank or non-numeric year cells in RES CAPEX projections: {'; '.join(gaps)}.")
+
+    # The model reads every year of the investment horizon, so fill years between the sheet's columns
+    # (e.g. a 5-yearly projection) by linear interpolation along each row.
+    all_years = list(range(min(year_cols), max(year_cols) + 1))
+    if missing_years := sorted(set(all_years) - set(year_cols)):
+        logging.info(
+            "RES CAPEX projections has no column for some years; interpolating %s linearly.",
+            _year_ranges(missing_years),
+        )
+        authored = authored.reindex(columns=all_years).interpolate(axis=1, limit_area="inside")
+
     techs = list(capex_projections["tech"].dropna().unique())
     capex_per_country, provenance = _resolve_capex_cascade(
         authored, list(cost_per_country.index), techs, code_to_irena_region_map
     )
-    _log_capex_cascade(provenance, self_keyed=set(iso3_to_subregions))
 
-    capex_per_country = capex_per_country.apply(lambda col: col.fillna(col.mean()), axis=0)
+    region_capex = authored[capex_projections["subregion code"].isna().to_numpy()]
+    donors = _costliest_region_by_tech(region_capex)
+    for cost_key, tech in provenance.index[provenance == "terminal"]:
+        capex_per_country.loc[(cost_key, tech)] = region_capex.loc[(donors[tech], tech)].to_numpy()
+    _log_capex_cascade(provenance, self_keyed=set(iso3_to_subregions), donors=donors)
 
     return cost_per_country, capex_per_country
+
+
+def _year_ranges(years: list[int]) -> str:
+    """Collapse sorted years into ranges, e.g. [2025, 2026, 2028] -> '2025–2026, 2028'."""
+    ranges: list[list[int]] = []
+    for year in years:
+        if ranges and year == ranges[-1][1] + 1:
+            ranges[-1][1] = year
+        else:
+            ranges.append([year, year])
+    return ", ".join(str(first) if first == last else f"{first}–{last}" for first, last in ranges)
+
+
+def _check_opex(renewable_opex: pd.DataFrame, irena_regions: set[str]) -> pd.Series:
+    """
+    Check the RES OPEX rows and return OPEX indexed by (region, tech). Every technology needs a
+    World row; any other region must be an IRENA region from Country mapping, and overrides World
+    for that region's countries.
+    """
+    opex = renewable_opex.assign(opex=pd.to_numeric(renewable_opex["opex"], errors="coerce"))
+
+    def labels(rows: pd.DataFrame) -> str:
+        return ", ".join(sorted({f"{r} {SHEET_TECH_LABEL.get(t, t)}" for r, t in zip(rows["region"], rows["tech"])}))
+
+    problems = []
+    unknown = sorted(set(opex["region"].astype(str)) - {"World"} - irena_regions)
+    if unknown:
+        problems.append(f"region(s) {unknown} are neither World nor an irena region in Country mapping")
+    duplicated = opex[opex.duplicated(["region", "tech"], keep=False)]
+    if len(duplicated):
+        problems.append(f"duplicate rows for {labels(duplicated)}")
+    blank = opex[opex["opex"].isna()]
+    if len(blank):
+        problems.append(f"blank or non-numeric opex for {labels(blank)}")
+    no_world = sorted(ALLOWED_TECHS - set(opex.loc[opex["region"] == "World", "tech"]))
+    if no_world:
+        problems.append(f"no World row for {', '.join(SHEET_TECH_LABEL.get(t, t) for t in no_world)}")
+    if problems:
+        raise ValueError(f"RES OPEX: {'; '.join(problems)}.")
+    return opex.set_index(["region", "tech"])["opex"]
+
+
+def _costliest_region_by_tech(region_capex: pd.DataFrame) -> dict[str, str]:
+    """
+    For each technology, the IRENA region with the highest CAPEX summed over all its technologies
+    and years, among the regions with a row for that technology. Ties go to the first name
+    alphabetically. It fills a (cost key, technology) with no CAPEX at any level, as a whole series.
+    """
+    region_capex = region_capex[~region_capex.isna().all(axis=1)]
+    totals = region_capex.sum(axis=1).groupby(level="merge_key").sum().sort_index()
+    rows = region_capex.index.to_frame(index=False)
+    return {tech: totals[totals.index.isin(group["merge_key"])].idxmax() for tech, group in rows.groupby("tech")}
 
 
 def _resolve_capex_cascade(
@@ -175,7 +264,7 @@ def _resolve_capex_cascade(
         exact (cost_key, tech) -> national (iso3, tech) -> IRENA region (region, tech).
 
     A candidate is considered authored iff its row is not entirely NaN. Cells that resolve
-    at no level are left NaN for the caller's column-mean terminal.
+    at no level are left NaN for the caller's costliest-region terminal.
 
     Args:
         authored: year-column CAPEX indexed by (merge_key, Technology). merge_key spans
@@ -217,16 +306,16 @@ def _resolve_capex_cascade(
     return resolved, provenance
 
 
-def _log_capex_cascade(provenance: pd.Series, self_keyed: set[str]) -> None:
+def _log_capex_cascade(provenance: pd.Series, self_keyed: set[str], donors: dict[str, str]) -> None:
     """
     One INFO summary line, plus per-key detail only for *self-keyed* cost keys that dropped
     below their exact level (an iso3 that appears in the Subregion column — the only case
     where inheriting below the key is surprising; ordinary non-subregion countries resolving
-    at region level are the normal path and stay silent). Column-mean hits are WARNINGs.
+    at region level are the normal path and stay silent). Costliest-region fills are WARNINGs.
     """
     counts = provenance.value_counts()
     logging.info(
-        "CAPEX cascade: %d exact, %d national, %d region, %d column-mean.",
+        "CAPEX cascade: %d exact, %d national, %d region, %d costliest-region.",
         int(counts.get("exact", 0)),
         int(counts.get("national", 0)),
         int(counts.get("region", 0)),
@@ -238,9 +327,13 @@ def _log_capex_cascade(provenance: pd.Series, self_keyed: set[str]) -> None:
             logging.info("[CAPEX FALLBACK] %s %s inherited from %s level.", cost_key, tech, level)
         elif level == "terminal":
             logging.warning(
-                "[CAPEX FALLBACK] %s %s has no authored value at any level; using column mean.",
+                "[CAPEX FALLBACK] %s %s has no CAPEX for its key, country or IRENA region; using the %s "
+                "series of %s, the region with the highest total CAPEX. Check RES CAPEX projections for a "
+                "missing row.",
                 cost_key,
                 tech,
+                tech,
+                donors[tech],
             )
 
 
@@ -279,12 +372,12 @@ def process_global_baseload_simulation_costs(
 
     The per-year result is cached as ``cost_of_renewables_<year>_investment_year.nc`` under
     ``cost_cache_dir`` (``PathConfig.cost_cache_dir``, i.e. ``costs/<set>/cache_costs/``)
-    and reused on subsequent runs; the cache is shared across all baseloads/coverages/regions
-    since costs depend only on year + the Excel inputs.
+    and reused while its workbook sha256 and ``COST_CACHE_VERSION`` match; the cache is shared
+    across all baseloads/coverages/regions since costs depend only on year + the Excel inputs.
 
     Outputs:
         - projected_cost_per_country: xarray with CAPEX (solar/wind in USD/MW, battery in USD/MWh)
-          on (iso3, year), plus per-country OPEX percentages and cost of capital.
+          on (iso3, year), plus per-country OPEX and cost of capital as fractions.
         - investment_horizon: max of solar/wind/battery lifetimes (years).
     """
 
@@ -294,17 +387,24 @@ def process_global_baseload_simulation_costs(
     renewables_costs_file = cost_cache_dir / f"cost_of_renewables_{investment_year}_investment_year.nc"
     cost_cache_dir.mkdir(parents=True, exist_ok=True)
 
+    workbook_sha256 = hashlib.sha256(input_data_path.read_bytes()).hexdigest()
     needs_reprocess = True
     if renewables_costs_file.exists():
         cached = xr.open_dataset(renewables_costs_file)
-        if "Capex battery" in cached.data_vars and cached.attrs.get("subregion_aware") == 1:
+        if (
+            cached.attrs.get("cost_cache_version") == COST_CACHE_VERSION
+            and cached.attrs.get("workbook_sha256") == workbook_sha256
+        ):
             logging.info(f"Loading cost of renewables data from {renewables_costs_file}. Skipping processing.")
             # Eager-load: downstream `.sel(iso3=...)` is called ~210k times / region-year; lazy xarray is ~3x slower per call.
             projected_cost_per_country = cached.load()
             cached.close()
             needs_reprocess = False
         else:
-            logging.info(f"Cached cost file {renewables_costs_file} is stale; reprocessing.")
+            logging.info(
+                f"Cached cost file {renewables_costs_file} was built from another workbook or cost-loader "
+                "version; reprocessing."
+            )
             cached.close()
 
     if needs_reprocess:
@@ -337,12 +437,12 @@ def process_global_baseload_simulation_costs(
                 "Capex solar": (("iso3", "year"), capex_solar, {"units": "USD/MW"}),
                 "Capex wind": (("iso3", "year"), capex_wind, {"units": "USD/MW"}),
                 "Capex battery": (("iso3", "year"), capex_battery, {"units": "USD/MWh"}),
-                "Opex solar": (("iso3",), cost_per_country["Opex solar"].values, {"units": "%"}),
-                "Opex wind": (("iso3",), cost_per_country["Opex wind"].values, {"units": "%"}),
-                "Opex battery": (("iso3",), cost_per_country["Opex battery"].values, {"units": "%"}),
-                "Cost of capital": (("iso3",), cost_per_country["Cost of capital (%)"].values, {"units": "%"}),
+                "Opex solar": (("iso3",), cost_per_country["Opex solar"].values, {"units": "fraction"}),
+                "Opex wind": (("iso3",), cost_per_country["Opex wind"].values, {"units": "fraction"}),
+                "Opex battery": (("iso3",), cost_per_country["Opex battery"].values, {"units": "fraction"}),
+                "Cost of capital": (("iso3",), cost_per_country["Cost of capital (%)"].values, {"units": "fraction"}),
             },
-            attrs={"subregion_aware": 1},
+            attrs={"cost_cache_version": COST_CACHE_VERSION, "workbook_sha256": workbook_sha256},
         )
 
         projected_cost_per_country.to_netcdf(renewables_costs_file, mode="w", format="NETCDF4")

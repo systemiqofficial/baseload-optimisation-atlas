@@ -21,7 +21,9 @@ boa-data-prepare --input-file wb.xlsx --scenario cheap_renewables --year_start 2
 Cost side: the default cost workbook is the `boa-cost-data` package on steelo-data, pinned
 by URL and sha256 in `boa/config/data_packages.py`. It holds the workbook and
 `boa-cost-data.json`, which records each sheet's last-changed date, columns, units and
-rounding. The package is ~36 KB and is fetched on every run without `--input-file`.
+rounding. The package (~36 KB) is installed unchanged in `data/boa-cost-data/`, next to an
+`installed.json` recording the zip's URL, version and sha256, and is downloaded again only
+when the pinned sha256 changes. Scenarios copy their workbook from there.
 
 Geo side: the pinned Natural Earth shapefiles (1:50m map subunits, 1:10m admin-1) and the
 ERA5 land-sea mask are installed from the `boa-core-data` package on steelo-data, pinned by
@@ -32,8 +34,8 @@ The shapefiles are pinned on S3 rather than fetched from naciscdn.org because Na
 releases change polygons, which would silently change the iso3 grid.
 
 The first run downloads ~16 MB and builds the iso3 grid in about a minute; re-runs finish
-in seconds. Re-running is an idempotent upsert: the core data is downloaded again only when
-the pinned version differs from the installed one, an unchanged workbook (same sha256) is a
+in seconds. Re-running is an idempotent upsert: the core and cost packages are downloaded again
+only when the pinned sha256 differs from the installed zip's, an unchanged workbook (same sha256) is a
 no-op, and a changed one replaces the copy and rebuilds the scenario's cost cache. The iso3
 grid carries a fingerprint of its source shapefile and is rebuilt automatically if the NE
 1:50m shapefile ever changes.
@@ -45,9 +47,13 @@ data/
 ├── ne_50m_admin_0_map_subunits/      NE 1:50m shapefile (source of the iso3 grid)
 ├── ne_10m_admin_1_states_provinces/  NE 1:10m admin-1 shapefile (sub-national cost keys)
 ├── lsm_025_deg.nc                    ERA5 0.25 deg land-sea mask
-├── boa-core-data.json                core data version + provenance
+├── boa-core-data.json                core data provenance (from the package)
+├── boa-core-data.installed.json      the installed zip's version, URL and sha256
+├── boa-cost-data/                    the pinned cost package, unchanged: its workbook,
+│                                     boa-cost-data.json and installed.json
 ├── iso3_grid.nc                      per-pixel ISO3 grid, built locally
-└── cds/                              raw CDS NetCDFs (+ global_zarr/ build cache)
+└── cds/                              raw CDS NetCDFs (+ global_zarr/ build cache, and
+                                      cds-capacity-factors-<year>.json for a re-published year)
 inputs/<set>/                         e.g. cds-2024, tagged by weather year
 ├── cds-zarr/                         live profile + max-capacity stores the model reads
 └── staging/                          freshly built stores (transient; emptied on install)
@@ -73,9 +79,102 @@ ignored by BOA.
 | Sheet | Columns BOA reads |
 |---|---|
 | `RES CAPEX projections` | `irena region`, `tech`, the year columns (numeric headers, e.g. `2025`), and optionally `subregion code` (a sub-national cost key such as `CHN:CN-HB`) |
-| `RES OPEX` | `region`, `tech`, `opex` (one global row per technology) |
+| `RES OPEX` | `region` (`World`, or an `irena region` that overrides it), `tech`, `opex` |
 | `Cost of capital` | `code` (ISO-3), `tech` (only `Renewables` rows are used), `cost of capital` |
 | `Country mapping` | `code` (ISO-3, unique), `irena region` (rows without one are skipped) |
 
 `tech` takes `Solar PV`, `Onshore wind` or `Battery`. CAPEX is read for the investment year
 only: every lifetime equals the 25-year investment horizon, so no replacement is bought.
+
+## Units, fallbacks and checks
+
+### Units
+
+The loaders assume fixed units. The `unit` columns are for readers; nothing checks them, so a
+CAPEX sheet in USD/MW would give costs 1,000 times too high.
+
+| Value | Unit | How BOA uses it |
+|---|---|---|
+| CAPEX, `Solar PV` and `Onshore wind` | USD/kW (2024 USD in v0.1) | × 1,000, to USD/MW |
+| CAPEX, `Battery` | USD/kWh | × 1,000, to USD/MWh |
+| `opex` | fraction of CAPEX per year (0.01 = 1%) | charged every year of the lifetime, discounted |
+| `cost of capital` | fraction (0.05 = 5%) | the discount rate |
+
+### How a country gets its costs
+
+**CAPEX**, per technology; the first match wins:
+
+1. its province's row, when the country is split into provinces: a `subregion code` such as
+   `CHN:CN-HB` (an ISO 3166-2 first-order unit);
+2. its country's row: a bare ISO-3 in `subregion code`, which overrides the region for that
+   country;
+3. its `irena region` row, spelled as in Country mapping;
+4. otherwise the full series of the **costliest region**: the `irena region` with the highest
+   CAPEX summed over all technologies and years, among the regions with a row for this
+   technology (ties go to the first name alphabetically). Each such fill logs a
+   `[CAPEX FALLBACK]` warning naming the region.
+
+A country with province rows is split: pixels in an authored province use its row, and the
+rest of the country uses the country's row, or else its region's.
+
+The year columns don't have to be consecutive. Years between two columns (e.g. in a 5-yearly
+sheet) are interpolated linearly along each row, and the log lists them. An investment year
+before the first column is an error; years after the last column keep its value.
+
+**OPEX:** the country's `irena region` row for the technology, else the `World` row.
+
+**Cost of capital:** the country's `Renewables` row. A country without one gets the highest
+cost of capital among the countries in Country mapping, with a `[COST OF CAPITAL FALLBACK]`
+warning. Provinces share their country's rate.
+
+**Countries without costs:** a pixel whose country isn't in Country mapping, or has no
+`irena region`, is priced at run time with the global average: the mean over all cost keys,
+per technology, logged as `[FALLBACK]`. Åland uses Finland's costs and South Georgia
+Argentina's. v0.1 leaves out Antarctica, Bouvet Island, South Georgia and St Helena, and all
+but South Georgia lie outside every region box, so with v0.1 only 12 land pixels without a
+country use the global average.
+
+Surrounding spaces, including non-breaking ones, are ignored in every key column:
+`irena region`, `code`, `tech`, `subregion code` and `region`.
+
+### What stops `boa-data-prepare`
+
+`boa-data-prepare` checks the workbook, then builds one year's costs from it in a temporary
+folder, before copying anything. A failure stops it and keeps the scenario's previous
+workbook. It stops on:
+
+- a missing sheet or column, or no year columns in RES CAPEX projections;
+- a duplicate `code` in Country mapping, or among the `Renewables` rows of Cost of capital;
+- Western Sahara coded `WES` instead of `ESH`;
+- an unknown `tech` label in RES CAPEX projections or RES OPEX;
+- a duplicate (`irena region` or `subregion code`, `tech`) row in RES CAPEX projections;
+- a RES CAPEX projections row with some blank or non-numeric year cells (a row left blank
+  entirely is allowed, and falls through to the next level above);
+- in RES OPEX: a `region` that is neither `World` nor an `irena region` from Country mapping,
+  a duplicate (`region`, `tech`) row, a blank or non-numeric `opex`, or a technology without
+  a `World` row;
+- anything else that breaks the one-year build.
+
+`boa-run` also rejects a province key that isn't a first-order unit in the NE admin-1
+shapefile, and a country split into provinces when that shapefile is missing.
+
+### The cost cache
+
+`costs/<scenario>/cache_costs/` holds one file per investment year. Each records the sha256
+of the workbook it was built from and the loader's `COST_CACHE_VERSION`, and is rebuilt when
+either differs, so a run never uses costs from an older workbook or loader. Bump
+`COST_CACHE_VERSION` in `boa/inputs/costs.py` with any change that alters the numbers a valid
+workbook produces; refactors, log messages and new checks don't need it.
+
+### Starting a custom scenario
+
+1. Copy the package workbook, `data/boa-cost-data/boa-cost-data-v0.1.xlsx`.
+2. Edit the copy, keeping the sheet and column names.
+3. Prepare it: `boa-data-prepare --input-file my_costs.xlsx --scenario my_scenario`.
+4. Run with it: `boa-run ... --cost-input my_scenario`.
+
+Only the workbook is copied into the scenario. Its `source.json` records where it came from:
+the file path, plus the package's URL, version and sha256 when it is the package workbook.
+The package's `boa-cost-data.json` (sheet dates, units, rounding and notes) stays with the
+package in `data/boa-cost-data/`; it names the workbook `boa-cost-data-v<version>.xlsx`, and
+its `workbook.sha256` matches a scenario's `boa_cost_data.xlsx` prepared from it.

@@ -125,7 +125,7 @@ class PathConfig:
 
         <root>/
         ├── data/                          single slot: shapefiles, lsm, iso3 grid, cds/ raw NetCDFs,
-        │                                  lulc/ land-cover raster
+        │                                  lulc/ land-cover raster, boa-cost-data/ pinned cost package
         ├── inputs/<input_set>/            profile + max-capacity stores (cds-zarr/, atlite/)
         │   └── staging/                   freshly built stores (transient; emptied by boa_cds install)
         ├── inputs/cds-<year>/cache_frontiers/
