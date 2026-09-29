@@ -24,7 +24,6 @@ class CountryMappings:
     """Container for country mapping dictionaries."""
 
     code_to_irena_region_map: dict[str, str]
-    code_to_irena_map: dict[str, str]
 
     @classmethod
     def from_excel(cls, excel_path: Path) -> "CountryMappings":
@@ -35,9 +34,7 @@ class CountryMappings:
             excel_path: Path to boa_cost_data.xlsx.
 
         Returns:
-            CountryMappings instance with mapping dictionaries:
-            - code_to_irena_region_map: ISO3 code -> IRENA region name
-            - code_to_irena_map: ISO3 code -> IRENA country name
+            CountryMappings instance with code_to_irena_region_map: ISO3 code -> IRENA region name.
         """
         if not excel_path.exists():
             raise FileNotFoundError(f"Input data Excel file not found at {excel_path}")
@@ -46,19 +43,12 @@ class CountryMappings:
         df = pd.read_excel(excel_path, sheet_name="Country mapping")
 
         # One code = one location; duplicates would silently resolve last-wins below.
-        dup_mask = df["Code"].duplicated(keep=False)
+        dup_mask = df["code"].duplicated(keep=False)
         if dup_mask.any():
-            dups = sorted(df.loc[dup_mask, "Code"].unique())
+            dups = sorted(df.loc[dup_mask, "code"].unique())
             raise ValueError(f"Duplicate codes in the Country mapping sheet: {dups}.")
 
-        # Build the mapping dictionaries
-        code_to_irena_region_map = dict(zip(df["Code"], df["irena_region"]))
-        code_to_irena_map = dict(zip(df["Code"], df["irena_name"]))
-
-        return cls(
-            code_to_irena_region_map=code_to_irena_region_map,
-            code_to_irena_map=code_to_irena_map,
-        )
+        return cls(code_to_irena_region_map=dict(zip(df["code"], df["irena region"])))
 
 
 @dataclass

@@ -10,6 +10,15 @@ from boa.geo.geospatial import CountryMappings
 
 ALLOWED_TECHS = {"solar", "wind", "battery"}
 
+# The cost workbook's sheets and the columns BOA reads from each, named exactly as in the workbook.
+# RES CAPEX projections also needs its year columns (integer headers); its "subregion code" is optional.
+COST_WORKBOOK_COLUMNS: dict[str, list[str]] = {
+    "RES CAPEX projections": ["irena region", "tech"],
+    "RES OPEX": ["region", "tech", "opex"],
+    "Cost of capital": ["code", "tech", "cost of capital"],
+    "Country mapping": ["code", "irena region"],
+}
+
 # The RES CAPEX projections and RES OPEX sheets use descriptive labels
 TECH_LABEL_MAP = {
     "Solar PV": "solar",
@@ -46,59 +55,56 @@ def preprocess_renewable_energy_cost_data(
     cost_of_capital = pd.read_excel(input_data_path, sheet_name="Cost of capital")
     capex_projections = pd.read_excel(input_data_path, sheet_name="RES CAPEX projections")
 
-    if "Unit" in renewable_opex.columns:
-        renewable_opex.drop(columns=["Unit"], inplace=True)
-    capex_projections = capex_projections.drop(columns=[c for c in ["Unit", "Value"] if c in capex_projections.columns])
-    # Subregion code column is optional; synthesize an all-NA one so downstream merge logic is uniform.
-    if "Subregion code" not in capex_projections.columns:
-        capex_projections["Subregion code"] = pd.NA
+    # The subregion code column is optional; synthesize an all-NA one so downstream merge logic is uniform.
+    if "subregion code" not in capex_projections.columns:
+        capex_projections["subregion code"] = pd.NA
 
     # Region names in the CAPEX sheet can carry trailing whitespace (e.g. "EU + Schengen\xa0")
     # that would silently break the merge against Country mapping.
-    capex_projections["irena_region"] = capex_projections["irena_region"].astype(str).str.strip()
+    capex_projections["irena region"] = capex_projections["irena region"].astype(str).str.strip()
 
     for sheet_name, df in (("RES CAPEX projections", capex_projections), ("RES OPEX", renewable_opex)):
-        unknown = set(df["Technology"].unique()) - set(TECH_LABEL_MAP) - ALLOWED_TECHS
+        unknown = set(df["tech"].unique()) - set(TECH_LABEL_MAP) - ALLOWED_TECHS
         if unknown:
             raise ValueError(
                 f"Unknown technology label(s) in {sheet_name} sheet: {unknown}. "
                 f"Expected one of {sorted(TECH_LABEL_MAP) + sorted(ALLOWED_TECHS)}."
             )
-        df["Technology"] = df["Technology"].replace(TECH_LABEL_MAP)
+        df["tech"] = df["tech"].replace(TECH_LABEL_MAP)
 
     # OPEX: one global row per technology; pivot, then broadcast to every country
-    opex_pivoted = renewable_opex.pivot(index="Region", columns="Technology", values="Opex")
+    opex_pivoted = renewable_opex.pivot(index="region", columns="tech", values="opex")
     opex_pivoted.columns = [f"Opex {tech}" for tech in opex_pivoted.columns]
     global_opex = opex_pivoted.iloc[0]
 
     # Sheet is long-format: one row per (iso3, Tech). Hydrogen rows stay in the sheet for
     # visibility but are not consumed by the model.
     cost_of_capital_renewables_raw = cost_of_capital.loc[
-        cost_of_capital["Tech"] == "Renewables",
-        ["Code", "Cost of capital"],
+        cost_of_capital["tech"] == "Renewables",
+        ["code", "cost of capital"],
     ]
 
     # Western Sahara must use ISO 3166-1 alpha-3 "ESH"; a prior revision of the sheet used
     # the non-standard "WES" and silently dropped out of the join against Country mapping.
-    if "WES" in set(cost_of_capital_renewables_raw["Code"]):
+    if "WES" in set(cost_of_capital_renewables_raw["code"]):
         raise ValueError(
             "Western Sahara must use ISO-3 code 'ESH' in the Cost of capital sheet; found the non-standard 'WES'."
         )
 
     # One row per iso3 is required — duplicates would explode the join in unpredictable ways.
-    dup_mask = cost_of_capital_renewables_raw["Code"].duplicated(keep=False)
+    dup_mask = cost_of_capital_renewables_raw["code"].duplicated(keep=False)
     if dup_mask.any():
-        dups = sorted(cost_of_capital_renewables_raw.loc[dup_mask, "Code"].unique())
+        dups = sorted(cost_of_capital_renewables_raw.loc[dup_mask, "code"].unique())
         raise ValueError(f"Duplicate ISO-3 codes in Renewables rows of Cost of capital sheet: {dups}.")
 
     cost_of_capital_renewables = cost_of_capital_renewables_raw.rename(
-        columns={"Code": "iso3", "Cost of capital": "Cost of capital (%)"}
+        columns={"code": "iso3", "cost of capital": "Cost of capital (%)"}
     ).set_index("iso3")
 
     # Subregion codes ARE the cost-keys. Parse `iso3:rest` (or bare `iso3`) to derive owners.
-    capex_projections["Subregion code"] = capex_projections["Subregion code"].astype("string")
+    capex_projections["subregion code"] = capex_projections["subregion code"].astype("string")
     iso3_to_subregions: dict[str, list[str]] = {}
-    for sub in capex_projections["Subregion code"].dropna().unique():
+    for sub in capex_projections["subregion code"].dropna().unique():
         iso3_to_subregions.setdefault(sub.split(":", 1)[0], []).append(sub)
 
     rows = []
@@ -128,14 +134,14 @@ def preprocess_renewable_energy_cost_data(
     cost_per_country.index.name = "iso3"
 
     # Unified merge key on the CAPEX side: Subregion code when populated, else the IRENA region.
-    capex_projections["merge_key"] = capex_projections["Subregion code"].where(
-        capex_projections["Subregion code"].notna(), capex_projections["irena_region"]
+    capex_projections["merge_key"] = capex_projections["subregion code"].where(
+        capex_projections["subregion code"].notna(), capex_projections["irena region"]
     )
     # Each (merge_key, Technology) must be unique — otherwise the join below explodes rows.
-    dup_mask = capex_projections.duplicated(subset=["merge_key", "Technology"], keep=False)
+    dup_mask = capex_projections.duplicated(subset=["merge_key", "tech"], keep=False)
     if dup_mask.any():
         dups = (
-            capex_projections.loc[dup_mask, ["irena_region", "Subregion code", "Technology"]]
+            capex_projections.loc[dup_mask, ["irena region", "subregion code", "tech"]]
             .drop_duplicates()
             .to_dict(orient="records")
         )
@@ -146,8 +152,8 @@ def preprocess_renewable_energy_cost_data(
     # Per-(cost_key, technology) CAPEX cascade: exact key -> national iso3 -> IRENA region.
     # merge_key already spans sub-national keys, bare-iso3 overrides, and region names.
     year_cols = [c for c in capex_projections.columns if isinstance(c, (int, np.integer))]
-    authored = capex_projections.set_index(["merge_key", "Technology"])[year_cols].apply(pd.to_numeric, errors="coerce")
-    techs = list(capex_projections["Technology"].dropna().unique())
+    authored = capex_projections.set_index(["merge_key", "tech"])[year_cols].apply(pd.to_numeric, errors="coerce")
+    techs = list(capex_projections["tech"].dropna().unique())
     capex_per_country, provenance = _resolve_capex_cascade(
         authored, list(cost_per_country.index), techs, code_to_irena_region_map
     )
