@@ -32,6 +32,7 @@ boa-run = "boa.cli.run_simulation:main"
 boa-promote-lcoe = "boa.cli.promote_lcoe:main"
 boa-cds-prepare = "boa.cli.run_cds:prepare"
 boa-cds-download = "boa.cli.run_cds:download"
+boa-data-prepare = "boa.cli.data_prepare:main"
 
 [build-system]
 requires = ["hatchling"]
