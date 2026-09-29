@@ -129,7 +129,9 @@ def _prepare_geo_data(data_dir: Path, iso3_grid_path: Path, subunits_shapefile_p
     _install_core_data(data_dir / CORE_DATA_FOLDER)
     if not iso3_grid_is_current(iso3_grid_path, subunits_shapefile_path):
         if iso3_grid_path.exists():
-            console.print("iso3 grid is stale (built from a different NE 1:50m shapefile); rebuilding.")
+            console.print(
+                "iso3 grid is stale (built from a different NE 1:50m shapefile or NE_TO_BOA remap); rebuilding."
+            )
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),

@@ -90,16 +90,17 @@ def _load_countries(shapefile_path: Path) -> gpd.GeoDataFrame:
     return out
 
 
-def shapefile_fingerprint(shapefile_path: Path) -> str:
-    """sha256 over the shapefile's .shp + .dbf pair (geometry + attribute table)."""
+def iso3_grid_fingerprint(shapefile_path: Path) -> str:
+    """sha256 over what the grid is built from: the shapefile's .shp + .dbf pair and ``NE_TO_BOA``."""
     digest = hashlib.sha256()
     for suffix in (".shp", ".dbf"):
         digest.update(shapefile_path.with_suffix(suffix).read_bytes())
+    digest.update(json.dumps(NE_TO_BOA, sort_keys=True).encode())
     return digest.hexdigest()
 
 
 def iso3_grid_is_current(grid_path: Path, shapefile_path: Path) -> bool:
-    """True if the grid's ``source_sha256`` attr matches ``shapefile_path``; missing/unreadable/attr-less grids are stale."""
+    """True if the grid's ``source_sha256`` attr matches its inputs now; missing/unreadable/attr-less grids are stale."""
     if not grid_path.exists():
         return False
     try:
@@ -107,7 +108,7 @@ def iso3_grid_is_current(grid_path: Path, shapefile_path: Path) -> bool:
             stored = ds.attrs.get("source_sha256")
     except Exception:
         return False
-    return stored == shapefile_fingerprint(shapefile_path)
+    return stored == iso3_grid_fingerprint(shapefile_path)
 
 
 # Number of ``on_stage`` callbacks build_iso3_grid_from_shapefile makes — for progress bars.
@@ -239,8 +240,8 @@ def build_iso3_grid_from_shapefile(
                 f"Natural Earth 1:50m countries ({shapefile_path.name}) -> "
                 "build_iso3_grid_from_shapefile (NE_TO_BOA remap applied)"
             ),
-            # Source-shapefile fingerprint; iso3_grid_is_current uses it to detect staleness.
-            "source_sha256": shapefile_fingerprint(shapefile_path),
+            # Fingerprint of the shapefile and NE_TO_BOA; iso3_grid_is_current uses it to detect staleness.
+            "source_sha256": iso3_grid_fingerprint(shapefile_path),
         },
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)

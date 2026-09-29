@@ -38,8 +38,8 @@ The first run downloads ~16 MB and builds the iso3 grid in about a minute; re-ru
 in seconds. Re-running is an idempotent upsert: the core and cost packages are downloaded again
 only when the pinned sha256 differs from the installed zip's, an unchanged workbook (same sha256) is a
 no-op, and a changed one replaces the copy and rebuilds the scenario's cost cache. The iso3
-grid carries a fingerprint of its source shapefile and is rebuilt automatically if the NE
-1:50m shapefile ever changes.
+grid carries a fingerprint of the NE 1:50m shapefile and of `NE_TO_BOA` (the subunit-to-iso3
+remap in `geo/iso3_grid_builder.py`), and is rebuilt automatically if either changes.
 
 Data lands under the boa data root (`$BOA_DATA_ROOT` → `~/.boa`):
 
