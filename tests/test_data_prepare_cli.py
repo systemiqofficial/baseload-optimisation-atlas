@@ -52,13 +52,13 @@ def _write_workbook(path: Path, europe_solar_capex: float = 700.0, country_code_
 
 
 def _core_members(version: str = data_prepare.CORE_DATA_VERSION) -> dict[str, bytes]:
-    """A stand-in core data package, marker last as in the real one."""
+    """A stand-in core data package, its provenance JSON last as in the real one."""
     members = {}
     for folder in NE_FOLDERS:
         for suffix in (".shp", ".dbf"):
             members[f"{folder}/{folder}{suffix}"] = f"fake-{suffix}".encode()
     members["lsm_025_deg.nc"] = b"fake-nc"
-    members[data_prepare.CORE_DATA_MARKER] = json.dumps({"package": "boa-core-data", "version": version}).encode()
+    members["boa-core-data.json"] = json.dumps({"package": "boa-core-data", "version": version}).encode()
     return members
 
 
@@ -222,13 +222,17 @@ def test_core_data_skips_download_and_build_when_current(tmp_path, boa_root, cor
     assert grid.stat().st_mtime_ns == grid_mtime
 
 
-@pytest.mark.parametrize("marker", [json.dumps({"version": "0.0"}), "not json"])
-def test_core_data_refetched_unless_pinned_version_installed(tmp_path, boa_root, core_downloads, marker):
+@pytest.mark.parametrize("marker", [json.dumps({"sha256": "0" * 64}), "not json", None])
+def test_core_data_refetched_unless_pinned_zip_installed(tmp_path, boa_root, core_downloads, marker):
     workbook = tmp_path / "boa-cost-data.xlsx"
     _write_workbook(workbook)
     _run(workbook)
     core_downloads.clear()
-    (boa_root / "data" / data_prepare.CORE_DATA_MARKER).write_text(marker)
+    installed = boa_root / "data" / data_prepare.CORE_DATA_INSTALLED
+    if marker is None:
+        installed.unlink()  # an install from before the sha256 check
+    else:
+        installed.write_text(marker)
 
     _run(workbook)
 
@@ -248,9 +252,10 @@ def test_core_data_installs_from_pinned_zip(tmp_path, boa_root, monkeypatch):
     assert _run(workbook) == 0
 
     data_dir = boa_root / "data"
-    assert (
-        json.loads((data_dir / data_prepare.CORE_DATA_MARKER).read_text())["version"] == data_prepare.CORE_DATA_VERSION
-    )
+    installed = json.loads((data_dir / data_prepare.CORE_DATA_INSTALLED).read_text())
+    assert installed["sha256"] == sha256
+    assert installed["version"] == data_prepare.CORE_DATA_VERSION
+    assert (data_dir / "boa-core-data.json").exists()
     assert (data_dir / "lsm_025_deg.nc").read_bytes() == b"fake-nc"
     assert not list(data_dir.glob("*.part"))
 

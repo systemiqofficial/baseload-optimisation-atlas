@@ -47,11 +47,12 @@ from rich.progress import (
 
 from boa.cli import reconfigure_streams_utf8
 from boa.config.data_packages import (
-    CORE_DATA_MARKER,
+    CORE_DATA_INSTALLED,
     CORE_DATA_SHA256,
     CORE_DATA_URL,
     CORE_DATA_VERSION,
     COST_DATA_FOLDER,
+    COST_DATA_INSTALLED,
     COST_DATA_SHA256,
     COST_DATA_URL,
     COST_DATA_VERSION,
@@ -68,22 +69,35 @@ from boa.inputs.costs import (
 console = Console(legacy_windows=False)
 
 
-def _installed_core_version(data_dir: Path) -> str | None:
-    # The marker is the zip's last entry, so an interrupted extraction leaves the old marker
-    # (or none) behind and the next run fetches again.
+def _installed_sha256(marker: Path) -> str | None:
+    """The sha256 of the zip an install marker records, or None when there is no readable marker."""
     try:
-        return json.loads((data_dir / CORE_DATA_MARKER).read_text())["version"]
+        return json.loads(marker.read_text())["sha256"]
     except (OSError, ValueError, KeyError):
         return None
 
 
+def _write_install_marker(marker: Path, version: str, url: str, sha256: str) -> None:
+    installed = {
+        "version": version,
+        "url": url,
+        "sha256": sha256,
+        "installed_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    marker.write_text(json.dumps(installed, indent=2) + "\n")
+
+
 def _install_core_data(data_dir: Path) -> None:
-    """Download the pinned core data package into ``data_dir`` unless that version is already installed."""
-    installed = _installed_core_version(data_dir)
-    if installed == CORE_DATA_VERSION:
+    """Download the pinned core data package into ``data_dir`` unless that exact zip is already installed."""
+    marker = data_dir / CORE_DATA_INSTALLED
+    # Compared by sha256, not version, so a package re-published under the same version is fetched again.
+    installed = _installed_sha256(marker)
+    if installed == CORE_DATA_SHA256:
         return
-    reason = "none installed" if installed is None else f"v{installed} installed"
+    reason = "none installed" if installed is None else "another zip installed"
     console.print(f"Fetching core data v{CORE_DATA_VERSION} ({reason}) [dim]{CORE_DATA_URL}[/dim]")
+    # Removed first and written only after a complete extraction, so an interrupted one fetches again.
+    marker.unlink(missing_ok=True)
     with Progress(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
@@ -99,6 +113,7 @@ def _install_core_data(data_dir: Path) -> None:
             data_dir,
             on_progress=lambda done, total: progress.update(task, completed=done, total=total),
         )
+    _write_install_marker(marker, CORE_DATA_VERSION, CORE_DATA_URL, CORE_DATA_SHA256)
     console.print(f"Installed core data v{CORE_DATA_VERSION} into [dim]{data_dir}[/dim]")
 
 
@@ -178,17 +193,10 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _installed_cost_sha256(package_dir: Path) -> str | None:
-    try:
-        return json.loads((package_dir / "installed.json").read_text())["sha256"]
-    except (OSError, ValueError, KeyError):
-        return None
-
-
 def _install_cost_data(package_dir: Path) -> None:
     """Download the pinned cost data package into ``package_dir`` unless that exact zip is already installed."""
     # Compared by sha256, not version, so a package re-published under the same version is fetched again.
-    if _installed_cost_sha256(package_dir) == COST_DATA_SHA256:
+    if _installed_sha256(package_dir / COST_DATA_INSTALLED) == COST_DATA_SHA256:
         return
     console.print(f"Fetching cost data v{COST_DATA_VERSION} [dim]{COST_DATA_URL}[/dim]")
     # Unpack beside the installed package and swap it in, so a failed download leaves it intact.
@@ -196,13 +204,7 @@ def _install_cost_data(package_dir: Path) -> None:
     shutil.rmtree(staged, ignore_errors=True)
     try:
         fetch_verified_zip(COST_DATA_URL, COST_DATA_SHA256, staged)
-        installed = {
-            "version": COST_DATA_VERSION,
-            "url": COST_DATA_URL,
-            "sha256": COST_DATA_SHA256,
-            "installed_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        }
-        (staged / "installed.json").write_text(json.dumps(installed, indent=2) + "\n")
+        _write_install_marker(staged / COST_DATA_INSTALLED, COST_DATA_VERSION, COST_DATA_URL, COST_DATA_SHA256)
         shutil.rmtree(package_dir, ignore_errors=True)
         staged.rename(package_dir)
     finally:
