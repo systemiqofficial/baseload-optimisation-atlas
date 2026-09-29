@@ -58,7 +58,7 @@ data/
                                       cds-capacity-factors-<year>.json for a re-published year)
 inputs/<set>/                         e.g. cds-2024, tagged by weather year
 ├── cds-zarr/                         live profile + max-capacity stores the model reads
-└── staging/                          freshly built stores (transient; emptied on install)
+└── staging/                          freshly built stores (transient; removed once installed)
 inputs/cds-<year>/cache_frontiers/    frontier cache, built by boa-run; keyed on the
                                        weather year alone, shared across every land-
                                        availability layer set built on that weather

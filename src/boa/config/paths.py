@@ -130,7 +130,7 @@ class PathConfig:
         │                                  cds/ raw NetCDFs, lulc/ land-cover raster,
         │                                  boa-cost-data/ pinned cost package
         ├── inputs/<input_set>/            profile + max-capacity stores (cds-zarr/, atlite/)
-        │   └── staging/                   freshly built stores (transient; emptied by boa_cds install)
+        │   └── staging/                   freshly built stores (transient; removed once installed)
         ├── inputs/cds-<year>/cache_frontiers/
         │                                  schema v3 frontier stores, keyed on the weather year alone:
         │                                  they hold no availability assumption, so every layer set

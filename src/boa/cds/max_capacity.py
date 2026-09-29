@@ -135,16 +135,10 @@ def build_region(
 
     ds = xr.Dataset(data)
     ds.attrs = store_attrs(layers, density)
-    nc_dir = out_dir / "cav"
-    nc_dir.mkdir(parents=True, exist_ok=True)
-    out = nc_dir / (max_cap_store_stem(region, year) + ".nc")
-    ds.to_netcdf(out)
-    log.info(f"  wrote {out} in {time.perf_counter() - t0:.1f}s")
-
-    # Zarr twin next to the profile stores in staging; what `install` promotes.
+    # Next to the profile stores in staging; what `install` promotes.
     zarr_path = out_dir / (max_cap_store_stem(region, year) + ".zarr")
     if zarr_path.exists():
         shutil.rmtree(zarr_path)
     ds.chunk(MAX_CAP_CHUNKS).to_zarr(zarr_path, mode="w", consolidated=True, zarr_format=ZARR_FORMAT)
-    log.info(f"  wrote {zarr_path}")
-    return out
+    log.info(f"  wrote {zarr_path} in {time.perf_counter() - t0:.1f}s")
+    return zarr_path

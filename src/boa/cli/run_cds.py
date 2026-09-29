@@ -373,6 +373,8 @@ def main_prepare(argv: list[str]) -> int:
     except (FileNotFoundError, FileExistsError, ValueError) as e:
         console.print(f"[red]✗ install failed: {e}[/red]")
         return 1
+    # Everything this prepare staged is installed; anything still there is left over from an earlier one.
+    shutil.rmtree(staging)
     console.print(
         f"[green]✓ Installed {len(need_profile)} profile + {len(need_max_cap)} max-capacity store(s) into[/green] "
         f"[dim]{live}[/dim]"
