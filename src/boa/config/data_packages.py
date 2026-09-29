@@ -19,7 +19,7 @@ CORE_DATA_MARKER = "boa-core-data.json"
 # --input-file is not given. Built by scripts/package_cost.sh.
 COST_DATA_VERSION = "0.1"
 COST_DATA_URL = f"{STEELO_DATA_URL}/boa-cost-data-v{COST_DATA_VERSION}.zip"
-COST_DATA_SHA256 = "b9f83cd19a56c20e3f4cbe1ae1812b6fefeb29eaafc47f17fcbdb49cf4cb7faa"
+COST_DATA_SHA256 = "d80f64f2ae8f9af41cdeff38671848ee0161e9211eb20c2a11d64e615b378fe2"
 COST_DATA_WORKBOOK = f"boa-cost-data-v{COST_DATA_VERSION}.xlsx"
 
 # Capacity factors re-published per weather year, so a published year needs no CDS account.
