@@ -25,6 +25,7 @@ TECH_LABEL_MAP = {
     "Onshore wind": "wind",
     "Battery": "battery",
 }
+SHEET_TECH_LABEL = {tech: label for label, tech in TECH_LABEL_MAP.items()}
 
 
 def preprocess_renewable_energy_cost_data(
@@ -38,7 +39,8 @@ def preprocess_renewable_energy_cost_data(
     Data sources:
         - CAPEX projections: regional time series 2024–2050 for solar, wind, and battery
           ("RES CAPEX projections" sheet). Replaces the IRENA-2022-baseline + learning-curve path.
-        - OPEX: world-wide percentage of CAPEX, applied uniformly to every country.
+        - OPEX: fraction of CAPEX per year; a World row per technology, optionally overridden
+          per IRENA region.
         - Cost of capital: country-level WACC; missing values filled with the global max.
 
     The `iso3` index of both outputs has a hybrid value-set: a plain iso3 for most countries,
@@ -74,10 +76,7 @@ def preprocess_renewable_energy_cost_data(
             )
         df["tech"] = df["tech"].replace(TECH_LABEL_MAP)
 
-    # OPEX: one global row per technology; pivot, then broadcast to every country
-    opex_pivoted = renewable_opex.pivot(index="region", columns="tech", values="opex")
-    opex_pivoted.columns = [f"Opex {tech}" for tech in opex_pivoted.columns]
-    global_opex = opex_pivoted.iloc[0]
+    opex = _check_opex(renewable_opex, set(code_to_irena_region_map.values()))
 
     # Sheet is long-format: one row per (iso3, Tech). Hydrogen rows stay in the sheet for
     # visibility but are not consumed by the model.
@@ -124,10 +123,13 @@ def preprocess_renewable_energy_cost_data(
     cost_key_index = pd.DataFrame(rows)
     cost_key_index = cost_key_index[cost_key_index["iso3"].isin(code_df["iso3"])]
 
-    # Per-key table: OPEX broadcast + WACC joined by iso3 (broadcasts across subregion keys).
-    cost_per_country = cost_key_index.set_index("cost_key").sort_index()[["iso3"]]
-    for col, val in global_opex.items():
-        cost_per_country[col] = val
+    # Per-key table: OPEX from the key's IRENA region row, else World; WACC joined by iso3
+    # (broadcasts across subregion keys).
+    cost_per_country = cost_key_index.set_index("cost_key").sort_index()[["iso3", "Region"]]
+    for tech in sorted(ALLOWED_TECHS):
+        by_region = opex.xs(tech, level="tech")
+        cost_per_country[f"Opex {tech}"] = cost_per_country["Region"].map(by_region).fillna(by_region["World"])
+    cost_per_country = cost_per_country.drop(columns=["Region"])
     cost_per_country = cost_per_country.join(cost_of_capital_renewables, on="iso3", how="left")
     highest_coc = cost_per_country["Cost of capital (%)"].max()
     for iso3 in sorted(cost_per_country.loc[cost_per_country["Cost of capital (%)"].isna(), "iso3"].unique()):
@@ -165,9 +167,8 @@ def preprocess_renewable_energy_cost_data(
     blank = authored.isna()
     partly_blank = blank.any(axis=1) & ~blank.all(axis=1)
     if partly_blank.any():
-        sheet_label = {v: k for k, v in TECH_LABEL_MAP.items()}
         gaps = [
-            f"{key} {sheet_label.get(tech, tech)}: {', '.join(str(y) for y in blank.columns[blank.loc[(key, tech)]])}"
+            f"{key} {SHEET_TECH_LABEL.get(tech, tech)}: {', '.join(str(y) for y in blank.columns[blank.loc[(key, tech)]])}"
             for key, tech in authored.index[partly_blank]
         ]
         raise ValueError(f"Blank or non-numeric year cells in RES CAPEX projections: {'; '.join(gaps)}.")
@@ -184,6 +185,35 @@ def preprocess_renewable_energy_cost_data(
     _log_capex_cascade(provenance, self_keyed=set(iso3_to_subregions), donors=donors)
 
     return cost_per_country, capex_per_country
+
+
+def _check_opex(renewable_opex: pd.DataFrame, irena_regions: set[str]) -> pd.Series:
+    """
+    Check the RES OPEX rows and return OPEX indexed by (region, tech). Every technology needs a
+    World row; any other region must be an IRENA region from Country mapping, and overrides World
+    for that region's countries.
+    """
+    opex = renewable_opex.assign(opex=pd.to_numeric(renewable_opex["opex"], errors="coerce"))
+
+    def labels(rows: pd.DataFrame) -> str:
+        return ", ".join(sorted({f"{r} {SHEET_TECH_LABEL.get(t, t)}" for r, t in zip(rows["region"], rows["tech"])}))
+
+    problems = []
+    unknown = sorted(set(opex["region"].astype(str)) - {"World"} - irena_regions)
+    if unknown:
+        problems.append(f"region(s) {unknown} are neither World nor an irena region in Country mapping")
+    duplicated = opex[opex.duplicated(["region", "tech"], keep=False)]
+    if len(duplicated):
+        problems.append(f"duplicate rows for {labels(duplicated)}")
+    blank = opex[opex["opex"].isna()]
+    if len(blank):
+        problems.append(f"blank or non-numeric opex for {labels(blank)}")
+    no_world = sorted(ALLOWED_TECHS - set(opex.loc[opex["region"] == "World", "tech"]))
+    if no_world:
+        problems.append(f"no World row for {', '.join(SHEET_TECH_LABEL.get(t, t) for t in no_world)}")
+    if problems:
+        raise ValueError(f"RES OPEX: {'; '.join(problems)}.")
+    return opex.set_index(["region", "tech"])["opex"]
 
 
 def _costliest_region_by_tech(region_capex: pd.DataFrame) -> dict[str, str]:

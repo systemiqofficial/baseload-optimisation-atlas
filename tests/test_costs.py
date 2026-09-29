@@ -110,3 +110,45 @@ def test_surrounding_spaces_in_key_columns_are_ignored(tmp_path, caplog):
     assert costs.loc["DEU", "Cost of capital (%)"] == 0.05
     assert capex_per_country.loc[("DEU:DE-BY", "solar")].tolist() == [650.0, 600.0]
     assert "COST OF CAPITAL FALLBACK" not in caplog.text
+
+
+def _with_opex_rows(*rows: tuple[str, str, object]) -> dict[str, pd.DataFrame]:
+    sheets = _sheets()
+    extra = pd.DataFrame(rows, columns=["region", "tech", "opex"])
+    sheets["RES OPEX"] = pd.concat([sheets["RES OPEX"], extra], ignore_index=True)
+    return sheets
+
+
+def test_regional_opex_overrides_world(tmp_path):
+    path = _write(tmp_path / "costs.xlsx", _with_opex_rows(("Europe", "Solar PV", 0.05)))
+
+    costs, _ = _preprocess(path)
+
+    assert costs.loc["DEU", "Opex solar"] == 0.05
+    assert costs.loc["DEU", "Opex wind"] == 0.03
+    assert costs.loc["AUS", "Opex solar"] == 0.02
+
+
+@pytest.mark.parametrize(
+    ("sheets", "message"),
+    [
+        (_with_opex_rows(("Eurpoe", "Solar PV", 0.05)), r"\['Eurpoe'\] are neither World nor an irena region"),
+        (_with_opex_rows(("World", "Battery", 0.03)), r"duplicate rows for World Battery"),
+        (_with_opex_rows(("Europe", "Battery", "n/a")), r"blank or non-numeric opex for Europe Battery"),
+    ],
+)
+def test_invalid_opex_rows_fail(tmp_path, sheets, message):
+    path = _write(tmp_path / "costs.xlsx", sheets)
+
+    with pytest.raises(ValueError, match=message):
+        _preprocess(path)
+
+
+def test_opex_without_a_world_row_fails(tmp_path):
+    sheets = _sheets()
+    opex = sheets["RES OPEX"]
+    sheets["RES OPEX"] = opex[opex["tech"] != "Battery"]
+    path = _write(tmp_path / "costs.xlsx", sheets)
+
+    with pytest.raises(ValueError, match=r"no World row for Battery"):
+        _preprocess(path)
