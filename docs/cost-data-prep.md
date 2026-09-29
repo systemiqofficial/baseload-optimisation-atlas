@@ -27,8 +27,9 @@ when the pinned sha256 changes. Scenarios copy their workbook from there.
 
 Geo side: the pinned Natural Earth shapefiles (1:50m map subunits, 1:10m admin-1) and the
 ERA5 land-sea mask are installed from the `boa-core-data` package on steelo-data, pinned by
-URL and sha256 in `boa/config/data_packages.py`. Its `boa-core-data.json` records each
-source's version, licence, attribution and file hashes. The per-pixel iso3 grid is built
+URL and sha256 in `boa/config/data_packages.py`, and kept unchanged in `data/boa-core-data/`
+like the cost package. Its `boa-core-data.json` records each source's version, licence,
+attribution and file hashes. The per-pixel iso3 grid is built
 locally from the 1:50m shapefile (`geo/iso3_grid_builder.py`).
 The shapefiles are pinned on S3 rather than fetched from naciscdn.org because Natural Earth
 releases change polygons, which would silently change the iso3 grid.
@@ -44,11 +45,12 @@ Data lands under the boa data root (`$BOA_DATA_ROOT` → `~/.boa`):
 
 ```
 data/
-├── ne_50m_admin_0_map_subunits/      NE 1:50m shapefile (source of the iso3 grid)
-├── ne_10m_admin_1_states_provinces/  NE 1:10m admin-1 shapefile (sub-national cost keys)
-├── lsm_025_deg.nc                    ERA5 0.25 deg land-sea mask
-├── boa-core-data.json                core data provenance (from the package)
-├── boa-core-data.installed.json      the installed zip's version, URL and sha256
+├── boa-core-data/                    the pinned core package, unchanged:
+│   ├── ne_50m_admin_0_map_subunits/      NE 1:50m shapefile (source of the iso3 grid)
+│   ├── ne_10m_admin_1_states_provinces/  NE 1:10m admin-1 shapefile (sub-national cost keys)
+│   ├── lsm_025_deg.nc                    ERA5 0.25 deg land-sea mask
+│   ├── boa-core-data.json                core data provenance
+│   └── installed.json                    the installed zip's version, URL and sha256
 ├── boa-cost-data/                    the pinned cost package, unchanged: its workbook,
 │                                     boa-cost-data.json and installed.json
 ├── iso3_grid.nc                      per-pixel ISO3 grid, built locally

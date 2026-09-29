@@ -2,8 +2,9 @@
 BOA input-data preparation: the `boa-data-prepare` console script.
 
 Geo side: the pinned core data package (Natural Earth shapefiles and the ERA5 land-sea
-mask) is downloaded from steelo-data into ``<root>/data/``, and the per-pixel iso3 grid is
-built locally from the 1:50m shapefile (``boa.geo.iso3_grid_builder``).
+mask) is downloaded from steelo-data and kept unchanged in ``<root>/data/boa-core-data/``,
+and the per-pixel iso3 grid is built locally from the 1:50m shapefile
+(``boa.geo.iso3_grid_builder``).
 
 Cost side: a scenario is a whole cost workbook. By default it is the pinned boa-cost-data
 package from steelo-data, kept unchanged with its JSON in ``<root>/data/boa-cost-data/`` and
@@ -47,6 +48,7 @@ from rich.progress import (
 
 from boa.cli import reconfigure_streams_utf8
 from boa.config.data_packages import (
+    CORE_DATA_FOLDER,
     CORE_DATA_INSTALLED,
     CORE_DATA_SHA256,
     CORE_DATA_URL,
@@ -87,39 +89,44 @@ def _write_install_marker(marker: Path, version: str, url: str, sha256: str) -> 
     marker.write_text(json.dumps(installed, indent=2) + "\n")
 
 
-def _install_core_data(data_dir: Path) -> None:
-    """Download the pinned core data package into ``data_dir`` unless that exact zip is already installed."""
-    marker = data_dir / CORE_DATA_INSTALLED
+def _install_core_data(package_dir: Path) -> None:
+    """Download the pinned core data package into ``package_dir`` unless that exact zip is already installed."""
     # Compared by sha256, not version, so a package re-published under the same version is fetched again.
-    installed = _installed_sha256(marker)
+    installed = _installed_sha256(package_dir / CORE_DATA_INSTALLED)
     if installed == CORE_DATA_SHA256:
         return
     reason = "none installed" if installed is None else "another zip installed"
     console.print(f"Fetching core data v{CORE_DATA_VERSION} ({reason}) [dim]{CORE_DATA_URL}[/dim]")
-    # Removed first and written only after a complete extraction, so an interrupted one fetches again.
-    marker.unlink(missing_ok=True)
-    with Progress(
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        DownloadColumn(),
-        TransferSpeedColumn(),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Downloading core data", total=None)
-        fetch_verified_zip(
-            CORE_DATA_URL,
-            CORE_DATA_SHA256,
-            data_dir,
-            on_progress=lambda done, total: progress.update(task, completed=done, total=total),
-        )
-    _write_install_marker(marker, CORE_DATA_VERSION, CORE_DATA_URL, CORE_DATA_SHA256)
-    console.print(f"Installed core data v{CORE_DATA_VERSION} into [dim]{data_dir}[/dim]")
+    # Unpack beside the installed package and swap it in, so a failed download leaves it intact.
+    staged = package_dir.with_name(package_dir.name + ".staged")
+    shutil.rmtree(staged, ignore_errors=True)
+    try:
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Downloading core data", total=None)
+            fetch_verified_zip(
+                CORE_DATA_URL,
+                CORE_DATA_SHA256,
+                staged,
+                on_progress=lambda done, total: progress.update(task, completed=done, total=total),
+            )
+        _write_install_marker(staged / CORE_DATA_INSTALLED, CORE_DATA_VERSION, CORE_DATA_URL, CORE_DATA_SHA256)
+        shutil.rmtree(package_dir, ignore_errors=True)
+        staged.rename(package_dir)
+    finally:
+        shutil.rmtree(staged, ignore_errors=True)
+    console.print(f"Installed core data v{CORE_DATA_VERSION} into [dim]{package_dir}[/dim]")
 
 
 def _prepare_geo_data(data_dir: Path, iso3_grid_path: Path, subunits_shapefile_path: Path) -> None:
     """Ensure the static geo inputs exist and build the per-pixel iso3 grid from them."""
-    _install_core_data(data_dir)
+    _install_core_data(data_dir / CORE_DATA_FOLDER)
     if not iso3_grid_is_current(iso3_grid_path, subunits_shapefile_path):
         if iso3_grid_path.exists():
             console.print("iso3 grid is stale (built from a different NE 1:50m shapefile); rebuilding.")
