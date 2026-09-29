@@ -24,9 +24,10 @@ from boa.cds.convert import (
     global_store_path,
     load_cds_tech,
 )
-from boa.cds.spec import CDS_VARS, PUBLISHED_CF_SHA256, cf_extract_dir_name, cf_zip_name, published_cf_url
+from boa.cds.spec import CDS_VARS, cf_extract_dir_name, cf_zip_name
 from boa.cli import run_cds
 from boa.config.constants import EARTH_RADIUS_KM
+from boa.config.data_packages import PUBLISHED_CF_SHA256, published_cf_url
 from boa.config.paths import PathConfig
 from boa.config.physical_parameters import (
     CAPACITY_DENSITY_MW_PER_KM2,

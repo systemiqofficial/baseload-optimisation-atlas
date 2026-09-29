@@ -54,16 +54,9 @@ from boa.cds import convert as cds_convert
 from boa.cds import download as cds_download
 from boa.cds import install as cds_install
 from boa.cds import max_capacity as cds_max_capacity
-from boa.cds.spec import (
-    CDS_VARS,
-    LULC_DATASET,
-    PUBLISHED_CF_SHA256,
-    TECHS,
-    lulc_nc_name,
-    masks_extract_dir_name,
-    published_cf_url,
-)
+from boa.cds.spec import CDS_VARS, LULC_DATASET, TECHS, lulc_nc_name, masks_extract_dir_name
 from boa.cli import reconfigure_streams_utf8
+from boa.config.data_packages import PUBLISHED_CF_SHA256, published_cf_url
 from boa.config.paths import DEFAULT_SET, PathConfig
 from boa.config.physical_parameters import CAPACITY_DENSITY_MW_PER_KM2, ERA5_DATA_YEAR, REGION_COORDS
 from boa.fetch import fetch_verified_zip

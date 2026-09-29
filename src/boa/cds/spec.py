@@ -42,21 +42,6 @@ CDS_TEMPORAL_RESOLUTION = "1_hour"
 CDS_VERSION = "1_00"
 ALL_MONTHS = [f"{m:02d}" for m in range(1, 13)]
 
-##################################################################################################
-# DOWNLOAD USING OWN CDS ACCOUNT IS PREFERRED, HOWEVER RE-PUBLISHED CAPACITY FACTORS CAN BE USED #
-##################################################################################################
-# Capacity factors re-published on the public bucket, so a published year needs no CDS account
-# Each zip holds the year's two extracted folders plus a provenance JSON carrying the Copernicus attribution
-PUBLISHED_CF_BASE_URL = "https://steelo-data.s3.eu-north-1.amazonaws.com/boa-standalone-input-data"
-PUBLISHED_CF_SHA256 = {
-    2020: "b58cb1c97d6f0d52c96a1647b284ba26de05d17070588d3cb4d1648cf7804c28",
-    2021: "5ba1d9d58fe878a33807b4ce9c39e55e6dc491e3bcbe422d162cedc2c1e46ce2",
-    2022: "12519ecefff143e169a82207e76ecde6ada100d33e1bf83c9e1e67430f40af16",
-    2023: "546e8edabdd00ccc29016542299c9b2f0751fefee555595b2989333f17ef5216",
-    2024: "ea0ff1eddba1948604a2ce2a3efa59f248b7f6d3703fb07442c49cfce330e6dd",
-    2025: "c7a563830ac1482cf89df7bc11d513848b7207345f1cd252b2f7fa48d331d8a5",
-}
-
 # ESA-CCI land cover (used by boa_cds max-capacity), also served through CDS.
 LULC_DATASET = "satellite-land-cover"
 LULC_YEAR = 2022
@@ -75,11 +60,6 @@ def cf_extract_dir_name(
 ) -> str:
     """Directory the full-year zip is extracted to (12 monthly NetCDFs)."""
     return cf_zip_name(tech, year, "", tech_spec, resolution)[: -len(".zip")]
-
-
-def published_cf_url(year: int) -> str:
-    """URL of one year's re-published capacity-factor zip."""
-    return f"{PUBLISHED_CF_BASE_URL}/cds-capacity-factors-{year}.zip"
 
 
 def masks_zip_name(tech_spec: str = CDS_TECH_SPEC, resolution: str = CDS_RESOLUTION) -> str:
