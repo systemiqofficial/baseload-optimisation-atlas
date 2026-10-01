@@ -12,11 +12,10 @@ that steady demand (say, 85% of the time) — and what that costs per unit of en
 
 ## About
 
-<!-- Placeholder: replace itu-logo-placeholder.png with the official IT:U logo once we have it. -->
-<a href="https://www.systemiq.earth"><img src="docs/assets/logos/systemiq-logo.png" alt="SYSTEMIQ" height="50"></a>&nbsp;&nbsp;<a href="https://it-u.at/en/"><img src="docs/assets/logos/itu-logo-placeholder.png" alt="IT:U" height="50"></a>
+<a href="https://www.systemiq.earth"><img src="docs/assets/logos/systemiq-logo.png" alt="SYSTEMIQ" height="50"></a>&nbsp;&nbsp;<a href="https://it-u.at/en/"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/logos/itu-logo-white.png"><img src="docs/assets/logos/itu-logo-black.png" alt="Interdisciplinary Transformation University (IT:U)" height="50"></picture></a>
 
-BOA is a collaboration between [SYSTEMIQ](https://www.systemiq.earth) and
-[IT:U Interdisciplinary Transformation University Austria](https://it-u.at/en/). It was first created as part of
+BOA is a collaboration between [SYSTEMIQ](https://www.systemiq.earth) and the
+[Interdisciplinary Transformation University (IT:U)](https://it-u.at/en/). It was first created as part of
 [Steel-IQ](https://github.com/systemiqofficial/steel-iq) (see also
 [steel-iq.systemiq.earth](https://steel-iq.systemiq.earth)) and has since become a standalone
 package, developed in [this repository](https://github.com/systemiqofficial/baseload-optimisation-atlas).
