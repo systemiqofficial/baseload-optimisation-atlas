@@ -44,6 +44,7 @@ def _write_year(config, year, lcoe_offset=0.0, cost_keys=None, status=None, **at
             "era5_weather_year": 2024,
             "era5_resolution_deg": 0.25,
             "region": "GLOBAL",
+            "capacity_ceiling_applied": 0,
             **attr_overrides,
         },
     )
@@ -164,6 +165,34 @@ def test_varying_status_is_rejected(tmp_config):
     _write_run(tmp_config)
     _write_year(tmp_config, YEARS[1], status=[[0, 1, 1], [1, 1, 4]])
     with pytest.raises(ValueError, match="status differs"):
+        promote_lcoe(tmp_config, WEATHER_YEAR, LOAD_DENSITY, COVERAGE)
+
+
+def test_promoted_file_states_its_contract(tmp_config):
+    """What steel-iq checks before reading: the layout version, what the LCOE is per, and whether a ceiling applied."""
+    _write_run(tmp_config)
+    with xr.open_dataset(promote_lcoe(tmp_config, WEATHER_YEAR, LOAD_DENSITY, COVERAGE)) as out:
+        assert out.attrs["schema_version"] == 1
+        assert out.attrs["lcoe_basis"] == "per_mwh_delivered"
+        assert out.attrs["capacity_ceiling_applied"] == 0
+
+
+def test_years_disagreeing_on_the_capacity_ceiling_are_rejected(tmp_config):
+    _write_run(tmp_config)
+    _write_year(tmp_config, YEARS[1], capacity_ceiling_applied=1)
+    with pytest.raises(ValueError, match="different settings"):
+        promote_lcoe(tmp_config, WEATHER_YEAR, LOAD_DENSITY, COVERAGE)
+
+
+def test_a_run_that_does_not_record_the_capacity_ceiling_is_rejected(tmp_config):
+    """Runs from before the ceiling was recorded can't state the contract, so promotion refuses them."""
+    for i, year in enumerate(YEARS):
+        path = _write_year(tmp_config, year, lcoe_offset=i)
+        with xr.open_dataset(path) as ds:
+            stripped = ds.load()
+        del stripped.attrs["capacity_ceiling_applied"]
+        stripped.to_netcdf(path)
+    with pytest.raises(ValueError, match="capacity_ceiling_applied"):
         promote_lcoe(tmp_config, WEATHER_YEAR, LOAD_DENSITY, COVERAGE)
 
 

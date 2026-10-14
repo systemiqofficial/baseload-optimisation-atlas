@@ -55,6 +55,7 @@ boa-run --load-density 1.0 --coverage 0.95 --promote-lcoe   # or inline, right a
 
 Promotion stacks every year into a single `(year, lat, lon)` float32 variable and stores the
 cost keys and status codes once (they are year-invariant, and promotion refuses to run if they
-are not). Output: `lcoe-only/<run>/optimal_lcoe_<rho>MWkm2_cov<c>_<first>_<last>.nc`,
+are not). Output: `lcoe-only/<run>_<hash>/optimal_lcoe_wy<year>_<rho>MWkm2_cov<c>_<first>_<last>.nc`,
 carrying its own provenance (run name, input/cost sets, workbook sha256, boa version, git sha,
-scenario settings) so it identifies what produced it without the run directory.
+scenario settings) so it identifies what produced it without the run directory. Its layout is a
+contract with the steel simulation: see [promoted-lcoe-file.md](promoted-lcoe-file.md).

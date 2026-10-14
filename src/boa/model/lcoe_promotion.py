@@ -36,7 +36,13 @@ CARRIED_ATTRS = (
     "search_params_hash",
     "era5_weather_year",
     "era5_resolution_deg",
+    "capacity_ceiling_applied",
 )
+
+# The promoted-file contract (docs/promoted-lcoe-file.md). Raise the schema version whenever a
+# variable, attribute or meaning in the file changes, so a reader can refuse a layout it predates.
+PROMOTED_LCOE_SCHEMA_VERSION = 1
+LCOE_BASIS = "per_mwh_delivered"
 
 
 def discover_scenarios(path_config: PathConfig) -> list[tuple[int, float, float]]:
@@ -89,6 +95,8 @@ def _provenance_attrs(path_config: PathConfig, reference: xr.Dataset, years: lis
     attrs = {name: reference.attrs[name] for name in CARRIED_ATTRS if name in reference.attrs}
     attrs.update(
         {
+            "schema_version": PROMOTED_LCOE_SCHEMA_VERSION,
+            "lcoe_basis": LCOE_BASIS,
             "source": "Baseload Optimisation Atlas (BOA)",
             "title": "Optimal-system LCOE per investment year, for the steel-iq simulation",
             "run": path_config.run,
@@ -131,6 +139,11 @@ def promote_lcoe(path_config: PathConfig, weather_year: int, load_density: float
         cost_key = np.asarray(reference["cost_key"].values)
         status = np.asarray(reference["status"].values).astype(np.int8)
         attrs = _provenance_attrs(path_config, reference, years)
+    if "capacity_ceiling_applied" not in attrs:
+        raise ValueError(
+            f"{files[years[0]].name} does not record capacity_ceiling_applied, so the promoted file could not "
+            f"state whether a capacity ceiling applied. Re-run `boa-run` with this version of BOA."
+        )
 
     lcoe = np.empty((len(years), lat.size, lon.size), dtype=np.float32)
     bytes_in = 0
