@@ -118,7 +118,7 @@ def _region_cache(profiles, dead_profiles, anchor_costs, tmp_path):
         lons=np.array([20.0, 20.0], dtype=np.float32),
         iy=np.array([0, 1], dtype=np.int32),
         ix=np.array([0, 0], dtype=np.int32),
-        meta=build_frontier_meta("TESTREGION", 2, COVERAGE, PARAMS, 2024, 0.25),
+        meta=build_frontier_meta("TESTREGION", 2, COVERAGE, PARAMS, 2024, 0.25, [anchor_costs]),
     )
 
 

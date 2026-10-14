@@ -25,12 +25,14 @@ from boa.model.bisection import (
     argmin_lcoe,
     build_pixel_frontier,
 )
+from boa.model.anchors import Candidates, anchors_for_build, uncovered
 from boa.model.cost_calculations import installation_cost_breakdown, lcoe_coefficients
 from boa.model.frontier_cache import (
     RegionFrontierCache,
     build_frontier_meta,
     frontier_at,
     frontier_cache_path,
+    read_frontier_anchors,
     read_frontier_cache,
     stack_pixel_frontiers,
     write_frontier_cache,
@@ -217,7 +219,7 @@ def build_frontier_cache_for_region(
     region: str,
     coverage: float,
     profile: xr.Dataset,
-    anchors: list[CostCoefficients],
+    candidates: Candidates,
     path_config: PathConfig,
     n_workers: int,
     params: SearchParams | None = None,
@@ -226,9 +228,11 @@ def build_frontier_cache_for_region(
     """
     Build the schema v3 frontier cache for one region and persist it.
 
-    Idempotent: an existing store matching the parameter tuple is returned untouched unless
-    `force`. One store serves every baseload, every cost year and every cost scenario — it
-    holds dispatch physics and nothing else.
+    Idempotent: an existing store matching the parameter tuple, whose recorded anchors cover
+    every cost mix in `candidates`, is returned untouched unless `force`. Otherwise it is
+    rebuilt with its recorded anchors plus whatever `candidates` needs, so coverage only grows
+    (`boa.model.anchors.anchors_for_build`). One store serves every baseload, every cost year
+    and every cost scenario its anchors cover — it holds dispatch physics and nothing else.
 
     Three properties worth stating, because the Monte Carlo build it replaces had none of
     them and each is load-bearing:
@@ -239,29 +243,42 @@ def build_frontier_cache_for_region(
       rather than fall back, because it is now the only thing keeping a stale ceiling out.
     - **The cache directory keys on the weather year**, not the input set, for the same
       reason.
-    - **`anchors` is an input, not derived here.** Anchors decide where the dense patches
-      go and must cover the cost keys as well as the years (`boa.model.anchors`), but
-      deriving them here would tie the store to the canonical iso3 grid, which is precisely
-      what the build has always avoided.
+    - **The cost mixes are an input; no cost key is derived here.** Anchors decide where the
+      dense patches go and must cover the cost keys as well as the years (`boa.model.anchors`),
+      but deriving the keys here would tie the store to the canonical iso3 grid, which is
+      precisely what the build has always avoided.
     """
     params = SearchParams() if params is None else params
-    if not anchors:
+    if not candidates:
         # Fail before the land-point scan and the profile extraction. `build_pixel_frontier`
         # would raise per pixel, but only after a region's worth of setup had been paid for.
-        raise ValueError("build_frontier_cache_for_region needs at least one anchor")
+        raise ValueError("build_frontier_cache_for_region needs at least one cost mix to anchor on")
     weather_year = detect_weather_year(path_config)
     cache_dir = path_config.frontier_cache_dir(weather_year)
     cache_file = frontier_cache_path(cache_dir, region, coverage, params, weather_year, ERA5_DATA_RESOLUTION)
-    if cache_file.exists() and not force:
+    where = cache_file.relative_to(cache_dir)
+    stored = read_frontier_anchors(cache_file) if cache_file.exists() else None
+    anchors = anchors_for_build(stored, candidates, params)
+    if anchors is None:
+        if not force:
+            logging.info(
+                f"Frontier cache for {region} at {where} covers this run's cost mixes, or has no room "
+                f"for another anchor; skipping build (use --force to rebuild)."
+            )
+            return cache_file
+        anchors = list(stored or [])
+    elif cache_file.exists() and stored is None:
         logging.info(
-            f"Frontier cache for {region} already exists at {cache_file.relative_to(cache_dir)}; "
-            f"skipping build (use --force to rebuild)."
+            f"Frontier cache for {region} at {where} records no anchors, so it can't show what it covers; rebuilding it."
         )
-        return cache_file
+    elif stored is not None:
+        logging.info(
+            f"Frontier cache for {region} at {where} leaves {uncovered(stored, candidates, params.anchor_tol)} of "
+            f"this run's {len(candidates)} (cost key, year) mixes uncovered; rebuilding it with its "
+            f"{len(stored)} anchors plus the ones this run needs."
+        )
 
-    logging.info(
-        f"Building frontier cache for {region} at {cache_file.relative_to(cache_dir)} ({len(anchors)} anchors)."
-    )
+    logging.info(f"Building frontier cache for {region} at {where} ({len(anchors)} anchors).")
 
     land_points, all_lats, all_lons = choose_land_points_in_cutout(profile, path_config.lsm_path)
     npts = len(land_points)
@@ -321,7 +338,7 @@ def build_frontier_cache_for_region(
         lons=pt_lons,
         iy=iy,
         ix=ix,
-        meta=build_frontier_meta(region, npts, coverage, params, weather_year, ERA5_DATA_RESOLUTION),
+        meta=build_frontier_meta(region, npts, coverage, params, weather_year, ERA5_DATA_RESOLUTION, anchors),
     )
     written = write_frontier_cache(cache, cache_file)
     solved = int(np.sum(cache.status == STATUS_OK))

@@ -145,3 +145,69 @@ def test_an_empty_cost_set_raises():
     empty = _costs({})
     with pytest.raises(ValueError, match="no .* candidates"):
         anchor_cost_coefficients([2025], _one_year(empty))
+
+
+# --------------------------------------------------------------------------
+# Reusing a stored frontier cache
+# --------------------------------------------------------------------------
+
+SOLAR_CHEAP = {"solar": 100.0, "wind": 2000.0, "battery": 1000.0}
+WIND_CHEAP = {"solar": 2000.0, "wind": 100.0, "battery": 1000.0}
+
+
+def test_a_store_whose_anchors_cover_the_request_is_reused():
+    from boa.model.anchors import anchors_for_build, cost_candidates
+
+    candidates = cost_candidates([2025], _one_year(_costs({"AAA": SOLAR_CHEAP, "BBB": WIND_CHEAP})))
+    stored = anchor_cost_coefficients([2025], _one_year(_costs({"AAA": SOLAR_CHEAP, "BBB": WIND_CHEAP})))
+
+    assert anchors_for_build(stored, candidates) is None
+
+
+def test_a_narrower_request_than_the_store_is_reused():
+    """A short run after a full-horizon one must not throw the wider cache away."""
+    from boa.model.anchors import anchors_for_build, cost_candidates
+
+    stored = anchor_cost_coefficients([2025], _one_year(_costs({"AAA": SOLAR_CHEAP, "BBB": WIND_CHEAP})))
+    candidates = cost_candidates([2025], _one_year(_costs({"AAA": SOLAR_CHEAP})))
+
+    assert anchors_for_build(stored, candidates) is None
+
+
+def test_an_uncovered_request_rebuilds_over_the_union():
+    """
+    The store keeps what it covered and gains what the request needs, so alternating cost
+    sets or horizons settles after one rebuild each instead of rebuilding back and forth.
+    """
+    from boa.model.anchors import anchors_for_build, cost_candidates
+
+    stored = anchor_cost_coefficients([2025], _one_year(_costs({"AAA": SOLAR_CHEAP})))
+    candidates = cost_candidates([2025], _one_year(_costs({"BBB": WIND_CHEAP})))
+
+    anchors = anchors_for_build(stored, candidates)
+
+    assert anchors is not None
+    assert anchors[: len(stored)] == stored
+    assert len(anchors) == len(stored) + 1
+    assert anchors_for_build(anchors, candidates) is None
+
+
+def test_a_store_at_the_anchor_cap_is_reused_rather_than_rebuilt_unchanged():
+    """With no room for another anchor, a rebuild would reproduce the store on every run."""
+    from boa.model.anchors import anchors_for_build, cost_candidates
+
+    params = SearchParams(max_anchors=1)
+    stored = anchor_cost_coefficients([2025], _one_year(_costs({"AAA": SOLAR_CHEAP})), params=params)
+    candidates = cost_candidates([2025], _one_year(_costs({"BBB": WIND_CHEAP})))
+
+    assert anchors_for_build(stored, candidates, params) is None
+
+
+def test_a_store_that_records_no_anchors_is_rebuilt_for_the_request():
+    """Stores built before anchors were recorded can't show what they cover."""
+    from boa.model.anchors import anchors_for_build, cost_candidates
+
+    costs = _costs({"AAA": SOLAR_CHEAP, "BBB": WIND_CHEAP})
+    anchors = anchors_for_build(None, cost_candidates([2025], _one_year(costs)))
+
+    assert anchors == anchor_cost_coefficients([2025], _one_year(costs))

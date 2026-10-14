@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,7 +56,7 @@ import numpy as np
 import zarr
 
 from boa.config.paths import format_scenario_number
-from boa.model.bisection import PixelFrontier, SearchParams, max_patch_points
+from boa.model.bisection import CostCoefficients, PixelFrontier, SearchParams, max_patch_points
 
 
 FRONTIER_SCHEMA_VERSION = 3
@@ -279,13 +280,16 @@ def build_frontier_meta(
     params: SearchParams,
     weather_year: int,
     era5_resolution_deg: float,
+    anchors: Sequence[CostCoefficients],
 ) -> dict:
     """
     Assemble `group.attrs["meta"]`.
 
     `search_params` is stored field by field rather than only as a hash, so a mismatch can
     say *which* field moved instead of only that something did. `run_params` carries what
-    is not a `SearchParams` field but still determines the contents.
+    is not a `SearchParams` field but still determines the contents. `anchors` records where
+    the dense patches were placed, so a later run can tell whether the store covers the cost
+    mixes it is about to query (`boa.model.anchors.anchors_for_build`).
     """
     return {
         "schema_version": FRONTIER_SCHEMA_VERSION,
@@ -298,6 +302,7 @@ def build_frontier_meta(
             "weather_year": int(weather_year),
             "era5_resolution_deg": float(era5_resolution_deg),
         },
+        "anchors": [asdict(a) for a in anchors],
         "built_at": datetime.now(timezone.utc).isoformat(),
         "code_git_sha": _git_sha_short(),
     }
@@ -478,6 +483,16 @@ def read_frontier_cache(
         patch_points=_read_array(g, "patch_points"),
         meta=meta,
     )
+
+
+def read_frontier_anchors(path: Path) -> list[CostCoefficients] | None:
+    """
+    The anchors a store was built with, read from its meta without loading any array; None
+    when it records none (built before anchors were recorded).
+    """
+    raw_meta = zarr.open_group(str(path), mode="r").attrs.get("meta", {})
+    anchors = raw_meta.get("anchors") if isinstance(raw_meta, dict) else None
+    return None if anchors is None else [CostCoefficients(**a) for a in anchors]
 
 
 def frontier_at(cache: RegionFrontierCache, k: int) -> PixelFrontier:
