@@ -22,7 +22,7 @@ CORE_DATA_INSTALLED = "installed.json"
 # --input-file is not given. Built by scripts/package_cost.sh.
 COST_DATA_VERSION = "0.1"
 COST_DATA_URL = f"{STEELO_DATA_URL}/boa-cost-data-v{COST_DATA_VERSION}.zip"
-COST_DATA_SHA256 = "d80f64f2ae8f9af41cdeff38671848ee0161e9211eb20c2a11d64e615b378fe2"
+COST_DATA_SHA256 = "4df88c32a4186120ecad369016e55d772e3f57dde730b2d7dbaec27f0cc426d4"
 COST_DATA_WORKBOOK = f"boa-cost-data-v{COST_DATA_VERSION}.xlsx"
 # Installed under <root>/data/, unchanged, with an installed.json recording the zip it came from.
 COST_DATA_FOLDER = "boa-cost-data"

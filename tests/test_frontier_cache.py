@@ -45,7 +45,7 @@ ERA5_RES = 0.25
 def _one_pixel_cache(profiles, anchor_costs, params=PARAMS, coverage=COVERAGE):
     """A single-point region store, built from the shared synthetic profiles."""
     frontier = build_pixel_frontier(profiles["solar"], profiles["wind"], coverage, params, anchor_costs)
-    meta = build_frontier_meta("TESTREGION", 1, coverage, params, WEATHER_YEAR, ERA5_RES)
+    meta = build_frontier_meta("TESTREGION", 1, coverage, params, WEATHER_YEAR, ERA5_RES, [anchor_costs])
     cache = stack_pixel_frontiers(
         [frontier],
         region="TESTREGION",
@@ -303,3 +303,23 @@ def test_meta_records_what_built_it(profiles, anchor_costs):
     assert meta["run_params"]["coverage"] == COVERAGE
     # Stored field by field as well as hashed, so a mismatch can name the field.
     assert meta["search_params"]["patch_grid"] == PARAMS.patch_grid
+
+
+def test_the_store_records_its_anchors(tmp_path, profiles, anchor_costs):
+    """What the build was anchored on is what decides whether a later run can reuse it."""
+    from boa.model.frontier_cache import read_frontier_anchors
+
+    _, cache = _one_pixel_cache(profiles, anchor_costs)
+    path = write_frontier_cache(cache, tmp_path / "store.zarr")
+
+    assert read_frontier_anchors(path) == [anchor_costs]
+
+
+def test_a_store_without_recorded_anchors_reads_as_none(tmp_path, profiles, anchor_costs):
+    from boa.model.frontier_cache import read_frontier_anchors
+
+    _, cache = _one_pixel_cache(profiles, anchor_costs)
+    del cache.meta["anchors"]
+    path = write_frontier_cache(cache, tmp_path / "store.zarr")
+
+    assert read_frontier_anchors(path) is None

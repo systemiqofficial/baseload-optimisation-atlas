@@ -25,12 +25,14 @@ from boa.model.bisection import (
     argmin_lcoe,
     build_pixel_frontier,
 )
+from boa.model.anchors import Candidates, anchors_for_build, uncovered
 from boa.model.cost_calculations import installation_cost_breakdown, lcoe_coefficients
 from boa.model.frontier_cache import (
     RegionFrontierCache,
     build_frontier_meta,
     frontier_at,
     frontier_cache_path,
+    read_frontier_anchors,
     read_frontier_cache,
     stack_pixel_frontiers,
     write_frontier_cache,
@@ -131,19 +133,18 @@ def _query_frontier_tile(
         status = int(cache.status[k])
         if status != STATUS_OK:
             counters["zero_potential" if status == STATUS_ZERO_POTENTIAL else "no_optimum"] += 1
-            # Built explicitly rather than copied from `_ZERO_RESULT`: the template's nested
-            # breakdown has to be copied separately or every zero result shares one dict, and
-            # spelling the zeros out removes that trap along with the aliasing it guards.
+            # NaN, not 0, for everything the search didn't produce: a zero LCOE reads as free
+            # power to anyone who takes `lcoe` alone. The cost of capital is known regardless.
             results.append(
                 {
-                    "design": {"solar": 0.0, "wind": 0.0, "battery": 0.0},
-                    "lcoe": 0.0,
-                    "lcoe_coverage_based": 0.0,
-                    "installation_cost": 0.0,
-                    "installation_cost_breakdown": {"solar": 0.0, "wind": 0.0, "battery": 0.0},
-                    "coverage": 0.0,
-                    "served_fraction": 0.0,
-                    "cost_of_capital": 0.0,
+                    "design": {"solar": np.nan, "wind": np.nan, "battery": np.nan},
+                    "lcoe": np.nan,
+                    "lcoe_coverage_based": np.nan,
+                    "installation_cost": np.nan,
+                    "installation_cost_breakdown": {"solar": np.nan, "wind": np.nan, "battery": np.nan},
+                    "coverage": np.nan,
+                    "served_fraction": np.nan,
+                    "cost_of_capital": float(coc_arr[k]),
                     "cost_key": cost_key,
                     "status": status,
                     "load_mw": load_k,
@@ -218,7 +219,7 @@ def build_frontier_cache_for_region(
     region: str,
     coverage: float,
     profile: xr.Dataset,
-    anchors: list[CostCoefficients],
+    candidates: Candidates,
     path_config: PathConfig,
     n_workers: int,
     params: SearchParams | None = None,
@@ -227,9 +228,11 @@ def build_frontier_cache_for_region(
     """
     Build the schema v3 frontier cache for one region and persist it.
 
-    Idempotent: an existing store matching the parameter tuple is returned untouched unless
-    `force`. One store serves every baseload, every cost year and every cost scenario — it
-    holds dispatch physics and nothing else.
+    Idempotent: an existing store matching the parameter tuple, whose recorded anchors cover
+    every cost mix in `candidates`, is returned untouched unless `force`. Otherwise it is
+    rebuilt with its recorded anchors plus whatever `candidates` needs, so coverage only grows
+    (`boa.model.anchors.anchors_for_build`). One store serves every baseload, every cost year
+    and every cost scenario its anchors cover — it holds dispatch physics and nothing else.
 
     Three properties worth stating, because the Monte Carlo build it replaces had none of
     them and each is load-bearing:
@@ -240,29 +243,42 @@ def build_frontier_cache_for_region(
       rather than fall back, because it is now the only thing keeping a stale ceiling out.
     - **The cache directory keys on the weather year**, not the input set, for the same
       reason.
-    - **`anchors` is an input, not derived here.** Anchors decide where the dense patches
-      go and must cover the cost keys as well as the years (`boa.model.anchors`), but
-      deriving them here would tie the store to the canonical iso3 grid, which is precisely
-      what the build has always avoided.
+    - **The cost mixes are an input; no cost key is derived here.** Anchors decide where the
+      dense patches go and must cover the cost keys as well as the years (`boa.model.anchors`),
+      but deriving the keys here would tie the store to the canonical iso3 grid, which is
+      precisely what the build has always avoided.
     """
     params = SearchParams() if params is None else params
-    if not anchors:
+    if not candidates:
         # Fail before the land-point scan and the profile extraction. `build_pixel_frontier`
         # would raise per pixel, but only after a region's worth of setup had been paid for.
-        raise ValueError("build_frontier_cache_for_region needs at least one anchor")
+        raise ValueError("build_frontier_cache_for_region needs at least one cost mix to anchor on")
     weather_year = detect_weather_year(path_config)
     cache_dir = path_config.frontier_cache_dir(weather_year)
     cache_file = frontier_cache_path(cache_dir, region, coverage, params, weather_year, ERA5_DATA_RESOLUTION)
-    if cache_file.exists() and not force:
+    where = cache_file.relative_to(cache_dir)
+    stored = read_frontier_anchors(cache_file) if cache_file.exists() else None
+    anchors = anchors_for_build(stored, candidates, params)
+    if anchors is None:
+        if not force:
+            logging.info(
+                f"Frontier cache for {region} at {where} covers this run's cost mixes, or has no room "
+                f"for another anchor; skipping build (use --force to rebuild)."
+            )
+            return cache_file
+        anchors = list(stored or [])
+    elif cache_file.exists() and stored is None:
         logging.info(
-            f"Frontier cache for {region} already exists at {cache_file.relative_to(cache_dir)}; "
-            f"skipping build (use --force to rebuild)."
+            f"Frontier cache for {region} at {where} records no anchors, so it can't show what it covers; rebuilding it."
         )
-        return cache_file
+    elif stored is not None:
+        logging.info(
+            f"Frontier cache for {region} at {where} leaves {uncovered(stored, candidates, params.anchor_tol)} of "
+            f"this run's {len(candidates)} (cost key, year) mixes uncovered; rebuilding it with its "
+            f"{len(stored)} anchors plus the ones this run needs."
+        )
 
-    logging.info(
-        f"Building frontier cache for {region} at {cache_file.relative_to(cache_dir)} ({len(anchors)} anchors)."
-    )
+    logging.info(f"Building frontier cache for {region} at {where} ({len(anchors)} anchors).")
 
     land_points, all_lats, all_lons = choose_land_points_in_cutout(profile, path_config.lsm_path)
     npts = len(land_points)
@@ -322,7 +338,7 @@ def build_frontier_cache_for_region(
         lons=pt_lons,
         iy=iy,
         ix=ix,
-        meta=build_frontier_meta(region, npts, coverage, params, weather_year, ERA5_DATA_RESOLUTION),
+        meta=build_frontier_meta(region, npts, coverage, params, weather_year, ERA5_DATA_RESOLUTION, anchors),
     )
     written = write_frontier_cache(cache, cache_file)
     solved = int(np.sum(cache.status == STATUS_OK))
@@ -382,10 +398,7 @@ def query_frontier_cache_for_region(
     npts = cache.n_points
     logging.info(f"Querying frontier cache for {region} y{year}: {npts} points, {len(cache.all_lats)} lat rows.")
 
-    usable = cache.status == STATUS_OK
-    cost_keys, capex_per_tech, opex_per_tech, coc_arr = _derive_cost_arrays(
-        cache.lats, cache.lons, usable, costs, path_config
-    )
+    cost_keys, capex_per_tech, opex_per_tech, coc_arr = _derive_cost_arrays(cache.lats, cache.lons, costs, path_config)
     # D1: latitude-free density -> per-pixel absolute demand. Computed once for the whole
     # region rather than per pixel inside the tile worker.
     load_mw = load_density * pixel_area(cache.lats)
@@ -457,7 +470,6 @@ def query_frontier_cache_for_region(
 def _derive_cost_arrays(
     lats: np.ndarray,
     lons: np.ndarray,
-    usable: np.ndarray,
     costs: xr.Dataset,
     path_config: PathConfig,
 ) -> tuple[np.ndarray, dict, dict, np.ndarray]:
@@ -465,9 +477,9 @@ def _derive_cost_arrays(
     Per-point cost keys and the capex/opex/WACC arrays they resolve to.
 
     Geocoding happens at query time, not build time, so the frontier cache stays independent
-    of the canonical iso3 grid — the same reason it holds no capacity ceiling. `usable` marks
-    the points worth a lookup; a point with no optimum is never priced, so paying for its
-    geocode would be waste.
+    of the canonical iso3 grid — the same reason it holds no capacity ceiling. Every point is
+    looked up, including those with no optimum, so their output still names the cost key and
+    cost of capital they would have been priced at.
 
     Per-pixel fallback logging is suppressed and tallied instead: at ~30k points per region a
     line each would bury everything else, while the totals are what actually signal an
@@ -497,8 +509,6 @@ def _derive_cost_arrays(
     cost_keys = np.full(npts, "", dtype="<U32")
     try:
         for i in range(npts):
-            if not usable[i]:
-                continue
             cost_keys[i] = cost_key_for_point(
                 float(lats[i]),
                 float(lons[i]),
@@ -552,12 +562,12 @@ def _assemble_optimal_sol(
     """
     Scatter per-point results onto the region grid, write the NetCDF, return the dataset.
 
-    `status` is written for every point including the ones with no optimum -- recording why a
-    pixel produced nothing is the whole purpose of the code. Everything else stays zero there,
-    which is what the output has always meant by "not modelled".
+    `status`, `cost_key`, `cost_of_capital` and `load_mw` are written for every point, including
+    the ones with no optimum, so a missing result can be traced. Everything the search didn't
+    produce is NaN: at those points and at every sea pixel of the region grid.
     """
     fields = {
-        name: np.zeros(npts)
+        name: np.full(npts, np.nan)
         for name in (
             "lcoe",
             "lcoe_coverage_based",
@@ -583,10 +593,11 @@ def _assemble_optimal_sol(
             k_int = int(k)
             status_flat[k_int] = r["status"]
             cost_key_flat[k_int] = r.get("cost_key", "")
-            # load_mw is a closed form of latitude and the run's load density -- real for
-            # every pixel in the region regardless of whether a design was found, unlike the
-            # search-derived fields below.
+            # load_mw is a closed form of latitude and the run's load density, and the cost of
+            # capital follows from the cost key: both are real whether or not a design was found,
+            # unlike the search-derived fields below.
             fields["load_mw"][k_int] = r["load_mw"]
+            fields["cost_of_capital"][k_int] = r["cost_of_capital"]
             if r["status"] != STATUS_OK:
                 continue
             breakdown = r["installation_cost_breakdown"]
@@ -602,12 +613,11 @@ def _assemble_optimal_sol(
             fields["battery_factor"][k_int] = design["battery"]
             fields["coverage"][k_int] = r["coverage"]
             fields["served_fraction"][k_int] = r["served_fraction"]
-            fields["cost_of_capital"][k_int] = r["cost_of_capital"]
 
     shape = (len(all_lats), len(all_lons))
 
     def _to_grid(flat: np.ndarray, dtype=float) -> np.ndarray:
-        grid = np.zeros(shape, dtype=dtype)
+        grid = np.full(shape, np.nan) if np.dtype(dtype).kind == "f" else np.zeros(shape, dtype=dtype)
         grid[iy, ix] = flat
         return grid
 

@@ -345,10 +345,14 @@ def covering_anchors(
     coefficients_for: Callable[[_AnchorKey], CostCoefficients],
     tol: float,
     max_anchors: int = 32,
+    keep: int = 0,
 ) -> list[_AnchorKey]:
     """
     The smallest set of candidates such that every candidate's cost mix lies within `tol`
     of one of them, chosen greedily farthest-point-first.
+
+    The first `keep` candidates are always in the set: the anchors a stored frontier cache
+    was built with, so that whatever they covered stays covered when the store is rebuilt.
 
     `distinct_anchor_years` walks an ordered trajectory and is right for one; this is right
     for a set with no natural order, which is what the anchors actually have to cover. The
@@ -375,12 +379,14 @@ def covering_anchors(
         raise ValueError(f"tol must be non-negative, got {tol}")
     if max_anchors < 1:
         raise ValueError(f"max_anchors must be at least 1, got {max_anchors}")
+    if not 0 <= keep <= len(candidates):
+        raise ValueError(f"keep must be between 0 and the {len(candidates)} candidates, got {keep}")
     if not candidates:
         return []
 
     ratios = [np.asarray(cost_ratio_simplex(coefficients_for(c))) for c in candidates]
-    kept = [0]
-    gaps = np.array([float(np.max(np.abs(r - ratios[0]))) for r in ratios])
+    kept = list(range(keep)) or [0]
+    gaps = np.array([min(float(np.max(np.abs(r - ratios[k]))) for k in kept) for r in ratios])
     while len(kept) < max_anchors:
         far = int(np.argmax(gaps))
         if gaps[far] <= tol:

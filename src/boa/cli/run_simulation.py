@@ -42,7 +42,7 @@ import xarray as xr
 from boa.cli import reconfigure_streams_utf8
 from boa.config.paths import DEFAULT_SET, PathConfig, make_run_dirname
 from boa.config.physical_parameters import REGION_COORDS
-from boa.model.anchors import anchor_cost_coefficients
+from boa.model.anchors import cost_candidates
 from boa.model.bisection import SearchParams
 from boa.model.global_extension import (
     build_frontier_cache_for_region,
@@ -348,12 +348,14 @@ def build_all_caches(
     """
     Build the year- and baseload-independent frontier cache for every region.
 
-    Skip-if-exists unless `force`. `years` is the horizon the run will query, and it is used
-    only to choose anchors: seed placement is the one part of the build that reads a cost, so
-    the anchors must cover every (cost key, year) a later query can ask for. The stored values
-    are pure dispatch and serve every year regardless.
+    An existing store is reused, unless `force`, while its anchors cover every cost mix this
+    run will query; otherwise it is rebuilt over its old anchors plus the new ones. `years` is
+    the horizon the run will query, and it is used only for those cost mixes: seed placement is
+    the one part of the build that reads a cost, so the anchors must cover every
+    (cost key, year) a later query can ask for. The stored values are pure dispatch and serve
+    every year regardless.
     """
-    anchors = anchor_cost_coefficients(years, lambda year: _validate_cost_set(path_config, year))
+    candidates = cost_candidates(years, lambda year: _validate_cost_set(path_config, year))
     for region in REGION_COORDS:
         logging.info(f"\nBuilding frontier cache for {region}")
         profile = open_regional_dataset("profile", region, path_config)
@@ -361,7 +363,7 @@ def build_all_caches(
             region=region,
             coverage=coverage,
             profile=profile,
-            anchors=anchors,
+            candidates=candidates,
             path_config=path_config,
             n_workers=n_workers,
             force=force,

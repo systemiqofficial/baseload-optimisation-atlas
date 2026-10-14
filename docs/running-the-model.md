@@ -17,11 +17,15 @@ the cost side (xlsx + per-year cost cache), and `--run` labels the output (defau
 whenever a physical or search-tuning parameter changes -- `boa-promote-lcoe --run <label>`
 resolves the label back to it). A preflight
 check fails fast with the exact `boa-cds-prepare` / `boa-data-prepare` command when the
-selected sets are incomplete. The full run never rebuilds an existing frontier cache; use
-`build-cache --force` or `query --force` for targeted rebuilds. Frontier caches are
-baseload-independent and year-independent: one cache per (coverage, weather year, search
-parameters) serves every `--load-density` and every investment year, and is shared across
-every land-availability layer set built on the same weather. `--load-density` is MW/km2, not
+selected sets are incomplete. Frontier caches are baseload-independent and year-independent:
+one cache per (coverage, weather year, search parameters) serves every `--load-density` and
+every investment year, and is shared across every cost set and every land-availability layer
+set built on the same weather. Each cache records the anchors it was built with (the cost mixes
+that placed its dense search patches). The full run reuses a cache while those anchors cover
+every (cost key, year) it is about to query, and otherwise rebuilds it over its old anchors
+plus the new ones, so a new cost set or a longer horizon rebuilds once and then stays covered.
+Once a cache holds `max_anchors` anchors it is reused as it is, with a warning, since a rebuild
+could add no anchor. Use `build-cache --force` or `query --force` for targeted rebuilds. `--load-density` is MW/km2, not
 an absolute demand (D1): each pixel's own demand is
 `load_density * pixel_area(lat)`, so results are latitude-correct rather than one flat MW
 figure applied everywhere. A `query` against a warm cache is arithmetic per pixel and takes
@@ -51,6 +55,6 @@ boa-run --load-density 1.0 --coverage 0.95 --promote-lcoe   # or inline, right a
 
 Promotion stacks every year into a single `(year, lat, lon)` float32 variable and stores the
 cost keys and status codes once (they are year-invariant, and promotion refuses to run if they
-are not). Output: `lcoe-for-steel-iq/<run>/optimal_lcoe_<rho>MWkm2_cov<c>_<first>_<last>.nc`,
+are not). Output: `lcoe-only/<run>/optimal_lcoe_<rho>MWkm2_cov<c>_<first>_<last>.nc`,
 carrying its own provenance (run name, input/cost sets, workbook sha256, boa version, git sha,
 scenario settings) so it identifies what produced it without the run directory.
