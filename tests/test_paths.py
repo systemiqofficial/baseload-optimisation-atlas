@@ -44,6 +44,7 @@ def test_layout_splits_by_provenance(tmp_path):
     assert cfg.input_data_path == tmp_path / "costs" / "xlsx-rev3" / "boa_cost_data.xlsx"
     assert cfg.cost_cache_dir == tmp_path / "costs" / "xlsx-rev3" / "cache_costs"
     assert cfg.run_manifest_path == tmp_path / "runs" / "cds-2024__xlsx-rev3" / "run.json"
+    assert cfg.lcoe_promotion_dir == tmp_path / "lcoe-only" / "cds-2024__xlsx-rev3"
     assert cfg.optimal_sol_path(2024, 2.5, 0.95, "GLOBAL", 2030) == (
         tmp_path
         / "runs"

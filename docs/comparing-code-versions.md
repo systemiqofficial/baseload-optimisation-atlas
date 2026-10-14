@@ -69,7 +69,7 @@ BOA_DATA_ROOT="$ARM" uv run boa-run --load-density 1.0 --coverage 0.85 --cost-in
 | `inputs/cds-<year>/cache_frontiers/` | own, built by this version |
 | `costs/<cost-set>/boa_cost_data.xlsx` | own copy |
 | `costs/<cost-set>/cache_costs/` | own, built by this version on its first run |
-| `runs/`, `lcoe-for-steel-iq/` | own |
+| `runs/`, `lcoe-only/` | own |
 
 ## Running both at once
 
@@ -110,14 +110,14 @@ BOA_DATA_ROOT="$ARM" uv run boa-cds-prepare --weather_year 2024
 
 ## Comparing the results
 
-With `--promote-lcoe`, each arm writes one file per scenario to `lcoe-for-steel-iq/<run>_<hash>/`.
+With `--promote-lcoe`, each arm writes one file per scenario to `lcoe-only/<run>_<hash>/`.
 Its `run_git_sha` attribute confirms which code produced it:
 
 ```python
 import xarray as xr
 
-a = xr.open_dataset("<root-a>/lcoe-for-steel-iq/<run>_<hash>/<file>.nc")
-b = xr.open_dataset("<root-b>/lcoe-for-steel-iq/<run>_<hash>/<file>.nc")
+a = xr.open_dataset("<root-a>/lcoe-only/<run>_<hash>/<file>.nc")
+b = xr.open_dataset("<root-b>/lcoe-only/<run>_<hash>/<file>.nc")
 print("code:", a.attrs["run_git_sha"], "vs", b.attrs["run_git_sha"])
 diff = abs(b["lcoe"] - a["lcoe"])
 print(f"identical: {a['lcoe'].equals(b['lcoe'])}; max |Δ| {float(diff.max()):.3g} USD/MWh; "

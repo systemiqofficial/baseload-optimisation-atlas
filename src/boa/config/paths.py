@@ -141,7 +141,7 @@ class PathConfig:
         │   ├── run.json                   same run label + same params -> same directory
         │   └── outputs/wy<year>/<rho>MWkm2/cov<c>/nc/<REGION>/
         │             optimal_sol_wy<year>_<rho>MWkm2_cov<c>_<REGION>_<inv_year>.nc
-        └── lcoe-for-steel-iq/<run>_<hash>/  combined per-run LCOE files the steel sim reads
+        └── lcoe-only/<run>_<hash>/        combined per-run LCOE files the steel sim reads
 
     ``<rho>``/``<c>`` are dot-free, formatted via ``format_scenario_number`` (e.g.
     ``rho=2.5`` -> ``"02p5MWkm2"``, ``coverage=0.95`` -> ``"cov0p95"``); ``<year>`` is the
@@ -264,8 +264,8 @@ class PathConfig:
 
     @property
     def lcoe_promotion_dir(self) -> Path:
-        """``lcoe-for-steel-iq/<run>`` — combined LCOE files handed to the steel simulation."""
-        return self.root / "lcoe-for-steel-iq" / self.run
+        """``lcoe-only/<run>`` — combined LCOE files handed to the steel simulation."""
+        return self.root / "lcoe-only" / self.run
 
     def promoted_lcoe_filename(
         self, weather_year: int, load_density: float, coverage: float, year_start: int, year_end: int
