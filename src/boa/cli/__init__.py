@@ -1,4 +1,5 @@
-"""Console-script entry points: boa-run, boa-promote-lcoe, boa-cds-prepare, boa-cds-download, boa-data-prepare."""
+"""Console-script entry points: boa-run, boa-promote-lcoe, boa-cds-prepare, boa-cds-download, boa-data-prepare,
+boa-lcoe."""
 
 import sys
 
