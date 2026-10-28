@@ -6,17 +6,24 @@ Changes to BOA by version, newest first. Each version is a git tag, for example 
 
 ### Added
 
-- **`boa-lcoe`**: one command from cost data to promoted LCOE file. It runs `boa-data-prepare`,
-  `boa-cds-prepare --use-republished` and `boa-run --promote-lcoe` in turn, once per value of
-  `--coverage`, and stops at the first step that fails, with that step's exit code. Its last two
-  lines of output are `BOA_RUN=<run>` and `BOA_RUN_DIR=<folder>`.
+- **`boa-lcoe`**: one command from cost data to promoted LCOE file. It runs `boa-data-prepare` and
+  `boa-cds-prepare --use-republished`, then `boa-run --promote-lcoe` once per value of `--coverage`,
+  and stops at the first step that fails, with that step's exit code. Its last two lines of
+  standard output are `BOA_RUN=<run>` and `BOA_RUN_DIR=<folder>`. A custom cost set's prepared
+  workbook is handed to `boa-data-prepare`, so the pinned workbook never replaces it. Before any
+  step, it stops when `--input-file` comes without a `--scenario` name of its own, when a custom
+  cost set has neither `--input-file` nor a prepared workbook here, and when the run folder was
+  made by another BOA version, for another cost set or from another cost workbook, asking for a
+  new `--run`.
 - **`boa-lcoe --dry-run`**: prints each step's command, skips the two preparation steps and runs
   `boa-run --dry-run`.
 - **`boa-lcoe --like FILE`**: reruns the run that produced a promoted LCOE file, taking its cost set,
   weather year, coverage, load density, years and run label from the file. Options given on the
-  command line take precedence. It stops before any step when the cost workbook here is not the
-  one the file was produced with, or when the file was built on an input set `boa-lcoe` does not
-  prepare, and warns when the file comes from another BOA version.
+  command line take precedence. It stops before any step when the file was built on an input set
+  `boa-lcoe` does not prepare, or when the cost workbook the run would use is not the one the file
+  was produced with. For the default cost set that workbook is the pinned cost data package's; when
+  the package is not installed yet, the check runs once `boa-data-prepare` has installed it. It
+  warns when the file comes from another BOA version, whose run folder needs a new `--run`.
 
 ### Changed
 
@@ -26,16 +33,16 @@ Changes to BOA by version, newest first. Each version is a git tag, for example 
   version 1, the current version, so they stay valid.
 - **Recorded commit**: `run.json` (`git_sha`, promoted as `run_git_sha`) and the frontier cache
   (`code_git_sha`) now record BOA's own commit, read from the installed package (as `uvx --from
-  git+...@<tag>` installs it) or from git in the package's folder. Before, they recorded the
-  commit of the directory BOA was started from. Both hold 12 characters; `run.json` held git's
-  short form, usually 7, before.
+  git+...@<tag>` installs it) or from git in the package's folder when git tracks the package
+  there, and none otherwise. Before, they recorded the commit of the directory BOA was started
+  from. Both hold 12 characters; `run.json` held git's short form, usually 7, before.
 - **Packaging**: `uv build` gives a wheel that contains the `boa` package. The source distribution
   moved `src/boa` to its top level, so the wheel built from it held no code.
 
 ### Documentation
 
 - This changelog replaces `src/boa/CHANGELOG.md`.
-- The README quickstart adds the weather-data step and a `boa-lcoe` section.
+- The README adds activating the environment, the weather-data step and a `boa-lcoe` section.
 - `docs/running-the-model.md` and `docs/comparing-code-versions.md` describe the frontier cache version.
 
 ## 1.9.0

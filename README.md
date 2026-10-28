@@ -44,9 +44,13 @@ industry simulation (Steel-IQ) as the going rate for renewable power at that pla
 Requires Python >=3.13.
 
 ```bash
-uv sync --extra cds   # --extra cds pulls in the CDS API client (lazy-imported, optional)
-uv run pytest         # full test suite
+uv sync --extra cds        # --extra cds pulls in the CDS API client (lazy-imported, optional)
+source .venv/bin/activate  # puts boa-run, boa-lcoe and the other commands on PATH
+uv run pytest              # full test suite
 ```
+
+The commands below assume the environment is activated. Without activating it, prefix each one with
+`uv run`.
 
 ## Quickstart
 
@@ -63,15 +67,16 @@ re-published copy of that year's capacity factors instead (weather years 2020 to
 
 ## One command: `boa-lcoe`
 
-`boa-lcoe` runs `boa-data-prepare`, `boa-cds-prepare --use-republished` and
-`boa-run --promote-lcoe` in turn, so it needs no CDS account. Every step reuses what is already in
-place, so a rerun after a failure picks up where it stopped.
+`boa-lcoe` runs `boa-data-prepare` and `boa-cds-prepare --use-republished`, then
+`boa-run --promote-lcoe` once per coverage, so it needs no CDS account. The prepared data, the
+frontier caches and the per-year results are reused when already in place, so a rerun after a
+failure picks up where it stopped; only the promoted LCOE files are written again on every call.
 
 ```bash
 boa-lcoe --coverage 0.85 0.95                         # one boa-run per coverage
-boa-lcoe --input-file costs.xlsx --scenario mycase    # a custom cost workbook
+boa-lcoe --input-file costs.xlsx --scenario mycase    # a custom cost workbook, under a name of its own
 boa-lcoe --run smoke --start-year 2025 --end-year 2026 --dry-run
-boa-lcoe --like ~/.boa/lcoe-only/default_49e8/optimal_lcoe_wy2024_01MWkm2_cov0p85_2025_2060.nc
+boa-lcoe --like ~/.boa/lcoe-only/default_49e8/optimal_lcoe_wy2024_01MWkm2_cov0p85_2025_2060.nc --run rerun
 ```
 
 - **`--dry-run`** prints each step's command, skips both preparation steps and runs
@@ -79,9 +84,15 @@ boa-lcoe --like ~/.boa/lcoe-only/default_49e8/optimal_lcoe_wy2024_01MWkm2_cov0p8
 - **`--like FILE`** reruns the run behind a promoted LCOE file, taking its cost set, weather year,
   coverage, load density, years and run label from the file; options given on the command line
   take precedence. It stops when the cost workbook here is not the one the file was produced with:
-  pass that workbook as `--input-file`.
-- **Output**: the last two lines are `BOA_RUN=<run>` and `BOA_RUN_DIR=<folder>`, the run name and
-  its folder of promoted LCOE files under `lcoe-only/`. Steel-IQ takes the run name as
+  pass that workbook as `--input-file`. A file from another BOA version usually needs a new
+  `--run`, as in the example, since its run folder may be on this machine.
+- **Custom cost workbooks**: `--input-file` needs a `--scenario` name of its own, so the default
+  cost set is never replaced. Later runs of that cost set can leave out `--input-file`: its prepared
+  workbook is kept. A cost set not prepared on this machine needs `--input-file`.
+- **Run folders**: a run folder made by another BOA version, for another cost set or from another
+  cost workbook is refused before any step; pass a new `--run`.
+- **Output**: the last two lines of standard output are `BOA_RUN=<run>` and `BOA_RUN_DIR=<folder>`,
+  the run name and its folder of promoted LCOE files under `lcoe-only/`. Steel-IQ takes the run name as
   `run_simulation --boa-run <run>`.
 
 A full run from 2025 to 2060 takes about 75 minutes per coverage, and one weather year with five
