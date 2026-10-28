@@ -104,3 +104,14 @@ def test_commit_never_from_current_directory(tmp_path, monkeypatch, other_repo, 
 
     assert not any(sha and other_repo.startswith(sha) for sha in recorded)
     assert recorded == (own or None, own)
+
+
+def test_a_package_installed_inside_another_checkout_records_no_commit(tmp_path, monkeypatch, other_repo):
+    """An environment inside another checkout holds BOA untracked there, so git's commit there is not BOA's."""
+    _fake_direct_url(monkeypatch, None)
+    installed = tmp_path / "other_repo" / ".venv" / "site-packages" / "boa" / "__init__.py"
+    installed.parent.mkdir(parents=True)
+    installed.write_text("")
+    monkeypatch.setattr(boa, "__file__", str(installed))
+
+    assert _recorded(tmp_path) == (None, "")

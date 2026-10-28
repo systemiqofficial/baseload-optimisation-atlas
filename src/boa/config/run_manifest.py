@@ -37,8 +37,9 @@ def git_sha() -> str:
     The commit this BOA was installed from, abbreviated to 12 characters; empty if unknown.
 
     Read from the distribution's PEP 610 ``direct_url.json`` (``uvx --from git+...@tag``
-    fills it), else from git in the package's own folder. Never from the current directory:
-    BOA started from another repository would record that repository's commit.
+    fills it), else from git in the package's own folder when git tracks the package there.
+    Never from the current directory, or from a checkout the installed package merely sits in:
+    either would record another repository's commit.
     """
     try:
         direct_url = json.loads(
@@ -48,10 +49,17 @@ def git_sha() -> str:
         direct_url = {}
     if "vcs_info" in direct_url:
         return direct_url["vcs_info"]["commit_id"][:12]
+    package_dir = Path(boa.__file__).parent
     try:
+        subprocess.check_output(
+            ["git", "ls-files", "--error-unmatch", "__init__.py"],
+            cwd=package_dir,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
         return subprocess.check_output(
             ["git", "rev-parse", "--short=12", "HEAD"],
-            cwd=Path(boa.__file__).parent,
+            cwd=package_dir,
             stderr=subprocess.DEVNULL,
             text=True,
             timeout=2,
