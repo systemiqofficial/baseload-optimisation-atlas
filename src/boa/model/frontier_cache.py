@@ -61,6 +61,10 @@ from boa.model.bisection import CostCoefficients, PixelFrontier, SearchParams, m
 
 FRONTIER_SCHEMA_VERSION = 3
 
+# Bumped by hand whenever LCOE-changing code lands, so a store built by older physics is rebuilt
+# rather than reused. A store from before the field counts as 1.
+FRONTIER_CACHE_VERSION = 1
+
 # Points per chunk on the leading axis. The largest array is ~51 kB per point at default
 # parameters, so 32 points is a few megabytes -- large enough that compression works and
 # small enough to stay well inside memory. The access pattern is a full-region sweep, not
@@ -279,6 +283,7 @@ def build_frontier_meta(
     """
     return {
         "schema_version": FRONTIER_SCHEMA_VERSION,
+        "cache_version": FRONTIER_CACHE_VERSION,
         "region": region,
         "n_points": int(n_points),
         "search_params_hash": params_hash(params),
@@ -441,6 +446,12 @@ def read_frontier_cache(
             f"frontier cache at {path} has schema version {version}; this code requires "
             f"v{FRONTIER_SCHEMA_VERSION}. Delete the cache and rebuild."
         )
+    cache_version = read_frontier_cache_version(path)
+    if cache_version != FRONTIER_CACHE_VERSION:
+        raise ValueError(
+            f"frontier cache at {path} was built by frontier-cache version {cache_version}, not "
+            f"{FRONTIER_CACHE_VERSION}; rebuild it with `boa-run build-cache`."
+        )
     if expected_params is not None:
         _check_stored_params(path, meta, expected_params)
     if coverage is not None or weather_year is not None:
@@ -479,6 +490,12 @@ def read_frontier_anchors(path: Path) -> list[CostCoefficients] | None:
     raw_meta = zarr.open_group(str(path), mode="r").attrs.get("meta", {})
     anchors = raw_meta.get("anchors") if isinstance(raw_meta, dict) else None
     return None if anchors is None else [CostCoefficients(**a) for a in anchors]
+
+
+def read_frontier_cache_version(path: Path) -> int:
+    """The `FRONTIER_CACHE_VERSION` a store was built under, read from its meta; 1 when it records none."""
+    raw_meta = zarr.open_group(str(path), mode="r").attrs.get("meta", {})
+    return int(raw_meta.get("cache_version", 1)) if isinstance(raw_meta, dict) else 1
 
 
 def frontier_at(cache: RegionFrontierCache, k: int) -> PixelFrontier:
