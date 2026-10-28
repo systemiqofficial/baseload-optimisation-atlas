@@ -168,6 +168,28 @@ def run_name(args: argparse.Namespace) -> str:
     return run_simulation.resolve_run_id(selection)
 
 
+def use_prepared_workbook(args: argparse.Namespace) -> None:
+    """
+    Hand a custom cost set's prepared workbook to boa-data-prepare when no --input-file is given.
+
+    Args:
+        args: Parsed options; ``input_file`` is set in place.
+
+    Raises:
+        ValueError: When the custom cost set is not prepared here.
+
+    Notes:
+        Without --input-file, boa-data-prepare installs the pinned cost data package whatever the
+        cost set, which would replace the custom workbook. Given that workbook, it finds it up to date.
+    """
+    if args.input_file is not None or args.scenario in (None, DEFAULT_SET):
+        return
+    workbook = PathConfig.from_auto_detect(cost_set=args.scenario).input_data_path
+    if not workbook.exists():
+        raise ValueError(f"cost set '{args.scenario}' is not prepared here; pass its workbook as --input-file.")
+    args.input_file = str(workbook)
+
+
 def check_cost_workbook(args: argparse.Namespace, expected_sha256: str) -> bool:
     """
     Stop when the cost workbook this rerun would use is not the one the --like file was produced with.
@@ -297,17 +319,18 @@ def main(argv: list[str] | None = None) -> int:
         argv: Command-line arguments, ``sys.argv[1:]`` when None.
 
     Returns:
-        0 on success, 1 when a --like file cannot be rerun, else the exit code of the first step
-        that failed.
+        0 on success, 1 when a --like file cannot be rerun or a custom cost set has no workbook
+        here, else the exit code of the first step that failed.
     """
     args = build_parser().parse_args(argv)
     reconfigure_streams_utf8()
     unchecked_sha256 = None
-    if args.like is not None:
-        try:
+    try:
+        if args.like is not None:
             unchecked_sha256 = fill_from_promoted_file(args)
-        except (OSError, ValueError) as e:
-            return _stop(str(e))
+        use_prepared_workbook(args)
+    except (OSError, ValueError) as e:
+        return _stop(str(e))
     for name, step, step_argv in plan_steps(args):
         command = shlex.join([name, *step_argv])
         if args.dry_run and name in PREPARATION_STEPS:

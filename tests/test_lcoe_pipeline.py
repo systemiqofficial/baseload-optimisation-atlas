@@ -26,6 +26,14 @@ from boa.store_schema import max_cap_store_stem, profile_store_stem
 HASH = run_manifest.non_scenario_params_hash(SearchParams())
 
 
+def _prepare_cost_set(root, cost_set, workbook=b"a prepared cost workbook"):
+    """Write `cost_set`'s prepared workbook under `root`, as boa-data-prepare would, and return its path."""
+    path = PathConfig.from_root(root, cost_set=cost_set).input_data_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(workbook)
+    return path
+
+
 @pytest.fixture
 def steps(tmp_path, monkeypatch):
     """
@@ -107,6 +115,8 @@ def test_stops_at_the_first_failing_step_with_its_exit_code(steps, capsys, faili
     ],
 )
 def test_the_last_two_stdout_lines_name_the_run_and_its_folder(steps, capsys, tmp_path, argv, label):
+    _prepare_cost_set(tmp_path, "mycase")
+
     assert lcoe_pipeline.main(argv) == 0
 
     run = f"{label}_{HASH}"
@@ -117,18 +127,21 @@ def test_the_last_two_stdout_lines_name_the_run_and_its_folder(steps, capsys, tm
 
 
 def test_dry_run_prints_every_step_and_runs_only_boa_run_with_dry_run(steps, capsys, tmp_path):
+    workbook = _prepare_cost_set(tmp_path, "mycase")
+    before = sorted(tmp_path.rglob("*"))
+
     assert lcoe_pipeline.main(["--scenario", "mycase", "--coverage", "0.85", "0.95", "--dry-run"]) == 0
 
     assert [name for name, _ in steps.log] == ["run", "run"]
     assert all(argv[-1] == "--dry-run" for _, argv in steps.log)
     out = capsys.readouterr().out
-    assert "skipped (dry run): boa-data-prepare --scenario mycase" in out
+    assert f"skipped (dry run): boa-data-prepare --input-file {workbook} --scenario mycase" in out
     assert f"skipped (dry run): boa-cds-prepare --weather_year {ERA5_DATA_YEAR} --use-republished" in out
     assert out.splitlines()[-2:] == [
         f"BOA_RUN=mycase_{HASH}",
         f"BOA_RUN_DIR={tmp_path / 'lcoe-only' / f'mycase_{HASH}'}",
     ]
-    assert not any(tmp_path.iterdir())
+    assert sorted(tmp_path.rglob("*")) == before
 
 
 def test_dry_run_through_boa_runs_own_parser_writes_nothing(tmp_path, monkeypatch, caplog, capsys):
@@ -155,6 +168,37 @@ def test_dry_run_through_boa_runs_own_parser_writes_nothing(tmp_path, monkeypatc
     assert caplog.text.count(f"run: smoke_{HASH}") == 2
     assert capsys.readouterr().out.splitlines()[-2] == f"BOA_RUN=smoke_{HASH}"
     assert sorted(tmp_path.rglob("*")) == before
+
+
+def test_a_prepared_custom_workbook_is_kept_by_boa_data_prepare(tmp_path, monkeypatch):
+    """
+    boa-data-prepare runs for real, with its downloads, workbook checks, geo data and cost cache stubbed.
+    Without --input-file it would install the pinned package's workbook over the custom one.
+    """
+    monkeypatch.setenv("BOA_DATA_ROOT", str(tmp_path))
+    workbook = _prepare_cost_set(tmp_path, "mycase", b"the custom cost workbook")
+
+    def install_pinned_package(package_dir):
+        package_dir.mkdir(parents=True, exist_ok=True)
+        (package_dir / data_prepare.COST_DATA_WORKBOOK).write_bytes(b"the pinned cost workbook")
+
+    monkeypatch.setattr(data_prepare, "_install_cost_data", install_pinned_package)
+    monkeypatch.setattr(data_prepare, "_validate_workbook", lambda source: [2025])
+    monkeypatch.setattr(data_prepare, "_smoke_test", lambda workbook, year: None)
+    monkeypatch.setattr(data_prepare, "_prepare_geo_data", lambda *paths: None)
+    monkeypatch.setattr(data_prepare, "_build_cost_cache", lambda *args: None)
+    monkeypatch.setattr(run_cds, "main_prepare", lambda argv: 0)
+    seen_by_boa_run = []
+    monkeypatch.setattr(run_simulation, "main_run", lambda argv: seen_by_boa_run.append(workbook.read_bytes()) or 0)
+
+    assert lcoe_pipeline.main(["--scenario", "mycase", "--coverage", "0.85"]) == 0
+    assert seen_by_boa_run == [b"the custom cost workbook"]
+
+
+def test_a_custom_cost_set_not_prepared_here_stops_before_any_step(steps, capsys):
+    assert lcoe_pipeline.main(["--scenario", "mycase", "--coverage", "0.85"]) == 1
+    assert steps.log == []
+    assert "cost set 'mycase' is not prepared here; pass its workbook as --input-file" in capsys.readouterr().err
 
 
 # ---- --like ------------------------------------------------------------------
@@ -198,9 +242,11 @@ def _run_argv(coverage="0.9", rest="--start-year 2030 --end-year 2040 --frequenc
 def test_like_fills_every_option_from_the_file(steps, capsys, tmp_path):
     like = _promoted_file(tmp_path)
 
+    prepared = PathConfig.from_root(tmp_path, cost_set="mycase").input_data_path
+
     assert lcoe_pipeline.main(["--like", str(like)]) == 0
     assert steps.log == [
-        ("data_prepare", ["--scenario", "mycase"]),
+        ("data_prepare", ["--input-file", str(prepared), "--scenario", "mycase"]),
         ("cds_prepare", ["--weather_year", "2023", "--use-republished"]),
         ("run", _run_argv()),
     ]
