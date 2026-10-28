@@ -24,6 +24,8 @@ set built on the same weather. Each cache records the anchors it was built with 
 that placed its dense search patches). The full run reuses a cache while those anchors cover
 every (cost key, year) it is about to query, and otherwise rebuilds it over its old anchors
 plus the new ones, so a new cost set or a longer horizon rebuilds once and then stays covered.
+A cache built under another `FRONTIER_CACHE_VERSION`, raised by hand when code that changes the
+LCOE lands, is rebuilt instead, and `query` refuses it.
 Once a cache holds `max_anchors` anchors it is reused as it is, with a warning, since a rebuild
 could add no anchor. Use `build-cache --force` or `query --force` for targeted rebuilds. `--load-density` is MW/km2, not
 an absolute demand (D1): each pixel's own demand is

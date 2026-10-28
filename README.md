@@ -52,9 +52,40 @@ uv run pytest         # full test suite
 
 ```bash
 boa-data-prepare                                    # cost workbook + static geo data -> costs/default/
+boa-cds-download --year 2024                         # raw weather data from CDS    -> data/cds/
 boa-cds-prepare --weather_year 2024                  # weather-side stores          -> inputs/cds-2024/
 boa-run --load-density 1.0 --coverage 0.95 --dry-run # sanity-check, then drop --dry-run to run
 ```
+
+`boa-cds-download` needs a CDS account, `~/.cdsapirc` and `uv sync --extra cds`. Without an account,
+skip it and run `boa-cds-prepare --weather_year 2024 --use-republished`, which downloads the
+re-published copy of that year's capacity factors instead (weather years 2020 to 2025).
+
+## One command: `boa-lcoe`
+
+`boa-lcoe` runs `boa-data-prepare`, `boa-cds-prepare --use-republished` and
+`boa-run --promote-lcoe` in turn, so it needs no CDS account. Every step reuses what is already in
+place, so a rerun after a failure picks up where it stopped.
+
+```bash
+boa-lcoe --coverage 0.85 0.95                         # one boa-run per coverage
+boa-lcoe --input-file costs.xlsx --scenario mycase    # a custom cost workbook
+boa-lcoe --run smoke --start-year 2025 --end-year 2026 --dry-run
+boa-lcoe --like ~/.boa/lcoe-only/default_49e8/optimal_lcoe_wy2024_01MWkm2_cov0p85_2025_2060.nc
+```
+
+- **`--dry-run`** prints each step's command, skips both preparation steps and runs
+  `boa-run --dry-run`, which checks the arguments against the data on disk.
+- **`--like FILE`** reruns the run behind a promoted LCOE file, taking its cost set, weather year,
+  coverage, load density, years and run label from the file; options given on the command line
+  take precedence. It stops when the cost workbook here is not the one the file was produced with:
+  pass that workbook as `--input-file`.
+- **Output**: the last two lines are `BOA_RUN=<run>` and `BOA_RUN_DIR=<folder>`, the run name and
+  its folder of promoted LCOE files under `lcoe-only/`. Steel-IQ takes the run name as
+  `run_simulation --boa-run <run>`.
+
+A full run from 2025 to 2060 takes about 75 minutes per coverage, and one weather year with five
+coverages needs about 60 GB under the data root.
 
 ## Documentation
 
@@ -66,4 +97,4 @@ boa-run --load-density 1.0 --coverage 0.95 --dry-run # sanity-check, then drop -
 - [docs/model-assumptions.md](docs/model-assumptions.md) — sourced references for the physical parameter assumptions.
 - [docs/comparing-code-versions.md](docs/comparing-code-versions.md) — a separate data root per code version, sharing the large inputs.
 - [docs/roadmap.md](docs/roadmap.md) — open items.
-- [src/boa/CHANGELOG.md](src/boa/CHANGELOG.md) — the Monte-Carlo → grid-bisection search rewrite.
+- [CHANGELOG.md](CHANGELOG.md): changes by version.

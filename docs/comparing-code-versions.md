@@ -8,11 +8,13 @@ needed when comparing two versions of BOA's own code, e.g. a feature branch agai
 
 The frontier cache (`inputs/cds-<year>/cache_frontiers/`) is shared by every run on the same
 weather year. When a run reads a stored frontier, it checks only the search settings
-(`SearchParams`), the coverage and the weather year. The store records the git SHA that built it
-(`code_git_sha`), but nothing checks it. So if a code change alters the physics without changing
-the search settings, the second version reuses the first version's cache, and the comparison
-shows no difference. The per-year cost cache (`costs/<set>/cache_costs/`) has the same gap for
-changes to the cost processing that don't bump `COST_CACHE_VERSION`.
+(`SearchParams`), the coverage, the weather year and the cache version (`FRONTIER_CACHE_VERSION`
+in `boa/model/frontier_cache.py`, raised by hand when code that changes the LCOE lands). The store
+records the git SHA that built it (`code_git_sha`), but nothing checks it. So if a code change
+alters the physics without changing the search settings or raising the cache version, the second
+version reuses the first version's cache, and the comparison shows no difference. The per-year
+cost cache (`costs/<set>/cache_costs/`) has the same gap for changes to the cost processing that
+do not bump `COST_CACHE_VERSION`.
 
 ## Before you start
 
