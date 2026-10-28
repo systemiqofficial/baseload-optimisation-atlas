@@ -28,12 +28,14 @@ from boa.model.bisection import (
 from boa.model.anchors import Candidates, anchors_for_build, uncovered
 from boa.model.cost_calculations import installation_cost_breakdown, lcoe_coefficients
 from boa.model.frontier_cache import (
+    FRONTIER_CACHE_VERSION,
     RegionFrontierCache,
     build_frontier_meta,
     frontier_at,
     frontier_cache_path,
     read_frontier_anchors,
     read_frontier_cache,
+    read_frontier_cache_version,
     stack_pixel_frontiers,
     write_frontier_cache,
 )
@@ -233,6 +235,8 @@ def build_frontier_cache_for_region(
     rebuilt with its recorded anchors plus whatever `candidates` needs, so coverage only grows
     (`boa.model.anchors.anchors_for_build`). One store serves every baseload, every cost year
     and every cost scenario its anchors cover — it holds dispatch physics and nothing else.
+    A store built under another `FRONTIER_CACHE_VERSION` is treated as missing and rebuilt for
+    `candidates` alone.
 
     Three properties worth stating, because the Monte Carlo build it replaces had none of
     them and each is load-bearing:
@@ -257,7 +261,9 @@ def build_frontier_cache_for_region(
     cache_dir = path_config.frontier_cache_dir(weather_year)
     cache_file = frontier_cache_path(cache_dir, region, coverage, params, weather_year, ERA5_DATA_RESOLUTION)
     where = cache_file.relative_to(cache_dir)
-    stored = read_frontier_anchors(cache_file) if cache_file.exists() else None
+    built_version = read_frontier_cache_version(cache_file) if cache_file.exists() else FRONTIER_CACHE_VERSION
+    stale = built_version != FRONTIER_CACHE_VERSION
+    stored = read_frontier_anchors(cache_file) if cache_file.exists() and not stale else None
     anchors = anchors_for_build(stored, candidates, params)
     if anchors is None:
         if not force:
@@ -268,9 +274,12 @@ def build_frontier_cache_for_region(
             return cache_file
         anchors = list(stored or [])
     elif cache_file.exists() and stored is None:
-        logging.info(
-            f"Frontier cache for {region} at {where} records no anchors, so it can't show what it covers; rebuilding it."
+        why = (
+            f"was built by frontier-cache version {built_version}, not {FRONTIER_CACHE_VERSION}"
+            if stale
+            else "records no anchors, so it can't show what it covers"
         )
+        logging.info(f"Frontier cache for {region} at {where} {why}; rebuilding it.")
     elif stored is not None:
         logging.info(
             f"Frontier cache for {region} at {where} leaves {uncovered(stored, candidates, params.anchor_tol)} of "
