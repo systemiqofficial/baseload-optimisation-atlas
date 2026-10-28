@@ -89,8 +89,8 @@ boa-lcoe --like ~/.boa/lcoe-only/default_49e8/optimal_lcoe_wy2024_01MWkm2_cov0p8
 - **Custom cost workbooks**: `--input-file` needs a `--scenario` name of its own, so the default
   cost set is never replaced. Later runs of that cost set can leave out `--input-file`: its prepared
   workbook is kept. A cost set not prepared on this machine needs `--input-file`.
-- **Run folders**: a run folder made by another BOA version, for another cost set or from another
-  cost workbook is refused before any step; pass a new `--run`.
+- **Run folders**: a run folder made by another BOA version, for another cost set, on another
+  weather year or from another cost workbook is refused before any step; pass a new `--run`.
 - **Output**: the last two lines of standard output are `BOA_RUN=<run>` and `BOA_RUN_DIR=<folder>`,
   the run name and its folder of promoted LCOE files under `lcoe-only/`. Steel-IQ takes the run name as
   `run_simulation --boa-run <run>`.

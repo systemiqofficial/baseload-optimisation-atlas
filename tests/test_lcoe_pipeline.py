@@ -219,16 +219,17 @@ def test_input_file_without_a_cost_set_of_its_own_stops_before_any_step(steps, c
     [
         ({"boa_version": "0.1.0"}, "was made by BOA 0.1.0"),
         ({"cost_set": "other"}, "was made for the cost set 'other', not 'mycase'"),
+        ({"input_set": "cds-2023"}, f"was made on the input set 'cds-2023', not 'cds-{ERA5_DATA_YEAR}'"),
         ("workbook", "was made from another cost workbook"),
     ],
-    ids=["version", "cost-set", "workbook"],
+    ids=["version", "cost-set", "input-set", "workbook"],
 )
 def test_a_run_folder_boa_run_would_refuse_stops_before_any_step(steps, capsys, tmp_path, change, made):
     """
-    boa-run refuses to add to a run folder of another BOA version, cost set or cost workbook, so even a
-    dry run stops.
+    boa-run refuses to add to a run folder of another BOA version, cost set, input set or cost workbook,
+    so even a dry run stops.
     """
-    config = PathConfig.from_root(tmp_path, cost_set="mycase", run=f"mycase_{HASH}")
+    config = PathConfig.from_root(tmp_path, input_set=f"cds-{ERA5_DATA_YEAR}", cost_set="mycase", run=f"mycase_{HASH}")
     _prepare_cost_set(tmp_path, "mycase", b"the workbook the run was made from")
     run_manifest.record_invocation(config, "run", [])
     if change == "workbook":

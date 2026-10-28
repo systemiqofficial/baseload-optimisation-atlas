@@ -13,8 +13,8 @@ Changes to BOA by version, newest first. Each version is a git tag, for example 
   workbook is handed to `boa-data-prepare`, so the pinned workbook never replaces it. Before any
   step, it stops when `--input-file` comes without a `--scenario` name of its own, when a custom
   cost set has neither `--input-file` nor a prepared workbook here, and when the run folder was
-  made by another BOA version, for another cost set or from another cost workbook, asking for a
-  new `--run`.
+  made by another BOA version, for another cost set, on another weather year or from another cost
+  workbook, asking for a new `--run`.
 - **`boa-lcoe --dry-run`**: prints each step's command, skips the two preparation steps and runs
   `boa-run --dry-run`.
 - **`boa-lcoe --like FILE`**: reruns the run that produced a promoted LCOE file, taking its cost set,

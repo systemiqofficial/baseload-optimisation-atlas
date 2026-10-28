@@ -108,6 +108,11 @@ def _given(options: list[tuple[str, object]]) -> list[str]:
     return [token for flag, value in options if value is not None for token in (flag, str(value))]
 
 
+def _weather_year(args: argparse.Namespace) -> int:
+    """The weather year given, else the one boa-cds-prepare defaults to, since boa-run needs the set it prepares."""
+    return ERA5_DATA_YEAR if args.weather_year is None else args.weather_year
+
+
 def plan_steps(args: argparse.Namespace) -> list[Step]:
     """
     The steps in order, each with the argv it receives.
@@ -122,7 +127,7 @@ def plan_steps(args: argparse.Namespace) -> list[Step]:
         The weather year defaults to the constant boa-cds-prepare defaults to, since boa-run
         needs the input set it prepares. The input set is the geometry-only one.
     """
-    weather_year = ERA5_DATA_YEAR if args.weather_year is None else args.weather_year
+    weather_year = _weather_year(args)
     steps: list[Step] = [
         (
             "boa-data-prepare",
@@ -222,8 +227,8 @@ def check_run_folder(args: argparse.Namespace) -> None:
         args: Parsed options, with the cost workbook resolved.
 
     Raises:
-        ValueError: When the folder was made by another BOA version, for another cost set, or, with
-            --input-file, from another cost workbook.
+        ValueError: When the folder was made by another BOA version, for another cost set, on
+            another input set (weather year), or, with --input-file, from another cost workbook.
 
     Notes:
         boa-run checks a folder's provenance itself, but only after both preparation steps, and
@@ -242,6 +247,11 @@ def check_run_folder(args: argparse.Namespace) -> None:
     if made_for != cost_set:
         raise ValueError(
             f"the run folder {run} was made for the cost set '{made_for}', not '{cost_set}'; pass a new --run."
+        )
+    made_on, input_set = manifest["provenance"]["input_set"], run_cds.default_input_set(_weather_year(args), [])
+    if made_on != input_set:
+        raise ValueError(
+            f"the run folder {run} was made on the input set '{made_on}', not '{input_set}'; pass a new --run."
         )
     if args.input_file is not None and manifest["provenance"]["input_data_sha256"] != _sha256(args.input_file):
         raise ValueError(
