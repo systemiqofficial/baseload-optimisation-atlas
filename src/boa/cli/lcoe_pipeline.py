@@ -168,6 +168,27 @@ def run_name(args: argparse.Namespace) -> str:
     return run_simulation.resolve_run_id(selection)
 
 
+def require_own_cost_set(args: argparse.Namespace) -> None:
+    """
+    Stop when --input-file is given without a cost-set name of its own.
+
+    Args:
+        args: Parsed options, after any --like file has filled them.
+
+    Raises:
+        ValueError: When --scenario is missing or names the default cost set.
+
+    Notes:
+        Prepared as the default cost set, the workbook would replace the default cost data, and
+        its runs would take the default runs' names.
+    """
+    if args.input_file is not None and args.scenario in (None, DEFAULT_SET):
+        raise ValueError(
+            f"--input-file needs a cost-set name of its own: add --scenario <name>, so the workbook does not "
+            f"replace the '{DEFAULT_SET}' cost set."
+        )
+
+
 def use_prepared_workbook(args: argparse.Namespace) -> None:
     """
     Hand a custom cost set's prepared workbook to boa-data-prepare when no --input-file is given.
@@ -221,7 +242,8 @@ def check_cost_workbook(args: argparse.Namespace, expected_sha256: str) -> bool:
     if actual != expected_sha256:
         raise ValueError(
             f"{workbook} (sha256 {actual[:12]}) is not the cost workbook {args.like.name} was produced with "
-            f"(sha256 {expected_sha256[:12]}); pass that workbook as --input-file."
+            f"(sha256 {expected_sha256[:12]}); pass that workbook as --input-file"
+            f"{' with a --scenario name of its own' if args.scenario == DEFAULT_SET else ''}."
         )
     return True
 
@@ -319,8 +341,8 @@ def main(argv: list[str] | None = None) -> int:
         argv: Command-line arguments, ``sys.argv[1:]`` when None.
 
     Returns:
-        0 on success, 1 when a --like file cannot be rerun or a custom cost set has no workbook
-        here, else the exit code of the first step that failed.
+        0 on success, 1 when a --like file cannot be rerun or the cost workbook options do not
+        name a cost set of its own, else the exit code of the first step that failed.
     """
     args = build_parser().parse_args(argv)
     reconfigure_streams_utf8()
@@ -328,6 +350,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.like is not None:
             unchecked_sha256 = fill_from_promoted_file(args)
+        require_own_cost_set(args)
         use_prepared_workbook(args)
     except (OSError, ValueError) as e:
         return _stop(str(e))

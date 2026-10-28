@@ -201,6 +201,17 @@ def test_a_custom_cost_set_not_prepared_here_stops_before_any_step(steps, capsys
     assert "cost set 'mycase' is not prepared here; pass its workbook as --input-file" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("scenario", [[], ["--scenario", "default"]], ids=["no-scenario", "default-scenario"])
+def test_input_file_without_a_cost_set_of_its_own_stops_before_any_step(steps, capsys, tmp_path, scenario):
+    """Prepared as the default cost set, a custom workbook would replace the default cost data."""
+    workbook = tmp_path / "costs.xlsx"
+    workbook.write_bytes(b"a custom cost workbook")
+
+    assert lcoe_pipeline.main(["--input-file", str(workbook), *scenario]) == 1
+    assert steps.log == []
+    assert "--input-file needs a cost-set name of its own: add --scenario <name>" in capsys.readouterr().err
+
+
 # ---- --like ------------------------------------------------------------------
 
 WORKBOOK = b"the original cost workbook"
@@ -295,6 +306,27 @@ def test_another_cost_workbook_stops_before_any_step(steps, capsys, tmp_path, ch
     assert lcoe_pipeline.main(argv) == 1
     assert steps.log == []
     assert message in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("given", ["matching", "mismatching"])
+def test_a_default_set_file_rerun_from_its_workbook_asks_for_a_cost_set_of_its_own(steps, capsys, tmp_path, given):
+    """
+    Whichever way the workbook reaches the run, it must not land in the default cost set: passed as
+    --input-file, or found to differ from the default set prepared here.
+    """
+    like = _promoted_file(tmp_path, cost_set="default")
+    argv = ["--like", str(like)]
+    if given == "matching":
+        original = tmp_path / "original.xlsx"
+        original.write_bytes(WORKBOOK)
+        argv += ["--input-file", str(original)]
+    else:
+        _prepare_cost_set(tmp_path, "default", b"another cost workbook")
+
+    assert lcoe_pipeline.main(argv) == 1
+    assert steps.log == []
+    err = capsys.readouterr().err
+    assert "--scenario" in err and "of its own" in err
 
 
 def test_the_original_workbook_as_input_file_reruns(steps, tmp_path):
