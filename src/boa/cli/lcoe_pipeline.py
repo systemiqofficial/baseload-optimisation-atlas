@@ -41,6 +41,7 @@ import xarray as xr
 import boa
 from boa.cli import data_prepare, reconfigure_streams_utf8, run_cds, run_simulation
 from boa.config import run_manifest
+from boa.config.data_packages import COST_DATA_FOLDER, COST_DATA_INSTALLED, COST_DATA_SHA256, COST_DATA_WORKBOOK
 from boa.config.paths import DEFAULT_SET, PathConfig
 from boa.config.physical_parameters import ERA5_DATA_YEAR
 
@@ -248,6 +249,19 @@ def check_run_folder(args: argparse.Namespace) -> None:
         )
 
 
+def pinned_cost_workbook() -> Path | None:
+    """
+    The workbook boa-data-prepare installs as the default cost set: the pinned cost data package's.
+
+    Returns:
+        Its path when the package is installed here at the pinned sha256, else None.
+    """
+    package_dir = PathConfig.from_auto_detect().data_dir / COST_DATA_FOLDER
+    if data_prepare._installed_sha256(package_dir / COST_DATA_INSTALLED) != COST_DATA_SHA256:
+        return None
+    return package_dir / COST_DATA_WORKBOOK
+
+
 def check_cost_workbook(args: argparse.Namespace, expected_sha256: str) -> bool:
     """
     Stop when the cost workbook this rerun would use is not the one the --like file was produced with.
@@ -257,8 +271,9 @@ def check_cost_workbook(args: argparse.Namespace, expected_sha256: str) -> bool:
         expected_sha256: The file's ``input_data_sha256``.
 
     Returns:
-        False when there is no workbook to compare yet: the default cost set, not prepared here,
-        which boa-data-prepare installs from the pinned cost data package. True when it matches.
+        False when there is no workbook to compare yet: the default cost set, whose workbook
+        boa-data-prepare installs from the pinned cost data package, before that package is
+        installed here. True when it matches.
 
     Raises:
         ValueError: On another workbook, or on a custom cost set that is not prepared here when
@@ -266,11 +281,15 @@ def check_cost_workbook(args: argparse.Namespace, expected_sha256: str) -> bool:
     """
     if args.input_file is not None:
         workbook = Path(args.input_file)
+    elif args.scenario == DEFAULT_SET:
+        # boa-data-prepare replaces whatever the default cost set holds with the pinned workbook.
+        pinned = pinned_cost_workbook()
+        if pinned is None:
+            return False
+        workbook = pinned
     else:
         workbook = PathConfig.from_auto_detect(cost_set=args.scenario).input_data_path
         if not workbook.exists():
-            if args.scenario == DEFAULT_SET:
-                return False
             raise ValueError(
                 f"cost set '{args.scenario}' is not prepared here; pass the workbook {args.like.name} "
                 f"was produced with as --input-file."
@@ -294,7 +313,7 @@ def fill_from_promoted_file(args: argparse.Namespace) -> str | None:
 
     Returns:
         The file's cost workbook sha256 when it can only be checked once boa-data-prepare has
-        installed the default cost set, else None.
+        installed the pinned cost data package, else None.
 
     Raises:
         ValueError: When the file cannot be rerun as it was: an input set boa-lcoe does not
@@ -358,7 +377,7 @@ def fill_from_promoted_file(args: argparse.Namespace) -> str | None:
     if check_cost_workbook(args, attrs["input_data_sha256"]):
         return None
     if args.dry_run:
-        _warn(f"cost set '{args.scenario}' is not prepared yet, so a dry run cannot check its workbook.")
+        _warn("the pinned cost data package is not installed yet, so a dry run cannot check the cost workbook.")
     return attrs["input_data_sha256"]
 
 

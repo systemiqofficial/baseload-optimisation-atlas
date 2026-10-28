@@ -18,6 +18,7 @@ import xarray as xr
 import boa
 from boa.cli import data_prepare, lcoe_pipeline, run_cds, run_simulation
 from boa.config import run_manifest
+from boa.config.data_packages import COST_DATA_FOLDER, COST_DATA_INSTALLED, COST_DATA_SHA256, COST_DATA_WORKBOOK
 from boa.config.paths import PathConfig
 from boa.config.physical_parameters import ERA5_DATA_YEAR, REGION_COORDS
 from boa.model import lcoe_promotion
@@ -248,6 +249,18 @@ def test_a_run_folder_boa_run_would_refuse_stops_before_any_step(steps, capsys, 
 WORKBOOK = b"the original cost workbook"
 
 
+def _install_pinned_cost_package(root, workbook):
+    """
+    Install the pinned cost data package under `root` as boa-data-prepare does, with `workbook` as its
+    workbook, and copy it into the default cost set. Returns the default set's workbook path.
+    """
+    package_dir = PathConfig.from_root(root).data_dir / COST_DATA_FOLDER
+    package_dir.mkdir(parents=True, exist_ok=True)
+    (package_dir / COST_DATA_WORKBOOK).write_bytes(workbook)
+    (package_dir / COST_DATA_INSTALLED).write_text(json.dumps({"sha256": COST_DATA_SHA256}))
+    return _prepare_cost_set(root, "default", workbook)
+
+
 def _promoted_file(root, cost_set="mycase", years=(2030, 2035, 2040), **overrides):
     """
     A small promoted LCOE file for a run of `cost_set` on weather year 2023, at coverage 0.9 and
@@ -343,7 +356,7 @@ def test_another_cost_workbook_stops_before_any_step(steps, capsys, tmp_path, ch
 def test_a_default_set_file_rerun_from_its_workbook_asks_for_a_cost_set_of_its_own(steps, capsys, tmp_path, given):
     """
     Whichever way the workbook reaches the run, it must not land in the default cost set: passed as
-    --input-file, or found to differ from the default set prepared here.
+    --input-file, or found to differ from the pinned workbook boa-data-prepare installs there.
     """
     like = _promoted_file(tmp_path, cost_set="default")
     argv = ["--like", str(like)]
@@ -352,7 +365,7 @@ def test_a_default_set_file_rerun_from_its_workbook_asks_for_a_cost_set_of_its_o
         original.write_bytes(WORKBOOK)
         argv += ["--input-file", str(original)]
     else:
-        _prepare_cost_set(tmp_path, "default", b"another cost workbook")
+        _install_pinned_cost_package(tmp_path, b"another cost workbook")
 
     assert lcoe_pipeline.main(argv) == 1
     assert steps.log == []
@@ -375,11 +388,30 @@ def test_the_original_workbook_as_input_file_reruns(steps, tmp_path):
 )
 def test_an_unprepared_default_cost_set_is_checked_once_boa_data_prepare_installs_it(steps, tmp_path, installed, ran):
     like = _promoted_file(tmp_path, cost_set="default")
-    prepared = PathConfig.from_root(tmp_path, cost_set="default").input_data_path
-    prepared.unlink()
-    steps.effects["data_prepare"] = lambda: prepared.write_bytes(installed)
+    PathConfig.from_root(tmp_path, cost_set="default").input_data_path.unlink()
+    steps.effects["data_prepare"] = lambda: _install_pinned_cost_package(tmp_path, installed)
 
     assert lcoe_pipeline.main(["--like", str(like)]) == (0 if installed == WORKBOOK else 1)
+    assert [name for name, _ in steps.log] == ran
+
+
+@pytest.mark.parametrize(
+    ("pinned", "prepared", "ran"),
+    [
+        (b"another cost workbook", WORKBOOK, []),
+        (WORKBOOK, b"another cost workbook", ["data_prepare", "cds_prepare", "run"]),
+    ],
+    ids=["pinned-differs", "prepared-differs"],
+)
+def test_a_default_set_file_is_checked_against_the_workbook_boa_data_prepare_installs(
+    steps, tmp_path, pinned, prepared, ran
+):
+    """The default set's workbook is replaced by the pinned package's, so that is the one compared."""
+    like = _promoted_file(tmp_path, cost_set="default")
+    _install_pinned_cost_package(tmp_path, pinned)
+    _prepare_cost_set(tmp_path, "default", prepared)
+
+    assert lcoe_pipeline.main(["--like", str(like)]) == (1 if not ran else 0)
     assert [name for name, _ in steps.log] == ran
 
 
