@@ -46,7 +46,6 @@ it is now the only thing keeping a stale ceiling out.
 from __future__ import annotations
 
 import shutil
-import subprocess
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -56,6 +55,7 @@ import numpy as np
 import zarr
 
 from boa.config.paths import format_scenario_number
+from boa.config.run_manifest import git_sha
 from boa.model.bisection import CostCoefficients, PixelFrontier, SearchParams, max_patch_points
 
 
@@ -259,20 +259,6 @@ def stack_pixel_frontiers(
 # ----- meta -------------------------------------------------------------------
 
 
-def _git_sha_short() -> str:
-    """Current commit hash for provenance; empty if git is unavailable."""
-    try:
-        out = subprocess.run(
-            ["git", "rev-parse", "--short=12", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        return out.stdout.strip() if out.returncode == 0 else ""
-    except Exception:
-        return ""
-
-
 def build_frontier_meta(
     region: str,
     n_points: int,
@@ -304,7 +290,7 @@ def build_frontier_meta(
         },
         "anchors": [asdict(a) for a in anchors],
         "built_at": datetime.now(timezone.utc).isoformat(),
-        "code_git_sha": _git_sha_short(),
+        "code_git_sha": git_sha(),
     }
 
 

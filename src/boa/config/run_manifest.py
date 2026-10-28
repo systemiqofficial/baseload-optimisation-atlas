@@ -10,6 +10,8 @@ import json
 import logging
 import subprocess
 from datetime import datetime, timezone
+from importlib import metadata
+from pathlib import Path
 from typing import Any
 
 import boa
@@ -30,13 +32,32 @@ def _sha256(path) -> str | None:
     return h.hexdigest()
 
 
-def _git_sha() -> str | None:
+def git_sha() -> str:
+    """
+    The commit this BOA was installed from, abbreviated to 12 characters; empty if unknown.
+
+    Read from the distribution's PEP 610 ``direct_url.json`` (``uvx --from git+...@tag``
+    fills it), else from git in the package's own folder. Never from the current directory:
+    BOA started from another repository would record that repository's commit.
+    """
+    try:
+        direct_url = json.loads(
+            metadata.distribution("baseload-optimisation-atlas").read_text("direct_url.json") or "{}"
+        )
+    except metadata.PackageNotFoundError:
+        direct_url = {}
+    if "vcs_info" in direct_url:
+        return direct_url["vcs_info"]["commit_id"][:12]
     try:
         return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL, text=True
+            ["git", "rev-parse", "--short=12", "HEAD"],
+            cwd=Path(boa.__file__).parent,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
         ).strip()
-    except Exception:
-        return None
+    except (OSError, subprocess.SubprocessError):
+        return ""
 
 
 def _availability_signature(path_config: PathConfig) -> str | None:
@@ -145,7 +166,7 @@ def record_invocation(
             )
 
     manifest["updated_at"] = now
-    invocation: dict[str, Any] = {"at": now, "command": command, "argv": argv, "git_sha": _git_sha()}
+    invocation: dict[str, Any] = {"at": now, "command": command, "argv": argv, "git_sha": git_sha() or None}
     if parameters is not None:
         invocation["parameters"] = parameters
     manifest["invocations"].append(invocation)
