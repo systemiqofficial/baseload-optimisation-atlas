@@ -40,6 +40,7 @@ import xarray as xr
 
 import boa
 from boa.cli import data_prepare, reconfigure_streams_utf8, run_cds, run_simulation
+from boa.config import run_manifest
 from boa.config.paths import DEFAULT_SET, PathConfig
 from boa.config.physical_parameters import ERA5_DATA_YEAR
 
@@ -184,8 +185,9 @@ def require_own_cost_set(args: argparse.Namespace) -> None:
     """
     if args.input_file is not None and args.scenario in (None, DEFAULT_SET):
         raise ValueError(
-            f"--input-file needs a cost-set name of its own: add --scenario <name>, so the workbook does not "
-            f"replace the '{DEFAULT_SET}' cost set."
+            f"--input-file needs a cost-set name of its own: add --scenario <name>"
+            f"{' and a new --run <label>' if args.like is not None else ''}, so the workbook does not replace "
+            f"the '{DEFAULT_SET}' cost set."
         )
 
 
@@ -209,6 +211,41 @@ def use_prepared_workbook(args: argparse.Namespace) -> None:
     if not workbook.exists():
         raise ValueError(f"cost set '{args.scenario}' is not prepared here; pass its workbook as --input-file.")
     args.input_file = str(workbook)
+
+
+def check_run_folder(args: argparse.Namespace) -> None:
+    """
+    Stop when boa-run would refuse to add to the run folder these options resolve to.
+
+    Args:
+        args: Parsed options, with the cost workbook resolved.
+
+    Raises:
+        ValueError: When the folder was made by another BOA version, for another cost set, or, with
+            --input-file, from another cost workbook.
+
+    Notes:
+        boa-run checks a folder's provenance itself, but only after both preparation steps, and
+        then fails with a traceback.
+    """
+    run = run_name(args)
+    manifest = run_manifest.load(PathConfig.from_auto_detect(run=run))
+    if manifest is None:
+        return
+    made_by = manifest["provenance"]["boa_version"]
+    if made_by != boa.__version__:
+        raise ValueError(
+            f"the run folder {run} was made by BOA {made_by}, and this is BOA {boa.__version__}; pass a new --run."
+        )
+    made_for, cost_set = manifest["provenance"]["cost_set"], args.scenario or DEFAULT_SET
+    if made_for != cost_set:
+        raise ValueError(
+            f"the run folder {run} was made for the cost set '{made_for}', not '{cost_set}'; pass a new --run."
+        )
+    if args.input_file is not None and manifest["provenance"]["input_data_sha256"] != _sha256(args.input_file):
+        raise ValueError(
+            f"the run folder {run} was made from another cost workbook than {args.input_file}; pass a new --run."
+        )
 
 
 def check_cost_workbook(args: argparse.Namespace, expected_sha256: str) -> bool:
@@ -238,12 +275,12 @@ def check_cost_workbook(args: argparse.Namespace, expected_sha256: str) -> bool:
                 f"cost set '{args.scenario}' is not prepared here; pass the workbook {args.like.name} "
                 f"was produced with as --input-file."
             )
-    actual = hashlib.sha256(workbook.read_bytes()).hexdigest()
+    actual = _sha256(workbook)
     if actual != expected_sha256:
         raise ValueError(
             f"{workbook} (sha256 {actual[:12]}) is not the cost workbook {args.like.name} was produced with "
             f"(sha256 {expected_sha256[:12]}); pass that workbook as --input-file"
-            f"{' with a --scenario name of its own' if args.scenario == DEFAULT_SET else ''}."
+            f"{' with a --scenario name of its own and a new --run' if args.scenario == DEFAULT_SET else ''}."
         )
     return True
 
@@ -307,7 +344,8 @@ def fill_from_promoted_file(args: argparse.Namespace) -> str | None:
     if attrs["boa_version"] != boa.__version__:
         _warn(
             f"{path.name} was produced by BOA {attrs['boa_version']}; this is BOA {boa.__version__}. Results "
-            f"may differ if LCOE-changing code landed between the two versions."
+            f"may differ if LCOE-changing code landed between the two versions, and if its run folder "
+            f"{attrs['run']} is on this machine, the rerun needs a new --run."
         )
     if run_from_file and (resolved := run_name(args)) != attrs["run"]:
         _warn(
@@ -322,6 +360,10 @@ def fill_from_promoted_file(args: argparse.Namespace) -> str | None:
     if args.dry_run:
         _warn(f"cost set '{args.scenario}' is not prepared yet, so a dry run cannot check its workbook.")
     return attrs["input_data_sha256"]
+
+
+def _sha256(path: str | Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def _warn(message: str) -> None:
@@ -341,8 +383,9 @@ def main(argv: list[str] | None = None) -> int:
         argv: Command-line arguments, ``sys.argv[1:]`` when None.
 
     Returns:
-        0 on success, 1 when a --like file cannot be rerun or the cost workbook options do not
-        name a cost set of its own, else the exit code of the first step that failed.
+        0 on success, 1 when a --like file cannot be rerun, the cost workbook options do not name a
+        cost set of its own, or boa-run would refuse the run folder, else the exit code of the first
+        step that failed.
     """
     args = build_parser().parse_args(argv)
     reconfigure_streams_utf8()
@@ -352,6 +395,7 @@ def main(argv: list[str] | None = None) -> int:
             unchecked_sha256 = fill_from_promoted_file(args)
         require_own_cost_set(args)
         use_prepared_workbook(args)
+        check_run_folder(args)
     except (OSError, ValueError) as e:
         return _stop(str(e))
     for name, step, step_argv in plan_steps(args):

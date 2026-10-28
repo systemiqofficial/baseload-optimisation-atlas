@@ -7,6 +7,7 @@ tests read a small promoted file whose attributes come from BOA's own promotion 
 """
 
 import hashlib
+import json
 import logging
 from types import SimpleNamespace
 
@@ -212,6 +213,36 @@ def test_input_file_without_a_cost_set_of_its_own_stops_before_any_step(steps, c
     assert "--input-file needs a cost-set name of its own: add --scenario <name>" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    ("change", "made"),
+    [
+        ({"boa_version": "0.1.0"}, "was made by BOA 0.1.0"),
+        ({"cost_set": "other"}, "was made for the cost set 'other', not 'mycase'"),
+        ("workbook", "was made from another cost workbook"),
+    ],
+    ids=["version", "cost-set", "workbook"],
+)
+def test_a_run_folder_boa_run_would_refuse_stops_before_any_step(steps, capsys, tmp_path, change, made):
+    """
+    boa-run refuses to add to a run folder of another BOA version, cost set or cost workbook, so even a
+    dry run stops.
+    """
+    config = PathConfig.from_root(tmp_path, cost_set="mycase", run=f"mycase_{HASH}")
+    _prepare_cost_set(tmp_path, "mycase", b"the workbook the run was made from")
+    run_manifest.record_invocation(config, "run", [])
+    if change == "workbook":
+        _prepare_cost_set(tmp_path, "mycase", b"another cost workbook")
+    else:
+        manifest = json.loads(config.run_manifest_path.read_text())
+        manifest["provenance"].update(change)
+        config.run_manifest_path.write_text(json.dumps(manifest))
+
+    assert lcoe_pipeline.main(["--scenario", "mycase", "--dry-run"]) == 1
+    assert steps.log == []
+    assert f"the run folder mycase_{HASH} {made}" in capsys.readouterr().err
+    assert lcoe_pipeline.main(["--scenario", "mycase", "--run", "fresh", "--dry-run"]) == 0
+
+
 # ---- --like ------------------------------------------------------------------
 
 WORKBOOK = b"the original cost workbook"
@@ -326,7 +357,7 @@ def test_a_default_set_file_rerun_from_its_workbook_asks_for_a_cost_set_of_its_o
     assert lcoe_pipeline.main(argv) == 1
     assert steps.log == []
     err = capsys.readouterr().err
-    assert "--scenario" in err and "of its own" in err
+    assert "--scenario" in err and "of its own" in err and "a new --run" in err
 
 
 def test_the_original_workbook_as_input_file_reruns(steps, tmp_path):
@@ -359,6 +390,7 @@ def test_another_boa_version_warns(steps, capsys, tmp_path):
     err = capsys.readouterr().err
     assert f"produced by BOA 0.1.0; this is BOA {boa.__version__}" in err
     assert "may differ if LCOE-changing code landed" in err
+    assert f"if its run folder mycase_{HASH} is on this machine, the rerun needs a new --run" in err
 
 
 def test_a_label_resolving_to_another_run_folder_warns(steps, capsys, tmp_path):
