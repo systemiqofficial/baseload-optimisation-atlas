@@ -17,22 +17,46 @@ lines are `BOA_RUN=<run>` and `BOA_RUN_DIR=<path>`: the run name, as the steel s
 --dry-run prints every step's command, skips the two preparation steps and passes --dry-run to
 boa-run, so the arguments can be checked against the data on disk without any compute.
 
+--like FILE reruns a promoted LCOE file: its run, cost set, weather year, coverage, load density
+and years fill every option not given. It stops before any step when the cost workbook here is
+not the one the file was produced with, and warns when the file comes from another BOA version.
+
 Examples:
     boa-lcoe --coverage 0.85 0.95
     boa-lcoe --input-file costs.xlsx --scenario mycase --coverage 0.85
     boa-lcoe --run smoke --coverage 0.85 --start-year 2025 --end-year 2026 --dry-run
+    boa-lcoe --like ~/.boa/lcoe-only/default_49e8/optimal_lcoe_wy2024_01MWkm2_cov0p85_2025_2060.nc --dry-run
 """
 
 import argparse
+import hashlib
 import shlex
 import sys
 from collections.abc import Callable
+from pathlib import Path
 
+import numpy as np
+import xarray as xr
+
+import boa
 from boa.cli import data_prepare, reconfigure_streams_utf8, run_cds, run_simulation
-from boa.config.paths import PathConfig
+from boa.config.paths import DEFAULT_SET, PathConfig
 from boa.config.physical_parameters import ERA5_DATA_YEAR
 
 PREPARATION_STEPS = ("boa-data-prepare", "boa-cds-prepare")
+
+# The promoted-file attributes a --like rerun reads (docs/promoted-lcoe-file.md).
+LIKE_ATTRS = (
+    "run",
+    "input_set",
+    "cost_set",
+    "input_data_sha256",
+    "boa_version",
+    "era5_weather_year",
+    "coverage_fraction",
+    "load_density_mw_km2",
+    "promoted_years",
+)
 
 # A command's name, its entry function and the argv it receives.
 Step = tuple[str, Callable[[list[str]], int], list[str]]
@@ -66,6 +90,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frequency", type=int, help="boa-run --frequency.")
     parser.add_argument("--load-density", type=float, help="boa-run --load-density.")
     parser.add_argument("--workers", help="boa-run --workers.")
+    parser.add_argument(
+        "--like", type=Path, help="Promoted LCOE file to rerun; its settings fill every option not given."
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -141,6 +168,127 @@ def run_name(args: argparse.Namespace) -> str:
     return run_simulation.resolve_run_id(selection)
 
 
+def check_cost_workbook(args: argparse.Namespace, expected_sha256: str) -> bool:
+    """
+    Stop when the cost workbook this rerun would use is not the one the --like file was produced with.
+
+    Args:
+        args: Options filled from the --like file.
+        expected_sha256: The file's ``input_data_sha256``.
+
+    Returns:
+        False when there is no workbook to compare yet: the default cost set, not prepared here,
+        which boa-data-prepare installs from the pinned cost data package. True when it matches.
+
+    Raises:
+        ValueError: On another workbook, or on a custom cost set that is not prepared here when
+            no --input-file is given.
+    """
+    if args.input_file is not None:
+        workbook = Path(args.input_file)
+    else:
+        workbook = PathConfig.from_auto_detect(cost_set=args.scenario).input_data_path
+        if not workbook.exists():
+            if args.scenario == DEFAULT_SET:
+                return False
+            raise ValueError(
+                f"cost set '{args.scenario}' is not prepared here; pass the workbook {args.like.name} "
+                f"was produced with as --input-file."
+            )
+    actual = hashlib.sha256(workbook.read_bytes()).hexdigest()
+    if actual != expected_sha256:
+        raise ValueError(
+            f"{workbook} (sha256 {actual[:12]}) is not the cost workbook {args.like.name} was produced with "
+            f"(sha256 {expected_sha256[:12]}); pass that workbook as --input-file."
+        )
+    return True
+
+
+def fill_from_promoted_file(args: argparse.Namespace) -> str | None:
+    """
+    Fill every option not given from the --like promoted file, so the steps rerun it.
+
+    Args:
+        args: Parsed options; those still None are filled in place, so an explicit flag wins.
+
+    Returns:
+        The file's cost workbook sha256 when it can only be checked once boa-data-prepare has
+        installed the default cost set, else None.
+
+    Raises:
+        ValueError: When the file cannot be rerun as it was: an input set boa-lcoe does not
+            prepare, years boa-run cannot produce, or another cost workbook.
+
+    Notes:
+        The file is only read. A different BOA version, or a run label that resolves to another
+        run folder here, is a warning, not a stop.
+    """
+    path = args.like
+    with xr.open_dataset(path) as ds:
+        attrs = dict(ds.attrs)
+    missing = [name for name in LIKE_ATTRS if name not in attrs]
+    if missing:
+        raise ValueError(f"{path} is not a promoted LCOE file: it has no {', '.join(missing)} attribute.")
+
+    weather_year = int(attrs["era5_weather_year"])
+    input_set = run_cds.default_input_set(weather_year, [])
+    if attrs["input_set"] != input_set:
+        raise ValueError(
+            f"{path.name} was built on the input set '{attrs['input_set']}', but boa-lcoe prepares only "
+            f"'{input_set}' for weather year {weather_year}, with no availability layers."
+        )
+    # A single year comes back from the file as a scalar.
+    years = sorted(int(year) for year in np.atleast_1d(attrs["promoted_years"]))
+    frequency = years[1] - years[0] if len(years) > 1 else 1
+    if run_simulation.get_simulation_years(years[0], years[-1], frequency) != years:
+        raise ValueError(f"boa-run cannot produce the years of {path.name}, {years}, from a start, end and step.")
+
+    run_from_file = args.run is None
+    # The file names the run folder, <label>_<hash> (paths.make_run_dirname); --run takes the label.
+    label = attrs["run"].rpartition("_")[0] or attrs["run"]
+    from_file = {
+        "scenario": attrs["cost_set"],
+        "weather_year": weather_year,
+        "run": label,
+        "coverage": [float(attrs["coverage_fraction"])],
+        "load_density": float(attrs["load_density_mw_km2"]),
+        "start_year": years[0],
+        "end_year": years[-1],
+        "frequency": frequency if frequency != 1 else None,
+    }
+    for name, value in from_file.items():
+        if getattr(args, name) is None:
+            setattr(args, name, value)
+
+    if attrs["boa_version"] != boa.__version__:
+        _warn(
+            f"{path.name} was produced by BOA {attrs['boa_version']}; this is BOA {boa.__version__}. Results "
+            f"may differ if LCOE-changing code landed between the two versions."
+        )
+    if run_from_file and (resolved := run_name(args)) != attrs["run"]:
+        _warn(
+            f"{path.name} comes from the run folder {attrs['run']}, but this BOA resolves the label "
+            f"'{args.run}' to {resolved}, since its search parameters or physical constants differ."
+        )
+    if not attrs["input_data_sha256"]:
+        _warn(f"{path.name} records no cost workbook sha256, so the workbook is not checked.")
+        return None
+    if check_cost_workbook(args, attrs["input_data_sha256"]):
+        return None
+    if args.dry_run:
+        _warn(f"cost set '{args.scenario}' is not prepared yet, so a dry run cannot check its workbook.")
+    return attrs["input_data_sha256"]
+
+
+def _warn(message: str) -> None:
+    print(f"boa-lcoe: warning: {message}", file=sys.stderr, flush=True)
+
+
+def _stop(message: str, code: int = 1) -> int:
+    print(f"boa-lcoe: {message}", file=sys.stderr, flush=True)
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
     """
     Console entry for `boa-lcoe`.
@@ -149,10 +297,17 @@ def main(argv: list[str] | None = None) -> int:
         argv: Command-line arguments, ``sys.argv[1:]`` when None.
 
     Returns:
-        0 on success, else the exit code of the first step that failed.
+        0 on success, 1 when a --like file cannot be rerun, else the exit code of the first step
+        that failed.
     """
     args = build_parser().parse_args(argv)
     reconfigure_streams_utf8()
+    unchecked_sha256 = None
+    if args.like is not None:
+        try:
+            unchecked_sha256 = fill_from_promoted_file(args)
+        except (OSError, ValueError) as e:
+            return _stop(str(e))
     for name, step, step_argv in plan_steps(args):
         command = shlex.join([name, *step_argv])
         if args.dry_run and name in PREPARATION_STEPS:
@@ -161,8 +316,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"boa-lcoe: {command}", flush=True)
         code = step(step_argv)
         if code:
-            print(f"boa-lcoe: {name} failed with exit code {code}; stopping.", file=sys.stderr, flush=True)
-            return code
+            return _stop(f"{name} failed with exit code {code}; stopping.", code)
+        if name == "boa-data-prepare" and unchecked_sha256 is not None:
+            try:
+                check_cost_workbook(args, unchecked_sha256)
+            except ValueError as e:
+                return _stop(str(e))
     run = run_name(args)
     run_dir = PathConfig.from_auto_detect(run=run).lcoe_promotion_dir
     # Last on stdout, after everything the steps logged there, for a caller to parse.

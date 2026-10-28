@@ -1,19 +1,25 @@
 """
 `boa-lcoe` runs boa-data-prepare, boa-cds-prepare and boa-run in order, passing on only the options given.
 
-The three commands are replaced by recorders, except in the last test, where boa-run's own
-parser and run naming are checked against a dry run on synthetic stores under `tmp_path`.
+The three commands are replaced by recorders, except in one test, where boa-run's own parser
+and run naming are checked against a dry run on synthetic stores under `tmp_path`. The --like
+tests read a small promoted file whose attributes come from BOA's own promotion code.
 """
 
+import hashlib
 import logging
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
+import xarray as xr
 
+import boa
 from boa.cli import data_prepare, lcoe_pipeline, run_cds, run_simulation
 from boa.config import run_manifest
 from boa.config.paths import PathConfig
 from boa.config.physical_parameters import ERA5_DATA_YEAR, REGION_COORDS
+from boa.model import lcoe_promotion
 from boa.model.bisection import SearchParams
 from boa.store_schema import max_cap_store_stem, profile_store_stem
 
@@ -26,13 +32,15 @@ def steps(tmp_path, monkeypatch):
     Replaces the three commands with recorders that print to stdout, as BOA's logging does.
 
     `codes[name]` lists the exit codes that command returns on successive calls; 0 once used up.
+    `effects[name]` runs on each call, standing in for what the command writes.
     """
     monkeypatch.setenv("BOA_DATA_ROOT", str(tmp_path))
-    recorded = SimpleNamespace(log=[], codes={})
+    recorded = SimpleNamespace(log=[], codes={}, effects={})
 
     def recorder(name):
         def step(argv):
             recorded.log.append((name, list(argv)))
+            recorded.effects.get(name, lambda: None)()
             print(f"{name} is logging to stdout")
             codes = recorded.codes.get(name, [])
             return codes.pop(0) if codes else 0
@@ -147,3 +155,170 @@ def test_dry_run_through_boa_runs_own_parser_writes_nothing(tmp_path, monkeypatc
     assert caplog.text.count(f"run: smoke_{HASH}") == 2
     assert capsys.readouterr().out.splitlines()[-2] == f"BOA_RUN=smoke_{HASH}"
     assert sorted(tmp_path.rglob("*")) == before
+
+
+# ---- --like ------------------------------------------------------------------
+
+WORKBOOK = b"the original cost workbook"
+
+
+def _promoted_file(root, cost_set="mycase", years=(2030, 2035, 2040), **overrides):
+    """
+    A small promoted LCOE file for a run of `cost_set` on weather year 2023, at coverage 0.9 and
+    2.0 MW/km2, with its cost workbook prepared under `root`. `overrides` replace attributes.
+    """
+    config = PathConfig.from_root(root, input_set="cds-2023", cost_set=cost_set, run=f"{cost_set}_{HASH}")
+    config.input_data_path.parent.mkdir(parents=True)
+    config.input_data_path.write_bytes(WORKBOOK)
+    run_manifest.record_invocation(config, "run", [])
+    scenario = {
+        "investment_horizon_years": 25,
+        "load_density_mw_km2": 2.0,
+        "coverage_fraction": 0.9,
+        "search_params_hash": "a7d2c707",
+        "era5_weather_year": 2023,
+        "era5_resolution_deg": 0.25,
+        "capacity_ceiling_applied": 0,
+    }
+    attrs = {**lcoe_promotion._provenance_attrs(config, xr.Dataset(attrs=scenario), list(years)), **overrides}
+    path = config.promoted_lcoe_path(2023, 2.0, 0.9, years[0], years[-1])
+    path.parent.mkdir(parents=True)
+    xr.Dataset(
+        {"lcoe": ("year", np.zeros(len(years), dtype=np.float32))}, coords={"year": list(years)}, attrs=attrs
+    ).to_netcdf(path)
+    return path
+
+
+def _run_argv(coverage="0.9", rest="--start-year 2030 --end-year 2040 --frequency 5 --load-density 2.0"):
+    return (
+        f"--promote-lcoe --weather-input cds-2023 --cost-input mycase --run mycase --coverage {coverage} {rest}".split()
+    )
+
+
+def test_like_fills_every_option_from_the_file(steps, capsys, tmp_path):
+    like = _promoted_file(tmp_path)
+
+    assert lcoe_pipeline.main(["--like", str(like)]) == 0
+    assert steps.log == [
+        ("data_prepare", ["--scenario", "mycase"]),
+        ("cds_prepare", ["--weather_year", "2023", "--use-republished"]),
+        ("run", _run_argv()),
+    ]
+    captured = capsys.readouterr()
+    assert captured.out.splitlines()[-2] == f"BOA_RUN=mycase_{HASH}"
+    assert "warning" not in captured.err
+
+
+def test_explicit_flags_win_over_the_file(steps, tmp_path):
+    like = _promoted_file(tmp_path)
+    argv = ["--like", str(like), "--coverage", "0.85", "0.95", "--start-year", "2035", "--load-density", "1.5"]
+
+    assert lcoe_pipeline.main(argv) == 0
+    rest = "--start-year 2035 --end-year 2040 --frequency 5 --load-density 1.5"
+    assert [argv for name, argv in steps.log if name == "run"] == [_run_argv("0.85", rest), _run_argv("0.95", rest)]
+
+
+def test_a_single_year_file_is_rerun_for_that_year(steps, tmp_path):
+    """netCDF hands a one-element attribute back as a scalar."""
+    like = _promoted_file(tmp_path, years=(2030,))
+
+    assert lcoe_pipeline.main(["--like", str(like)]) == 0
+    assert steps.log[-1] == ("run", _run_argv(rest="--start-year 2030 --end-year 2030 --load-density 2.0"))
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ("prepared", "pass that workbook as --input-file"),
+        ("input_file", "pass that workbook as --input-file"),
+        ("unprepared", "is not prepared here; pass the workbook"),
+    ],
+)
+def test_another_cost_workbook_stops_before_any_step(steps, capsys, tmp_path, change, message):
+    like = _promoted_file(tmp_path)
+    prepared = PathConfig.from_root(tmp_path, cost_set="mycase").input_data_path
+    argv = ["--like", str(like)]
+    if change == "prepared":
+        prepared.write_bytes(b"another cost workbook")
+    elif change == "input_file":
+        (tmp_path / "another.xlsx").write_bytes(b"another cost workbook")
+        argv += ["--input-file", str(tmp_path / "another.xlsx")]
+    else:
+        prepared.unlink()
+
+    assert lcoe_pipeline.main(argv) == 1
+    assert steps.log == []
+    assert message in capsys.readouterr().err
+
+
+def test_the_original_workbook_as_input_file_reruns(steps, tmp_path):
+    like = _promoted_file(tmp_path)
+    PathConfig.from_root(tmp_path, cost_set="mycase").input_data_path.unlink()
+    original = tmp_path / "original.xlsx"
+    original.write_bytes(WORKBOOK)
+
+    assert lcoe_pipeline.main(["--like", str(like), "--input-file", str(original)]) == 0
+    assert steps.log[0] == ("data_prepare", ["--input-file", str(original), "--scenario", "mycase"])
+
+
+@pytest.mark.parametrize(
+    ("installed", "ran"), [(WORKBOOK, ["data_prepare", "cds_prepare", "run"]), (b"x", ["data_prepare"])]
+)
+def test_an_unprepared_default_cost_set_is_checked_once_boa_data_prepare_installs_it(steps, tmp_path, installed, ran):
+    like = _promoted_file(tmp_path, cost_set="default")
+    prepared = PathConfig.from_root(tmp_path, cost_set="default").input_data_path
+    prepared.unlink()
+    steps.effects["data_prepare"] = lambda: prepared.write_bytes(installed)
+
+    assert lcoe_pipeline.main(["--like", str(like)]) == (0 if installed == WORKBOOK else 1)
+    assert [name for name, _ in steps.log] == ran
+
+
+def test_another_boa_version_warns(steps, capsys, tmp_path):
+    like = _promoted_file(tmp_path, boa_version="0.1.0")
+
+    assert lcoe_pipeline.main(["--like", str(like)]) == 0
+    err = capsys.readouterr().err
+    assert f"produced by BOA 0.1.0; this is BOA {boa.__version__}" in err
+    assert "may differ if LCOE-changing code landed" in err
+
+
+def test_a_label_resolving_to_another_run_folder_warns(steps, capsys, tmp_path):
+    like = _promoted_file(tmp_path, run="mycase_0000")
+
+    assert lcoe_pipeline.main(["--like", str(like)]) == 0
+    assert f"resolves the label 'mycase' to mycase_{HASH}" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"input_set": "cds-2023-lulc"}, "prepares only 'cds-2023'"),
+        ({"promoted_years": np.array([2030, 2031, 2035], dtype="int32")}, "cannot produce the years"),
+    ],
+)
+def test_a_file_boa_lcoe_cannot_rerun_stops_before_any_step(steps, capsys, tmp_path, overrides, message):
+    like = _promoted_file(tmp_path, **overrides)
+
+    assert lcoe_pipeline.main(["--like", str(like)]) == 1
+    assert steps.log == []
+    assert message in capsys.readouterr().err
+
+
+def test_a_file_without_the_attributes_stops(steps, capsys, tmp_path):
+    other = tmp_path / "other.nc"
+    xr.Dataset({"lcoe": ("year", np.zeros(1))}).to_netcdf(other)
+
+    assert lcoe_pipeline.main(["--like", str(other)]) == 1
+    assert "is not a promoted LCOE file" in capsys.readouterr().err
+
+
+def test_like_dry_run_reads_the_file_only_and_writes_nothing(steps, tmp_path):
+    like = _promoted_file(tmp_path)
+    before = {path: path.stat().st_mtime_ns for path in tmp_path.rglob("*")}
+    digest = hashlib.sha256(like.read_bytes()).hexdigest()
+
+    assert lcoe_pipeline.main(["--like", str(like), "--dry-run"]) == 0
+    assert steps.log == [("run", [*_run_argv(), "--dry-run"])]
+    assert {path: path.stat().st_mtime_ns for path in tmp_path.rglob("*")} == before
+    assert hashlib.sha256(like.read_bytes()).hexdigest() == digest
