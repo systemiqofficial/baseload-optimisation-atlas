@@ -43,7 +43,7 @@ already exists, so partial reuse works too.
 ## Re-published years
 
 Downloading from CDS with your own account is preferred. As a fallback, the years in
-`PUBLISHED_CF_SHA256` ([src/boa/config/data_packages.py](../src/boa/config/data_packages.py)),
+`PUBLISHED_CF_SHA256` ([src/boa/config/data_packages.py](https://github.com/systemiqofficial/baseload-optimisation-atlas/blob/main/src/boa/config/data_packages.py)),
 currently 2020–2025, are re-published on the public `steelo-data` bucket and need no CDS
 account:
 

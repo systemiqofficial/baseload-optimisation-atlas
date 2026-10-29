@@ -107,5 +107,5 @@ coverages needs about 60 GB under the data root.
 - [docs/methodology.md](docs/methodology.md) — the bisection search: conceptual walkthrough, parameters, and a worked figure.
 - [docs/model-assumptions.md](docs/model-assumptions.md) — sourced references for the physical parameter assumptions.
 - [docs/comparing-code-versions.md](docs/comparing-code-versions.md) — a separate data root per code version, sharing the large inputs.
-- [docs/roadmap.md](docs/roadmap.md) — open items.
+- [notes/roadmap.md](notes/roadmap.md) — open items.
 - [CHANGELOG.md](CHANGELOG.md): changes by version.
