@@ -8,7 +8,6 @@ renamed, so a crash never leaves a half-written live store.
 """
 
 import logging
-import os
 import shutil
 from pathlib import Path
 
@@ -16,6 +15,7 @@ import numpy as np
 import xarray as xr
 
 from boa.cds.max_capacity import SIGNATURE_ATTR
+from boa.fsutil import replace_dir
 from boa.store_schema import max_cap_store_stem, profile_store_stem
 
 log = logging.getLogger(__name__)
@@ -99,9 +99,7 @@ def install_store(
         shutil.copytree(staged, tmp)
     else:
         shutil.move(str(staged), str(tmp))
-    if dest.exists():
-        shutil.rmtree(dest)
-    os.rename(tmp, dest)
+    replace_dir(tmp, dest)
     log.info(f"Installed {dest}")
     return dest
 

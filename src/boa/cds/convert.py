@@ -38,6 +38,7 @@ from boa.cds.spec import CDS_DATASET, CDS_TECH_SPEC, CDS_VARS, cf_extract_dir_na
 from boa.config.paths import PathConfig
 from boa.config.physical_parameters import ERA5_DATA_RESOLUTION, ERA5_DATA_YEAR, REGION_COORDS
 from boa.conversions import convert_resolution_to_string
+from boa.fsutil import replace_dir
 from boa.store_schema import PROFILE_CHUNKS, ZARR_FORMAT, profile_store_stem
 
 log = logging.getLogger(__name__)
@@ -165,7 +166,7 @@ def build_global_store(cds_dir: Path, year: int, out_path: Path) -> Path:
         shutil.rmtree(tmp)
     tmp.parent.mkdir(parents=True, exist_ok=True)
     global_ds.to_zarr(tmp, mode="w", consolidated=True, zarr_format=ZARR_FORMAT)
-    tmp.rename(out_path)
+    replace_dir(tmp, out_path)
     log.info(f"  wrote {out_path} in {time.perf_counter() - t0:.1f}s")
     return out_path
 
