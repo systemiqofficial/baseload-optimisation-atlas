@@ -56,6 +56,7 @@ import zarr
 
 from boa.config.paths import format_scenario_number
 from boa.config.run_manifest import git_sha
+from boa.fsutil import replace_dir
 from boa.model.bisection import CostCoefficients, PixelFrontier, SearchParams, max_patch_points
 
 
@@ -360,9 +361,7 @@ def write_frontier_cache(cache: RegionFrontierCache, path: Path) -> Path:
 
     g.attrs["meta"] = cache.meta
 
-    if final.exists():
-        shutil.rmtree(final)
-    tmp.rename(final)
+    replace_dir(tmp, final)
     return final
 
 

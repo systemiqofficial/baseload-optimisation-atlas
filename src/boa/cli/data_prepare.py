@@ -62,6 +62,7 @@ from boa.config.data_packages import (
 )
 from boa.config.paths import DEFAULT_SET, PathConfig
 from boa.fetch import fetch_verified_zip
+from boa.fsutil import replace_dir
 from boa.geo.iso3_grid_builder import BUILD_STAGE_COUNT, build_iso3_grid_from_shapefile, iso3_grid_is_current
 from boa.inputs.costs import (
     COST_WORKBOOK_COLUMNS,
@@ -117,8 +118,7 @@ def _install_core_data(package_dir: Path) -> None:
                 on_progress=lambda done, total: progress.update(task, completed=done, total=total),
             )
         _write_install_marker(staged / CORE_DATA_INSTALLED, CORE_DATA_VERSION, CORE_DATA_URL, CORE_DATA_SHA256)
-        shutil.rmtree(package_dir, ignore_errors=True)
-        staged.rename(package_dir)
+        replace_dir(staged, package_dir)
     finally:
         shutil.rmtree(staged, ignore_errors=True)
     console.print(f"Installed core data v{CORE_DATA_VERSION} into [dim]{package_dir}[/dim]")
@@ -155,13 +155,16 @@ def _prepare_geo_data(data_dir: Path, iso3_grid_path: Path, subunits_shapefile_p
 
 def _validate_workbook(source: Path) -> list[int]:
     """Check the workbook has every sheet and column BOA reads; return the CAPEX sheet's years."""
-    available = set(pd.ExcelFile(source).sheet_names)
+    # Closed explicitly: an unclosed workbook keeps its file open on Windows until garbage
+    # collection, which blocks swapping the package folder that holds it.
+    with pd.ExcelFile(source) as book:
+        available = set(book.sheet_names)
+        headers = {
+            sheet: list(pd.read_excel(book, sheet_name=sheet, nrows=0).columns)
+            for sheet in COST_WORKBOOK_COLUMNS
+            if sheet in available
+        }
     problems = [f"missing sheet '{sheet}'" for sheet in COST_WORKBOOK_COLUMNS if sheet not in available]
-    headers = {
-        sheet: list(pd.read_excel(source, sheet_name=sheet, nrows=0).columns)
-        for sheet in COST_WORKBOOK_COLUMNS
-        if sheet in available
-    }
     for sheet, header in headers.items():
         missing = [column for column in COST_WORKBOOK_COLUMNS[sheet] if column not in header]
         if missing:
@@ -214,8 +217,7 @@ def _install_cost_data(package_dir: Path) -> None:
     try:
         fetch_verified_zip(COST_DATA_URL, COST_DATA_SHA256, staged)
         _write_install_marker(staged / COST_DATA_INSTALLED, COST_DATA_VERSION, COST_DATA_URL, COST_DATA_SHA256)
-        shutil.rmtree(package_dir, ignore_errors=True)
-        staged.rename(package_dir)
+        replace_dir(staged, package_dir)
     finally:
         shutil.rmtree(staged, ignore_errors=True)
     console.print(f"Installed cost data v{COST_DATA_VERSION} into [dim]{package_dir}[/dim]")
