@@ -48,6 +48,7 @@ nav:
       - Development:
           - Development: development.md
           - Comparing code versions: comparing-code-versions.md
+      - Glossary: glossary.md
       - Changelog: changelog.md
 
 plugins:
