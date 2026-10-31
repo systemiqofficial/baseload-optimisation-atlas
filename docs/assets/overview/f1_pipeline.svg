@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="316" viewBox="0 0 960 316" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#000000">
-  <title>BOA pipeline: weather data, frontier cache, pricing per investment year, per-year output files, promoted LCOE file</title>
+  <title>BOA pipeline: weather data, frontier cache, query per investment year, per-year output files, promoted LCOE file</title>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#333333"/>
@@ -34,7 +34,7 @@
   <text x="280" y="202" text-anchor="middle" font-size="12">coverage target, for</text>
   <text x="280" y="218" text-anchor="middle" font-size="12">each land pixel</text>
 
-  <text x="472" y="148" text-anchor="middle" font-weight="bold">Pricing</text>
+  <text x="472" y="148" text-anchor="middle" font-weight="bold">Query</text>
   <text x="472" y="170" text-anchor="middle" font-size="12">For each investment year:</text>
   <text x="472" y="186" text-anchor="middle" font-size="12">price the stored designs,</text>
   <text x="472" y="202" text-anchor="middle" font-size="12">keep the design with</text>

@@ -36,7 +36,7 @@ and it stores the systems that meet the coverage target in the **frontier cache*
 investment year, it applies the costs to the stored systems and keeps the system with the lowest
 LCOE.
 
-![Diagram of the BOA pipeline. Weather data goes into the frontier cache. The cache and a cost set go into the pricing step. Pricing writes one per-year file for each investment year. The per-year files go into one promoted file.](assets/overview/f1_pipeline.svg)
+![Diagram of the BOA pipeline. Weather data goes into the frontier cache. The cache and a cost set go into the query step. The query writes one per-year file for each investment year. The per-year files go into one promoted file.](assets/overview/f1_pipeline.svg)
 
 **Figure 1.** The BOA pipeline. The left part (blue) simulates the hourly operation of the
 systems. BOA builds it for each weather year, region and coverage target. The right part (yellow
@@ -213,19 +213,19 @@ result would depend on the load density. See [Known limitations](known-limitatio
 ## Build once, price many
 
 The slow part of BOA is the dispatch simulation. To find a low-cost design, BOA must simulate
-many designs for all hours of the weather year. The fast part is the pricing: when the dispatch
+many designs for all hours of the weather year. The fast part is the [query](glossary.md#query): when the dispatch
 result of a design is known, its LCOE is a short formula.
 
 BOA keeps these two parts apart:
 
 - **Build.** For each pixel, BOA examines a **coarse grid** of solar and wind factors. At each
-  point of this grid, it calculates only a lower limit of the smallest battery that meets the
-  coverage target. With these limits, BOA selects a small number of **patches**: fine grids
-  around the points that can give a low LCOE. At each point of a patch, BOA finds the smallest
-  battery that meets the coverage target. These designs are the **frontier**: with the same
-  solar and wind factors, a smaller battery does not meet the target. BOA stores the patch
-  designs and their dispatch results in the frontier cache. The stored dispatch results contain
-  no cost, no investment year and no load density.
+  node of this grid, it calculates only a **lower bound** on the **minimum battery**: the
+  smallest battery that meets the coverage target. With these bounds, BOA selects a small number
+  of **seeds**: nodes that can give a low LCOE. Around each seed, it builds a **patch**: a fine
+  grid of designs. At each patch node, BOA finds the minimum battery. These designs are the
+  **frontier**: with the same solar and wind factors, a smaller battery does not meet the target.
+  BOA stores the patch designs and their dispatch results in the frontier cache. The stored
+  dispatch results contain no cost, no investment year and no load density.
 - **Query.** For each investment year, BOA calculates the cost coefficients of each pixel from
   its costs. Then it prices each stored design and keeps the cheapest. This step does no
   dispatch simulation.
@@ -234,11 +234,11 @@ BOA keeps these two parts apart:
 
 **Figure 4.** Build once, price many. The build simulates the dispatch for the weather and the
 coverage target. The query applies the costs. One cache serves all investment years of a run.
-The dashed line is the only path from the costs to the build: a small set of **anchor** cost
-mixes tells the search where to put the patches. Thus the anchors decide which designs the cache
+The dashed line is the only path from the costs to the build: a small set of **anchors** (sets
+of cost coefficients) tells the search where to put the patches. Thus the anchors decide which designs the cache
 contains, but the dispatch result of each stored design contains no cost.
 
-As a result, each investment year needs only the pricing step, not a new dispatch simulation. A
+As a result, each investment year needs only the query step, not a new dispatch simulation. A
 different coverage target, weather year or set of search settings needs a different cache.
 
 The cache depends on the costs in one way: through the anchors. When BOA builds a cache, it
@@ -252,30 +252,14 @@ content of the weather data. [Running the model](running-the-model.md) gives the
 [Known limitations](known-limitations.md) describes the effects on the results.
 
 The search uses grids of designs. Thus the result is the best design that the search found, not
-an exact optimum. For each result, BOA also does a **containment check**: it checks whether a
-design on the coarse grid outside the patches could be cheaper. The output files do not record
-the result of this check. The [Methodology](methodology.md) page explains the search and its
+an exact optimum. For each result, BOA also does a **containment check**: it checks whether the
+lower bound on the LCOE at each coarse node outside the patches is at or above the LCOE of the
+result. The output files do not record the result of this check. The [Methodology](methodology.md) page explains the search and its
 precision.
 
 ## Pixels without a result
 
 Some pixels have no LCOE. In the output files of a regional or global run, their LCOE is NaN. A
-single-point run reports an LCOE of 0 for such a pixel. The status code tells why:
-
-| Status code | Meaning |
-|---|---|
-| 0 | BOA did not model the pixel: it is sea, or it is outside all regions. |
-| 1 | The search found a result. |
-| 2 | The search found no design that meets the coverage target in the range that it examined. |
-| 3 | The pixel has no solar and no wind resource: both capacity factors are 0 in all hours. |
-
-For status 2, the range is the search box of the pixel, without the corner in which both the
-solar and the wind factor are large, and with battery sizes up to 256 hours of demand. The
-search tests the battery sizes 0.25, 0.5, 1, 2 hours and so on at each point of the coarse grid,
-and 256 hours is the largest of
-these sizes below the battery limit of 500 hours in the search settings. BOA sets
-the search box from the mean capacity factors of the pixel, and the search settings set the size
-of the box, the corner and the battery limit. Thus a pixel with status 2 can have a design that
-meets the coverage target outside this range. The status code is the same for all investment
-years, because the build sets it without costs.
-[Known limitations](known-limitations.md) explains what each status code means for the results.
+single-point run reports an LCOE of 0 for such a pixel. The status code of the pixel tells why:
+[Known limitations](known-limitations.md#status-codes) gives the meaning of each code. The status
+code is the same for all investment years, because the build sets it without costs.

@@ -47,7 +47,7 @@ L 175.260179 189.944828
 L 44.525781 189.944828 
 L 44.525781 322.123656 
 z
-" clip-path="url(#pdd3cd05e69)" style="fill: none; stroke: #d55e00; stroke-width: 1.2; stroke-linejoin: miter"/>
+" clip-path="url(#pdd3cd05e69)" style="fill: none; stroke: #555555; stroke-width: 1.2; stroke-linejoin: miter"/>
    </g>
    <g id="matplotlib.axis_1">
     <g id="xtick_1">
@@ -1197,7 +1197,7 @@ z
    </g>
    <g id="line2d_30">
     <defs>
-     <path id="m30dd862816" d="M 0 5.656854 
+     <path id="m4e0065c76b" d="M 0 5.656854 
 L 5.656854 0 
 L 0 -5.656854 
 L -5.656854 0 
@@ -1205,7 +1205,7 @@ z
 " style="stroke: #000000; stroke-linejoin: miter"/>
     </defs>
     <g>
-     <use xlink:href="#m30dd862816" x="539.904805" y="289.078949" style="fill: #d55e00; stroke: #000000; stroke-linejoin: miter"/>
+     <use xlink:href="#m4e0065c76b" x="539.904805" y="289.078949" style="fill: #882255; stroke: #000000; stroke-linejoin: miter"/>
     </g>
    </g>
   </g>
@@ -1552,7 +1552,7 @@ L 355.444922 27.459336
 L 338.444922 27.459336 
 L 338.444922 33.409336 
 z
-" style="fill: none; stroke: #d55e00; stroke-linejoin: miter"/>
+" style="fill: none; stroke: #555555; stroke-linejoin: miter"/>
    </g>
    <g id="text_58">
     <text style="font-size: 8.5px; font-family: 'DejaVu Sans', 'Bitstream Vera Sans', 'Computer Modern Sans Serif', 'Lucida Grande', 'Verdana', 'Geneva', 'Lucid', 'Arial', 'Helvetica', 'Avant Garde', sans-serif; text-anchor: start" x="362.244922" y="33.409336" transform="rotate(-0 362.244922 33.409336)">Region shown in (b)</text>
@@ -1567,7 +1567,7 @@ z
    </g>
    <g id="line2d_59">
     <g>
-     <use xlink:href="#m30dd862816" x="490.913672" y="30.434336" style="fill: #d55e00; stroke: #000000; stroke-linejoin: miter"/>
+     <use xlink:href="#m4e0065c76b" x="490.913672" y="30.434336" style="fill: #882255; stroke: #000000; stroke-linejoin: miter"/>
     </g>
    </g>
    <g id="text_60">

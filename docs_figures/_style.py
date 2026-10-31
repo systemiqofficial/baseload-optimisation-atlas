@@ -27,7 +27,7 @@ DEMAND = "#000000"  # black
 UNMET = "#CC79A7"  # reddish purple: hours in which the demand is not fully met
 
 # Neutral colours for lines that are not a technology (for example, example pixels).
-NEUTRAL = ["#000000", "#D55E00", "#999999", "#56B4E9"]
+NEUTRAL = ["#882255", "#999933", "#555555", "#999999"]
 
 BACKGROUND = "#FFFFFF"
 

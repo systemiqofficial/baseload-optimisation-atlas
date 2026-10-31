@@ -60,6 +60,7 @@ COST_SETS = {
 }
 ANCHOR_MARKERS = {"A": "o", "B": "s", "C": "^"}
 ANCHOR_COLOURS = {"A": NEUTRAL[0], "B": NEUTRAL[1], "C": NEUTRAL[3]}
+ZOOM_COLOUR = NEUTRAL[2]  # the frame that marks the region shown in panel (b)
 
 # F6: the (solar, wind) region that panel (b) shows, and where the labels of the results go.
 F6_ZOOM = (7.8, 6.5)
@@ -277,7 +278,7 @@ def figure_frontier(solar: np.ndarray, wind: np.ndarray) -> None:
         opt.wind,
         marker="D",
         markersize=8,
-        color=NEUTRAL[1],
+        color=NEUTRAL[0],
         markeredgecolor="black",
         linestyle="none",
         label=f"Result of the search ({gap:+.1f} %)",
@@ -291,7 +292,7 @@ def figure_frontier(solar: np.ndarray, wind: np.ndarray) -> None:
     ax1.set_ylim(0, w_max)
     ax2.set_xlim(0, F5_ZOOM[0])
     ax2.set_ylim(0, F5_ZOOM[1])
-    ax1.add_patch(Rectangle((0, 0), F5_ZOOM[0], F5_ZOOM[1], fill=False, edgecolor=NEUTRAL[1], linewidth=1.2))
+    ax1.add_patch(Rectangle((0, 0), F5_ZOOM[0], F5_ZOOM[1], fill=False, edgecolor=ZOOM_COLOUR, linewidth=1.2))
     for ax in (ax1, ax2):
         ax.set_xlabel("Solar factor s (MW per MW of demand)")
         ax.set_ylabel("Wind factor w (MW per MW of demand)")
@@ -301,7 +302,7 @@ def figure_frontier(solar: np.ndarray, wind: np.ndarray) -> None:
         Patch(facecolor=INFEASIBLE, label="No battery of 256 h or less meets the target"),
         Patch(facecolor="white", edgecolor="#999999", label="No battery needed"),
         Line2D([0], [0], color="black", linestyle="--", label="Corner cut of the search"),
-        Patch(facecolor="none", edgecolor=NEUTRAL[1], label="Region shown in (b)"),
+        Patch(facecolor="none", edgecolor=ZOOM_COLOUR, label="Region shown in (b)"),
     ] + ax2.get_legend_handles_labels()[0]
     fig.legend(handles=handles, loc="upper center", ncol=3, bbox_to_anchor=(0.5, 1.08), fontsize=8.5)
     fig.tight_layout()
@@ -413,7 +414,7 @@ def figure_search_stages(solar: np.ndarray, wind: np.ndarray) -> None:
             o.solar, o.wind, marker="*", s=260, color=ANCHOR_COLOURS[name], edgecolors="black", linewidths=0.8, zorder=5
         )
         ax2.annotate(
-            f"{name}: s = {o.solar:.2f}, w = {o.wind:.2f}, b = {o.battery:.1f} h",
+            f"{name}: s = {o.solar:.2f}, w = {o.wind:.2f}\nb = {o.battery:.1f} h",
             (o.solar, o.wind),
             textcoords="offset points",
             xytext=F6_LABEL_OFFSETS[name],
@@ -431,7 +432,7 @@ def figure_search_stages(solar: np.ndarray, wind: np.ndarray) -> None:
     ax1.set_xlim(-0.3, s_max + 0.3)
     ax1.set_ylim(-0.3, w_max + 0.3)
     ax1.add_patch(
-        Rectangle((-0.2, -0.2), F6_ZOOM[0] + 0.2, F6_ZOOM[1] + 0.2, fill=False, edgecolor=NEUTRAL[1], linewidth=1.2)
+        Rectangle((-0.2, -0.2), F6_ZOOM[0] + 0.2, F6_ZOOM[1] + 0.2, fill=False, edgecolor=ZOOM_COLOUR, linewidth=1.2)
     )
     ax2.set_xlim(-0.2, F6_ZOOM[0])
     ax2.set_ylim(-0.2, F6_ZOOM[1])
@@ -463,7 +464,7 @@ def figure_search_stages(solar: np.ndarray, wind: np.ndarray) -> None:
             markersize=4,
             label="Filled coarse node (lower bound)",
         ),
-        Line2D([0], [0], marker="x", linestyle="none", color="#AAAAAA", label="No feasible battery found"),
+        Line2D([0], [0], marker="x", linestyle="none", color="#AAAAAA", label="Infinite lower bound (no feasible battery, or corner cut)"),
         Line2D(
             [0],
             [0],
@@ -476,7 +477,7 @@ def figure_search_stages(solar: np.ndarray, wind: np.ndarray) -> None:
         ),
         Line2D([0], [0], color="black", linestyle=":", label="Corner cut"),
         Rectangle((0, 0), 1, 1, fill=False, edgecolor="black", linestyle="--", label="Patch box"),
-        Rectangle((0, 0), 1, 1, fill=False, edgecolor=NEUTRAL[1], label="Region shown in (b)"),
+        Rectangle((0, 0), 1, 1, fill=False, edgecolor=ZOOM_COLOUR, label="Region shown in (b)"),
     ]
     for name in COST_SETS:
         handles.append(
