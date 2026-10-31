@@ -45,9 +45,7 @@ nav:
   - Code docs:
       - Architecture: architecture.md
       - API reference: api-reference.md
-      - Development:
-          - Development: development.md
-          - Comparing code versions: comparing-code-versions.md
+      - Project status: development.md
       - Glossary: glossary.md
       - Changelog: changelog.md
 
