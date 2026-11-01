@@ -1,0 +1,11 @@
+{
+  "units": "kW/kW_installed",
+  "long_name": "Solar PV capacity factor",
+  "short_name": "spv_cf",
+  "standard_name": "Solar_PV_capacity_factor",
+  "_ARRAY_DIMENSIONS": [
+    "time",
+    "y",
+    "x"
+  ]
+}
