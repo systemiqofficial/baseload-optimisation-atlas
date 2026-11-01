@@ -82,7 +82,7 @@ It also returns two diagnostics:
 
 | Diagnostic | Source | Meaning |
 |---|---|---|
-| `patch_certified` | `_containment_certificate`, `bisection.py:1336` | `True` if every coarse cell outside every patch is provably no cheaper than the reported optimum, using the coarse bound from stage 1 and `served_fraction <= 1`. |
+| `patch_certified` | `_containment_certificate`, `bisection.py:1336` | `True` if, under flat demand, every coarse cell outside every patch is provably no cheaper than the reported optimum, using the coarse bound from stage 1 and `served_fraction <= 1`. |
 | `argmin_truncated` | `_argmin_truncated`, `bisection.py:1313` | `True` if the winner sits against a patch-imposed edge, as opposed to a genuine corner solution (`s=0` or `w=0`) or the search box's own outer ring (already covered by `box_widenings`). |
 
 When the certificate does not fire, `check_repair_budget` (`bisection.py:1416`) bounds the

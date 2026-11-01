@@ -86,7 +86,7 @@ def _availability_signature(path_config: PathConfig) -> str | None:
     return found.pop() if len(found) == 1 else "mixed:" + ",".join(sorted(found))
 
 
-def non_scenario_params_hash(search_params: SearchParams, exact: bool = False) -> str:
+def non_scenario_params_hash(search_params: SearchParams, exact: bool = False, min_load: float | None = None) -> str:
     """
     Stable 4-hex digest over everything a run folder name must fork on: physical constants
     plus the full search-quality dial set. Baked directly into the run directory name (see
@@ -98,21 +98,29 @@ def non_scenario_params_hash(search_params: SearchParams, exact: bool = False) -
     to evolve within a run and are separately guarded by `record_invocation`'s field-by-field
     diff, not folded into this hash.
 
-    `exact` (exact designs, `build_pixel_frontier`) joins the digest only when it is set, so
-    a run without it gets the digest of its other parameters alone.
+    `exact` (exact designs, `build_pixel_frontier`) and `min_load` (a process's minimum load)
+    join the digest only when they are set, so a run without them gets the digest of its other
+    parameters alone. A minimum load turns exact designs on, here as in the build.
     """
+    exact = exact or min_load is not None
     payload: dict[str, Any] = {"lifetimes": physical_parameters.LIFETIMES, "search_params": search_params.as_dict()}
     if exact:
         payload["exact"] = True
+    if min_load is not None:
+        payload["min_load"] = float(min_load)
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:4]
 
 
 def provenance(
-    path_config: PathConfig, search_params: SearchParams = SearchParams(), exact: bool = False
+    path_config: PathConfig,
+    search_params: SearchParams = SearchParams(),
+    exact: bool = False,
+    min_load: float | None = None,
 ) -> dict[str, Any]:
-    """Everything that must stay fixed within a run; `exact` only when it is set."""
+    """Everything that must stay fixed within a run; `exact` and `min_load` only when they are set."""
     from boa.inputs.profiles import detect_weather_year  # lazy: config must stay importable without the inputs package
 
+    exact = exact or min_load is not None
     try:
         weather_year = detect_weather_year(path_config)
     except (FileNotFoundError, ValueError):
@@ -129,6 +137,8 @@ def provenance(
     }
     if exact:
         record["exact"] = True
+    if min_load is not None:
+        record["min_load"] = float(min_load)
     return record
 
 
@@ -144,6 +154,7 @@ def record_invocation(
     parameters: dict[str, Any] | None = None,
     search_params: SearchParams = SearchParams(),
     exact: bool = False,
+    min_load: float | None = None,
 ) -> dict[str, Any]:
     """Create the manifest on first use, verify provenance on later ones, append this invocation.
 
@@ -151,14 +162,14 @@ def record_invocation(
     ``boa-run`` is reconstructible from the manifest even though its argv is empty.
     """
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    current = provenance(path_config, search_params, exact)
+    current = provenance(path_config, search_params, exact, min_load)
     manifest = load(path_config)
 
     if manifest is None:
         manifest = {
             "schema_version": SCHEMA_VERSION,
             "run": path_config.run,
-            "non_scenario_params_hash": non_scenario_params_hash(search_params, exact),
+            "non_scenario_params_hash": non_scenario_params_hash(search_params, exact, min_load),
             "created_at": now,
             "provenance": current,
             "invocations": [],

@@ -199,6 +199,7 @@ def _frontier_tile(
     params: SearchParams,
     anchors: list[CostCoefficients],
     exact: bool = False,
+    min_load: float | None = None,
 ) -> tuple[float, list[PixelFrontier]]:
     """
     Build-phase worker for the grid-bisection search: one frontier per point in the tile.
@@ -215,7 +216,8 @@ def _frontier_tile(
     """
     t0 = time.time()
     frontiers = [
-        build_pixel_frontier(solar_arr[k], wind_arr[k], coverage, params, anchors, exact=exact) for k in tile_indices
+        build_pixel_frontier(solar_arr[k], wind_arr[k], coverage, params, anchors, exact=exact, min_load=min_load)
+        for k in tile_indices
     ]
     return time.time() - t0, frontiers
 
@@ -230,12 +232,14 @@ def build_frontier_cache_for_region(
     params: SearchParams | None = None,
     force: bool = False,
     exact: bool = False,
+    min_load: float | None = None,
 ) -> Path:
     """
     Build the schema v3 frontier cache for one region and persist it.
 
     `exact` builds every frontier with exact designs (`build_pixel_frontier`), into a store
-    of its own (`frontier_cache_path`).
+    of its own (`frontier_cache_path`). `min_load` builds them for a process with that minimum
+    load, which turns `exact` on, into a store of its own as well.
 
     Idempotent: an existing store matching the parameter tuple, whose recorded anchors cover
     every cost mix in `candidates`, is returned untouched unless `force`. Otherwise it is
@@ -260,13 +264,16 @@ def build_frontier_cache_for_region(
       precisely what the build has always avoided.
     """
     params = SearchParams() if params is None else params
+    exact = exact or min_load is not None
     if not candidates:
         # Fail before the land-point scan and the profile extraction. `build_pixel_frontier`
         # would raise per pixel, but only after a region's worth of setup had been paid for.
         raise ValueError("build_frontier_cache_for_region needs at least one cost mix to anchor on")
     weather_year = detect_weather_year(path_config)
     cache_dir = path_config.frontier_cache_dir(weather_year)
-    cache_file = frontier_cache_path(cache_dir, region, coverage, params, weather_year, ERA5_DATA_RESOLUTION, exact)
+    cache_file = frontier_cache_path(
+        cache_dir, region, coverage, params, weather_year, ERA5_DATA_RESOLUTION, exact, min_load
+    )
     where = cache_file.relative_to(cache_dir)
     built_version = read_frontier_cache_version(cache_file) if cache_file.exists() else FRONTIER_CACHE_VERSION
     stale = built_version != FRONTIER_CACHE_VERSION
@@ -328,7 +335,7 @@ def build_frontier_cache_for_region(
     t_compute = time.time()
     with ThreadPoolExecutor(max_workers=n_workers) as ex:
         tile_results = list(
-            ex.map(lambda t: _frontier_tile(t, solar_arr, wind_arr, coverage, params, anchors, exact), tiles)
+            ex.map(lambda t: _frontier_tile(t, solar_arr, wind_arr, coverage, params, anchors, exact, min_load), tiles)
         )
 
     tile_times = np.array([tr[0] for tr in tile_results])
@@ -356,7 +363,9 @@ def build_frontier_cache_for_region(
         lons=pt_lons,
         iy=iy,
         ix=ix,
-        meta=build_frontier_meta(region, npts, coverage, params, weather_year, ERA5_DATA_RESOLUTION, anchors, exact),
+        meta=build_frontier_meta(
+            region, npts, coverage, params, weather_year, ERA5_DATA_RESOLUTION, anchors, exact, min_load
+        ),
     )
     written = write_frontier_cache(cache, cache_file)
     solved = int(np.sum(cache.status == STATUS_OK))
@@ -379,6 +388,7 @@ def query_frontier_cache_for_region(
     params: SearchParams | None = None,
     force: bool = False,
     exact: bool = False,
+    min_load: float | None = None,
 ) -> xr.Dataset:
     """
     Price one region's cached frontiers for one investment year and write the NetCDF.
@@ -387,6 +397,12 @@ def query_frontier_cache_for_region(
     the output's attributes. The output's path does not change with it: a run that sets it
     lives in a run folder of its own (`run_manifest.non_scenario_params_hash`). Unless
     `force`, it refuses an existing output written the other way rather than return it.
+
+    `min_load` prices the store built for a process with that minimum load, which turns
+    `exact` on. Its levelised cost is then per MWh used, `coverage` is the share of hours run
+    and `served_fraction` the energy used. The output's folder and name carry the minimum load
+    (`scenario_token`), and its attributes record it as `min_load`. Unless `force`, it refuses
+    an existing output that records another minimum load, an output without one being flat.
 
     No profile dataset: the sampler needed one at query time to re-run dispatch on its winner,
     and the frontier store already holds every dispatch result the pricing needs. That is the
@@ -403,10 +419,13 @@ def query_frontier_cache_for_region(
     the note in `_query_frontier_tile` when the constrained search arrives.
     """
     params = SearchParams() if params is None else params
+    exact = exact or min_load is not None
     weather_year = detect_weather_year(path_config)
     cache_dir = path_config.frontier_cache_dir(weather_year)
-    cache_file = frontier_cache_path(cache_dir, region, coverage, params, weather_year, ERA5_DATA_RESOLUTION, exact)
-    out_path = path_config.optimal_sol_path(weather_year, load_density, coverage, region, year)
+    cache_file = frontier_cache_path(
+        cache_dir, region, coverage, params, weather_year, ERA5_DATA_RESOLUTION, exact, min_load
+    )
+    out_path = path_config.optimal_sol_path(weather_year, load_density, coverage, region, year, min_load)
     if out_path.exists() and not force:
         existing = xr.open_dataset(out_path)
         if bool(existing.attrs.get("exact_designs", 0)) != exact:
@@ -414,6 +433,13 @@ def query_frontier_cache_for_region(
             built = "without" if exact else "with"
             raise ValueError(
                 f"{out_path} already exists {built} exact designs; re-derive it with --force, or use another run."
+            )
+        recorded_min_load = existing.attrs.get("min_load")
+        if recorded_min_load != (None if min_load is None else float(min_load)):
+            existing.close()
+            raise ValueError(
+                f"{out_path} already exists at minimum load {recorded_min_load}, not {min_load}; re-derive it with "
+                "--force, or use another run."
             )
         logging.info(f"{out_path.name} already exists; skipping (use --force to re-derive).")
         return existing
@@ -425,7 +451,7 @@ def query_frontier_cache_for_region(
         "not promote them."
     )
 
-    cache = read_frontier_cache(cache_file, params, coverage, weather_year, exact)
+    cache = read_frontier_cache(cache_file, params, coverage, weather_year, exact, min_load)
     npts = cache.n_points
     logging.info(f"Querying frontier cache for {region} y{year}: {npts} points, {len(cache.all_lats)} lat rows.")
 
@@ -463,9 +489,11 @@ def query_frontier_cache_for_region(
         # Certificate telemetry. A low certified rate is a symptom of the coarse tier's
         # deliberate looseness, not of a wrong answer; truncation is the sharper signal,
         # since it says this particular winner sat against an edge the patch imposed.
+        # The certificate is no proof under a minimum load (`_containment_certificate`), so the line claims none.
+        contained = "inside the containment certificate" if min_load is not None else "provably contained"
         logging.info(
             f"[certificate] {region} y{year}: {100 * counters['certified'] / solved:.1f}% of "
-            f"{solved} solved pixels provably contained, {100 * counters['truncated'] / solved:.1f}% "
+            f"{solved} solved pixels {contained}, {100 * counters['truncated'] / solved:.1f}% "
             f"truncated against a patch edge."
         )
 
@@ -485,6 +513,8 @@ def query_frontier_cache_for_region(
     }
     if exact:
         attrs["exact_designs"] = 1
+    if min_load is not None:
+        attrs["min_load"] = float(min_load)
     optimal_sol = _assemble_optimal_sol(
         tiles,
         [r[1] for r in raw],
@@ -678,25 +708,30 @@ def combine_regional_datasets_into_global_dataset(
     path_config: PathConfig,
     weather_year: int,
     force: bool = False,
+    min_load: float | None = None,
 ) -> xr.Dataset | None:
     """
     Combine every region's optimal-solution NetCDF (all of `REGION_COORDS`, not just the
     original 9 -- boxes were split/added since) into one global dataset on a shared
     0.25 deg grid. Returns None, without writing anything, if any region's file is missing --
-    a partial GLOBAL combine would silently look complete.
+    a partial GLOBAL combine would silently look complete. `min_load` selects the files of a
+    process with that minimum load, and the combine refuses a regional file that records
+    another one, a file without one being flat.
     """
     regions = list(REGION_COORDS.keys())
     regional_datasets = {}
 
     # Check if the global dataset already exists
-    global_output_path = path_config.optimal_sol_path(weather_year, load_density, coverage, "GLOBAL", year)
+    global_output_path = path_config.optimal_sol_path(weather_year, load_density, coverage, "GLOBAL", year, min_load)
     if global_output_path.exists() and not force:
         logging.info(f"Global optimal solution already exists at {global_output_path}. (use --force to re-derive)")
         return xr.open_dataset(global_output_path)
     else:
         logging.info(f"Combining regional datasets into global dataset for {year}.")
         for region in regions:
-            optimal_sol_path = path_config.optimal_sol_path(weather_year, load_density, coverage, region, year)
+            optimal_sol_path = path_config.optimal_sol_path(
+                weather_year, load_density, coverage, region, year, min_load
+            )
             if not optimal_sol_path.exists():
                 logging.warning(f"Optimal solution for {region} not found. Please check processing.")
                 return None
@@ -768,6 +803,16 @@ def combine_regional_datasets_into_global_dataset(
             with_exact = sorted(region for region, flag in exact.items() if flag)
             raise ValueError(
                 f"regional files disagree on exact_designs: only {with_exact} were queried with exact designs. "
+                "Re-query the stale regions before combining."
+            )
+        # And for the minimum load, which every region must record as this combine's own.
+        wanted_min_load = None if min_load is None else float(min_load)
+        stale = sorted(
+            region for region, ds in regional_datasets.items() if ds.attrs.get("min_load") != wanted_min_load
+        )
+        if stale:
+            raise ValueError(
+                f"regional files {stale} were not queried at minimum load {wanted_min_load}. "
                 "Re-query the stale regions before combining."
             )
 

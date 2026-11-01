@@ -22,8 +22,8 @@ def tmp_config(tmp_path):
     return PathConfig.from_root(tmp_path, run="cds-2024__test")
 
 
-def _write_year(config, year, lcoe_offset=0.0, cost_keys=None, status=None, **attr_overrides):
-    """One synthetic GLOBAL per-year NetCDF on a 2x3 grid."""
+def _write_year(config, year, lcoe_offset=0.0, cost_keys=None, status=None, min_load=None, **attr_overrides):
+    """One synthetic GLOBAL per-year NetCDF on a 2x3 grid, at the path of `min_load` when it is given."""
     lat, lon = np.array([0.0, 0.25]), np.array([10.0, 10.25, 10.5])
     lcoe = np.arange(6, dtype=np.float64).reshape(2, 3) * 10 + lcoe_offset
     lcoe[0, 0] = np.nan
@@ -48,7 +48,7 @@ def _write_year(config, year, lcoe_offset=0.0, cost_keys=None, status=None, **at
             **attr_overrides,
         },
     )
-    path = config.optimal_sol_path(WEATHER_YEAR, LOAD_DENSITY, COVERAGE, "GLOBAL", year)
+    path = config.optimal_sol_path(WEATHER_YEAR, LOAD_DENSITY, COVERAGE, "GLOBAL", year, min_load)
     path.parent.mkdir(parents=True, exist_ok=True)
     ds.to_netcdf(path)
     return path
@@ -213,6 +213,23 @@ def test_cost_key_containing_the_separator_is_rejected(tmp_config):
 def test_missing_run_names_the_command_to_run(tmp_config):
     with pytest.raises(FileNotFoundError, match="boa-run"):
         promote_lcoe(tmp_config, WEATHER_YEAR, LOAD_DENSITY, COVERAGE)
+
+
+def test_a_run_with_a_minimum_load_is_never_promoted(tmp_config, monkeypatch, caplog):
+    """
+    The promoted file is a contract for flat demand, so the run's own record stops it. The
+    run's files sit where a minimum load puts them, which no promotion glob matches, so only
+    the refusal can name the minimum load.
+    """
+    for i, year in enumerate(YEARS):
+        _write_year(tmp_config, year, lcoe_offset=i, min_load=0.3)
+    run_manifest.record_invocation(tmp_config, "query", [], min_load=0.3)
+    with pytest.raises(ValueError, match="minimum load"):
+        promote_lcoe(tmp_config, WEATHER_YEAR, LOAD_DENSITY, COVERAGE)
+    monkeypatch.setenv("BOA_DATA_ROOT", str(tmp_config.root))
+    assert promote_main(["--run", tmp_config.run]) == 1
+    assert "minimum load" in caplog.text
+    assert not tmp_config.lcoe_promotion_dir.exists()
 
 
 # ---- CLI surfaces ------------------------------------------------------------

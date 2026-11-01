@@ -113,14 +113,29 @@ def _provenance_attrs(path_config: PathConfig, reference: xr.Dataset, years: lis
     return attrs
 
 
+def refuse_minimum_load(path_config: PathConfig) -> None:
+    """
+    Refuse a run made for a process with a minimum load. The promoted file is a contract with
+    the steel simulation, priced per MWh delivered to a flat baseload, and has no field for a
+    minimum load; the run's provenance records one when it was set.
+    """
+    min_load = (run_manifest.load(path_config) or {}).get("provenance", {}).get("min_load")
+    if min_load is not None:
+        raise ValueError(
+            f"Run '{path_config.run}' was made for a process with a minimum load of {min_load:g}, and the promoted "
+            "LCOE file is a contract for flat demand with no minimum load, so it is not promoted."
+        )
+
+
 def promote_lcoe(path_config: PathConfig, weather_year: int, load_density: float, coverage: float) -> Path:
     """
     Combine one scenario's per-year GLOBAL NetCDFs into a single LCOE file and return its path.
 
     Raises if the years disagree on the grid, on ``cost_key``/``status`` or on any
     scenario attribute — all three are stored once, so year-invariance is a contract
-    rather than an assumption.
+    rather than an assumption. Refuses a run with a minimum load (`refuse_minimum_load`).
     """
+    refuse_minimum_load(path_config)
     files = year_files(path_config, weather_year, load_density, coverage)
     if not files:
         raise FileNotFoundError(
@@ -196,6 +211,7 @@ def promote_lcoe(path_config: PathConfig, weather_year: int, load_density: float
 
 def promote_all(path_config: PathConfig) -> list[Path]:
     """Promote every scenario found in the run; raises if the run holds no GLOBAL outputs."""
+    refuse_minimum_load(path_config)
     scenarios = discover_scenarios(path_config)
     if not scenarios:
         raise FileNotFoundError(

@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from boa.config.paths import PathConfig, _warn_legacy_root, default_root
+from boa.config.paths import PathConfig, _warn_legacy_root, default_root, scenario_token
 
 
 def test_default_root_precedence(monkeypatch, tmp_path):
@@ -57,6 +57,29 @@ def test_layout_splits_by_provenance(tmp_path):
         / "GLOBAL"
         / "optimal_sol_wy2024_02p5MWkm2_cov0p95_GLOBAL_2030.nc"
     )
+
+
+def test_a_minimum_load_names_its_outputs_and_leaves_the_default_names_alone(tmp_path):
+    config = PathConfig.from_root(tmp_path, run="r")
+    assert scenario_token(0.85) == "cov0p85"
+    assert scenario_token(0.85, 0.3) == "cov0p85_minload0p3"
+    default = config.optimal_sol_path(2024, 1.0, 0.85, "EUROPE", 2025)
+    assert default == config.optimal_sol_path(2024, 1.0, 0.85, "EUROPE", 2025, None)
+    assert default.name == "optimal_sol_wy2024_01MWkm2_cov0p85_EUROPE_2025.nc"
+    assert default.parents[2].name == "cov0p85"
+    loaded = config.optimal_sol_path(2024, 1.0, 0.85, "EUROPE", 2025, 0.3)
+    assert loaded.name == "optimal_sol_wy2024_01MWkm2_cov0p85_minload0p3_EUROPE_2025.nc"
+    assert loaded.parents[2].name == "cov0p85_minload0p3"
+    assert config.map_plots_dir(2024, 1.0, 0.85, "EUROPE", 0.3).parts[-3] == "cov0p85_minload0p3"
+    assert config.optimal_sol_path(2024, 1.0, 0.85, "EUROPE", 2025, 0.2) != loaded
+
+
+def test_two_minimum_loads_that_agree_to_six_digits_keep_names_of_their_own():
+    """Six significant digits would send them to one store, where each run would evict the other's."""
+    assert scenario_token(0.85, 1 / 3) != scenario_token(0.85, 0.333333)
+    assert scenario_token(0.85, 0.3) != scenario_token(0.85, 0.30000001)
+    for share, token in ((0.2, "0p2"), (0.3, "0p3"), (0.5, "0p5")):
+        assert scenario_token(0.85, share) == f"cov0p85_minload{token}"
 
 
 def test_format_scenario_number_round_trips():

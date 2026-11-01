@@ -141,7 +141,16 @@ def test_resolved_parameters_record_exact_designs_only_when_set():
     assert resolved_parameters(_namespace(**scenario, exact_designs=True))["exact_designs"] is True
 
 
-# BOA's own calls inside each command's loops, with what each stub returns.
+def test_resolved_parameters_record_a_minimum_load_only_when_set():
+    from boa.cli.run_simulation import resolved_parameters
+
+    scenario = {"load_density": 1.0, "coverage": 0.85}
+    assert "min_load" not in resolved_parameters(_namespace(**scenario, min_load=None))
+    assert resolved_parameters(_namespace(**scenario, min_load=0.3))["min_load"] == 0.3
+
+
+# BOA's own calls inside each command's loops, with what each stub returns. The GLOBAL combine
+# returns a stand-in for its dataset, so that the GLOBAL plots follow it.
 BUILD_STEPS: dict[str, object] = {
     "cost_candidates": {},
     "open_regional_dataset": None,
@@ -150,7 +159,9 @@ BUILD_STEPS: dict[str, object] = {
 QUERY_STEPS: dict[str, object] = {
     "_validate_cost_set": (None, 25),
     "query_frontier_cache_for_region": None,
-    "combine_regional_datasets_into_global_dataset": None,
+    "plot_regional_optimum_baseload_power_simulation_map": None,
+    "combine_regional_datasets_into_global_dataset": object(),
+    "plot_global_optimum_baseload_power_simulation_map": None,
 }
 POINT_STEPS: dict[str, object] = {"execute_single_point_baseload_power_simulation": None}
 TAKES_EXACT = (
@@ -159,20 +170,33 @@ TAKES_EXACT = (
     "query_frontier_cache_for_region",
     "execute_single_point_baseload_power_simulation",
 )
+# A minimum load also names the GLOBAL combine's files and the plots' folders.
+TAKES_MIN_LOAD = (
+    *TAKES_EXACT,
+    "combine_regional_datasets_into_global_dataset",
+    "plot_regional_optimum_baseload_power_simulation_map",
+    "plot_global_optimum_baseload_power_simulation_map",
+)
 PER_REGION = ("open_regional_dataset", "build_frontier_cache_for_region", "query_frontier_cache_for_region")
 
 
 @pytest.mark.parametrize(
+    "option, keyword, value, takes",
+    [(["--exact-designs"], "exact", True, TAKES_EXACT), (["--min-load", "0.3"], "min_load", 0.3, TAKES_MIN_LOAD)],
+)
+@pytest.mark.parametrize(
     "command, argv, steps",
     [
-        ("main_run", [], {**BUILD_STEPS, **QUERY_STEPS}),
+        ("main_run", ["--plots"], {**BUILD_STEPS, **QUERY_STEPS}),
         ("main_build_cache", [], BUILD_STEPS),
-        ("main_query", [], QUERY_STEPS),
+        ("main_query", ["--plots"], QUERY_STEPS),
         ("main_point", ["--lat", "40", "--lon", "-3"], POINT_STEPS),
     ],
 )
-def test_exact_designs_reach_every_step_of_each_command(tmp_path, monkeypatch, command, argv, steps):
-    """The calls inside the loops are stubbed rather than the loops, so a loop that drops the option fails too."""
+def test_each_option_reaches_every_step_of_each_command(
+    tmp_path, monkeypatch, command, argv, steps, option, keyword, value, takes
+):
+    """The calls inside the loops are stubbed rather than the loops, so a loop that drops an option fails too."""
     import boa.cli.run_simulation as cli
 
     calls: dict[str, list[dict]] = {}
@@ -194,13 +218,43 @@ def test_exact_designs_reach_every_step_of_each_command(tmp_path, monkeypatch, c
     for name, result in steps.items():
         stub(cli, name, result)
 
-    assert getattr(cli, command)([*argv, "--exact-designs"]) == 0
+    assert getattr(cli, command)([*argv, *option]) == 0
     assert all(calls.values()), [name for name, made in calls.items() if not made]
-    for name in TAKES_EXACT:
-        assert all(arguments.get("exact") is True for arguments in calls.get(name, [])), name
+    for name in takes:
+        assert all(arguments.get(keyword) == value for arguments in calls.get(name, [])), name
     for name in PER_REGION:
         if name in calls:
             assert {arguments["region"] for arguments in calls[name]} == set(REGION_COORDS), name
+
+
+def test_a_minimum_load_gives_the_run_a_folder_of_its_own():
+    from boa.cli.run_simulation import resolve_run_id
+
+    default = resolve_run_id(_namespace(cost_input="default", run=None))
+    assert resolve_run_id(_namespace(cost_input="default", run=None, min_load=None)) == default
+    assert resolve_run_id(_namespace(cost_input="default", run=None, min_load=0.3)) != default
+
+
+@pytest.mark.parametrize(
+    "argv, accepted",
+    [
+        (["--min-load", "0.3"], True),
+        (["--min-load", "0"], False),
+        (["--min-load", "1"], False),
+        (["--min-load", "0.3", "--promote-lcoe"], False),
+    ],
+)
+def test_a_minimum_load_outside_zero_to_one_or_with_promotion_is_refused(tmp_path, monkeypatch, argv, accepted):
+    """A refused command stops before it records or queries anything."""
+    import boa.cli.run_simulation as cli
+
+    ran: list[str] = []
+    monkeypatch.setenv("BOA_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(cli, "preflight", lambda *args, **kwargs: 2024)
+    monkeypatch.setattr(cli.run_manifest, "record_invocation", lambda *args, **kwargs: ran.append("record"))
+    monkeypatch.setattr(cli, "query_all_years", lambda *args, **kwargs: ran.append("query"))
+    assert cli.main_query(argv) == (0 if accepted else 1)
+    assert ran == (["record", "query"] if accepted else [])
 
 
 def test_dry_run_fails_cleanly_on_missing_inputs(tmp_path, monkeypatch):

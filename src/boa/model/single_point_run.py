@@ -218,6 +218,7 @@ def execute_single_point_baseload_power_simulation(
     include_plot_data: bool = False,
     progress_callback: Optional[Callable[[int, str], None]] = None,
     exact: bool = False,
+    min_load: float | None = None,
 ) -> dict:
     """
     Execute the baseload power simulation for a single point (lat, lon): geocode, derive its
@@ -228,7 +229,14 @@ def execute_single_point_baseload_power_simulation(
     MW/MWh scale of the reported design, never its LCOE. `progress_callback`, if given, is
     invoked as `(percent, message)` at each stage so a caller (e.g. the Celery task driving an
     API job) can report fine-grained progress to a UI. `exact` builds the point's frontier
-    with exact designs (`build_pixel_frontier`).
+    with exact designs (`build_pixel_frontier`). `min_load` builds it for a process with that
+    minimum load: `'coverage'` is then the share of hours run, `'served_fraction'` the energy
+    used, `'lcoe'` the cost per MWh used and `'lcoe_coverage_based'` the cost per MWh of
+    full-load energy. The state of charge follows the flat dispatch, so point mode then leaves
+    out the state-of-charge plot, and the plot data's five series derived from that dispatch
+    (net energy, state of charge, battery discharge, unmet demand and curtailment) come back as
+    empty lists. The plot of the solar and wind profiles, and the plot data's capacity factors
+    and design space, stay.
 
     Returns a dict with keys `'design'` (`{'solar', 'wind', 'battery'}` overscale factors),
     `'lcoe'` ($/MWh), `'installation_cost'` ($), and `'status'`
@@ -346,6 +354,7 @@ def execute_single_point_baseload_power_simulation(
         params,
         dimensionless_anchor,
         exact=exact,
+        min_load=min_load,
     )
 
     if frontier.status != STATUS_OK:
@@ -388,7 +397,8 @@ def execute_single_point_baseload_power_simulation(
     # State of charge for the OPTIMUM design, for the SoC plot and the plot-data time series.
     opt_net_nrg = None
     opt_soc = None
-    if generate_plots or include_plot_data:
+    # The state of charge follows the flat dispatch, so it is left out under a minimum load.
+    if min_load is None and (generate_plots or include_plot_data):
         opt_net_nrg = calculate_net_energy_production(
             optimal_design["solar"], profile["solar"], optimal_design["wind"], profile["wind"]
         )

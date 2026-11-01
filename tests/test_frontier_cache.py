@@ -311,6 +311,42 @@ def test_read_refuses_a_store_built_with_or_without_exact_designs(tmp_path, prof
     read_frontier_cache(exact, PARAMS, COVERAGE, WEATHER_YEAR)
 
 
+def test_a_minimum_load_names_its_own_store(tmp_path):
+    default = frontier_cache_path(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES)
+    loaded = frontier_cache_path(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, min_load=0.3)
+    assert loaded.parts[-3] == "cov0p85_minload0p3"
+    # A minimum load turns exact designs on, so the store's name says so with or without the flag.
+    assert loaded.name == default.stem + "_exact.zarr"
+    assert frontier_cache_path(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, True, 0.3) == loaded
+    assert frontier_cache_path(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, min_load=0.2) != loaded
+    loaded.mkdir(parents=True)
+    assert frontier_cache_exists(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, min_load=0.3)
+    assert not frontier_cache_exists(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES)
+
+
+def test_read_refuses_a_store_built_at_another_minimum_load(tmp_path, profiles, anchor_costs):
+    _, cache = _one_pixel_cache(profiles, anchor_costs)
+    default = write_frontier_cache(cache, tmp_path / "default.zarr")
+    with pytest.raises(ValueError, match="minimum load"):
+        read_frontier_cache(default, PARAMS, COVERAGE, WEATHER_YEAR, min_load=0.3)
+
+    cache.meta = build_frontier_meta(
+        "TESTREGION", 1, COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, [anchor_costs], min_load=0.3
+    )
+    assert cache.meta["run_params"]["min_load"] == 0.3 and cache.meta["run_params"]["exact"] is True
+    loaded = write_frontier_cache(cache, tmp_path / "loaded.zarr")
+    read_frontier_cache(loaded, PARAMS, COVERAGE, WEATHER_YEAR, exact=True, min_load=0.3)
+    for other in (0.2, None):
+        with pytest.raises(ValueError, match="minimum load"):
+            read_frontier_cache(loaded, PARAMS, COVERAGE, WEATHER_YEAR, min_load=other)
+    # A minimum load turns exact designs on, as in the build, and is checked without a coverage too.
+    read_frontier_cache(loaded, PARAMS, COVERAGE, WEATHER_YEAR, exact=False, min_load=0.3)
+    with pytest.raises(ValueError, match="minimum load"):
+        read_frontier_cache(loaded, PARAMS, None, WEATHER_YEAR, min_load=0.2)
+    # A diagnostic that names neither opens it.
+    read_frontier_cache(loaded)
+
+
 def test_read_refuses_a_foreign_schema_version(tmp_path, profiles, anchor_costs):
     import zarr
 

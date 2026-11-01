@@ -178,6 +178,15 @@ def add_scenario_args(parser: argparse.ArgumentParser) -> None:
         default=0.85,
         help="Required demand coverage fraction (0-1). E.g., 0.85 means RE must cover demand 85%% of the time",
     )
+    group.add_argument(
+        "--min-load",
+        type=float,
+        default=None,
+        help="Minimum load of a process that can turn down, as a share of full load strictly between 0 and 1. The "
+        "process runs in any hour when the battery's charge and the hour's solar and wind reach it, and stops below "
+        "it, storing the hour's generation; coverage then counts the hours it runs and the LCOE is per MWh used. "
+        "Off by default (flat demand); promotion refuses a run with it.",
+    )
 
 
 def add_temporal_args(parser: argparse.ArgumentParser) -> None:
@@ -235,6 +244,12 @@ def validate_scenario_args(args: argparse.Namespace) -> None:
         raise ValueError(f"Coverage must be between 0 and 1, got {args.coverage}")
     if args.load_density <= 0:
         raise ValueError(f"Load density must be positive, got {args.load_density}")
+    if args.min_load is not None and not 0 < args.min_load < 1:
+        raise ValueError(f"Minimum load must lie strictly between 0 and 1, got {args.min_load}")
+    if getattr(args, "promote_lcoe", False) and args.min_load is not None:
+        raise ValueError(
+            "--promote-lcoe cannot be combined with --min-load: the promoted LCOE file is a contract for flat demand"
+        )
 
 
 def validate_temporal_args(args: argparse.Namespace) -> None:
@@ -279,6 +294,8 @@ def resolved_parameters(args: argparse.Namespace, years: List[int] | None = None
         params["lat"], params["lon"] = args.lat, args.lon
     if getattr(args, "exact_designs", False):
         params["exact_designs"] = True
+    if getattr(args, "min_load", None) is not None:
+        params["min_load"] = args.min_load
     return params
 
 
@@ -295,7 +312,8 @@ def resolve_run_id(args: argparse.Namespace, search_params: SearchParams = Searc
     """
     base_run = args.run or args.cost_input
     exact = getattr(args, "exact_designs", False)
-    return make_run_dirname(base_run, run_manifest.non_scenario_params_hash(search_params, exact))
+    min_load = getattr(args, "min_load", None)
+    return make_run_dirname(base_run, run_manifest.non_scenario_params_hash(search_params, exact, min_load))
 
 
 def build_path_config(args: argparse.Namespace, weather_input: str, run: str) -> PathConfig:
@@ -359,6 +377,7 @@ def build_all_caches(
     n_workers: int,
     force: bool = False,
     exact: bool = False,
+    min_load: float | None = None,
 ) -> None:
     """
     Build the year- and baseload-independent frontier cache for every region.
@@ -383,6 +402,7 @@ def build_all_caches(
             n_workers=n_workers,
             force=force,
             exact=exact,
+            min_load=min_load,
         )
 
 
@@ -396,6 +416,7 @@ def query_all_years(
     force: bool = False,
     generate_plots: bool = True,
     exact: bool = False,
+    min_load: float | None = None,
 ) -> None:
     """
     Derive optimal-solution NetCDFs for every (region, year) from the frontier caches.
@@ -419,10 +440,11 @@ def query_all_years(
                 n_workers=n_workers,
                 force=force,
                 exact=exact,
+                min_load=min_load,
             )
             if generate_plots:
                 plot_regional_optimum_baseload_power_simulation_map(
-                    year, region, coverage, load_density, path_config, weather_year
+                    year, region, coverage, load_density, path_config, weather_year, min_load
                 )
         global_optimal_sol = combine_regional_datasets_into_global_dataset(
             year,
@@ -431,10 +453,11 @@ def query_all_years(
             path_config,
             weather_year,
             force=force,
+            min_load=min_load,
         )
         if generate_plots and global_optimal_sol is not None:
             plot_global_optimum_baseload_power_simulation_map(
-                global_optimal_sol, year, coverage, load_density, path_config, weather_year
+                global_optimal_sol, year, coverage, load_density, path_config, weather_year, min_load
             )
 
 
@@ -507,9 +530,16 @@ def main_run(argv: list[str]) -> int:
             continue
 
         run_manifest.record_invocation(
-            path_config, "run", list(argv), parameters=resolved_parameters(args, years), exact=args.exact_designs
+            path_config,
+            "run",
+            list(argv),
+            parameters=resolved_parameters(args, years),
+            exact=args.exact_designs,
+            min_load=args.min_load,
         )
-        build_all_caches(path_config, args.coverage, years, args.workers, exact=args.exact_designs)
+        build_all_caches(
+            path_config, args.coverage, years, args.workers, exact=args.exact_designs, min_load=args.min_load
+        )
         query_all_years(
             path_config,
             years,
@@ -519,6 +549,7 @@ def main_run(argv: list[str]) -> int:
             weather_year,
             generate_plots=args.plots,
             exact=args.exact_designs,
+            min_load=args.min_load,
         )
         if args.promote_lcoe and run_promotion(path_config, weather_year, args.load_density, args.coverage) != 0:
             return 1
@@ -573,7 +604,12 @@ def main_build_cache(argv: list[str]) -> int:
             logging.error(str(e))
             return 1
         run_manifest.record_invocation(
-            path_config, "build-cache", list(argv), parameters=resolved_parameters(args), exact=args.exact_designs
+            path_config,
+            "build-cache",
+            list(argv),
+            parameters=resolved_parameters(args),
+            exact=args.exact_designs,
+            min_load=args.min_load,
         )
         build_all_caches(
             path_config,
@@ -582,6 +618,7 @@ def main_build_cache(argv: list[str]) -> int:
             args.workers,
             force=args.force,
             exact=args.exact_designs,
+            min_load=args.min_load,
         )
     logging.info("\nbuild-cache: all regions complete.")
     return 0
@@ -638,7 +675,12 @@ def main_query(argv: list[str]) -> int:
             logging.error(str(e))
             return 1
         run_manifest.record_invocation(
-            path_config, "query", list(argv), parameters=resolved_parameters(args, years), exact=args.exact_designs
+            path_config,
+            "query",
+            list(argv),
+            parameters=resolved_parameters(args, years),
+            exact=args.exact_designs,
+            min_load=args.min_load,
         )
         query_all_years(
             path_config,
@@ -650,6 +692,7 @@ def main_query(argv: list[str]) -> int:
             force=args.force,
             generate_plots=args.plots,
             exact=args.exact_designs,
+            min_load=args.min_load,
         )
         if args.promote_lcoe and run_promotion(path_config, weather_year, args.load_density, args.coverage) != 0:
             return 1
@@ -707,7 +750,12 @@ def main_point(argv: list[str]) -> int:
             logging.error(str(e))
             return 1
         run_manifest.record_invocation(
-            path_config, "point", list(argv), parameters=resolved_parameters(args, years), exact=args.exact_designs
+            path_config,
+            "point",
+            list(argv),
+            parameters=resolved_parameters(args, years),
+            exact=args.exact_designs,
+            min_load=args.min_load,
         )
 
         for year in years:
@@ -721,6 +769,7 @@ def main_point(argv: list[str]) -> int:
                     load_density=args.load_density,
                     coverage=args.coverage,
                     exact=args.exact_designs,
+                    min_load=args.min_load,
                 )
             except Exception as e:
                 logging.error(f"Failed to run simulation for year {year}: {e}")
