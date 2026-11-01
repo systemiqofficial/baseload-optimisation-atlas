@@ -76,8 +76,9 @@ BOA_DATA_ROOT="$ARM" uv run boa-run --load-density 1.0 --coverage 0.85 --cost-in
 ## Running both at once
 
 The two versions only share read-only inputs, so they can run at the same time. `--workers` sets
-each run's threads, and its default, `fast`, takes all but two cores for each run, so split the
-cores between the runs instead: on a 14-core machine, `--workers 6` each. At the default search
+the threads of each run's frontier build, while the query prices on one thread. Its default,
+`fast`, takes all but two cores for each run, so split the cores between the runs instead: on a
+14-core machine, `--workers 6` each. At the default search
 settings, each run needs up to about 5.5 GB of memory, and each arm's frontier cache takes about
 0.7 GB per coverage and weather year.
 

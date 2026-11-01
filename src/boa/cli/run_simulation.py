@@ -193,7 +193,7 @@ def add_workers_arg(parser: argparse.ArgumentParser) -> None:
         "--workers",
         type=parse_workers,
         default="fast",
-        help="Number of threads for parallel grid-point optimization. Integer or preset "
+        help="Number of threads for building the frontier caches; the query prices on one thread. Integer or preset "
         "(small ~25%% of cores, normal ~50%%, fast cpu_count-2).",
     )
 

@@ -1374,6 +1374,9 @@ def argmin_lcoe(frontier: PixelFrontier, coeffs: CostCoefficients) -> Optimum:
     favourite. Both matter for the same reason: the build's frozen anchor costs are not
     this year's, so a year's real prices can promote a basin the anchor ranked second, and
     can equally prefer a larger battery than the anchor would have chosen.
+
+    The region query prices through its batch twin, `frontier_pricing.price_frontiers`,
+    which must stay equal to it bit for bit.
     """
     a_s, a_w, a_b, d0 = coeffs.a_s, coeffs.a_w, coeffs.a_b, coeffs.d0
     best_lcoe = np.inf
