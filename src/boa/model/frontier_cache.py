@@ -54,7 +54,7 @@ from pathlib import Path
 import numpy as np
 import zarr
 
-from boa.config.paths import format_scenario_number
+from boa.config.paths import scenario_token
 from boa.config.run_manifest import git_sha
 from boa.fsutil import replace_dir
 from boa.model.bisection import CostCoefficients, PixelFrontier, SearchParams, max_patch_points
@@ -102,6 +102,8 @@ def frontier_cache_path(
     params: SearchParams,
     weather_year: int,
     era5_resolution_deg: float,
+    exact: bool = False,
+    min_load: float | None = None,
 ) -> Path:
     """
     Resolve a store's path from its parameters, deterministically.
@@ -112,10 +114,18 @@ def frontier_cache_path(
 
     No baseload level: the store is baseload-independent. The capacity ceiling is not in
     the path either, because it is not in the store.
+
+    A store built with `exact` (`build_pixel_frontier`) holds other float32 sizes, so its
+    name ends in `_exact`; a store built without it carries no token for it. A minimum load
+    names the store's scenario folder, as `cov0p9_minload0p3` (`scenario_token`), and turns
+    `exact` on.
     """
+    exact = exact or min_load is not None
     grids = f"g{params.coarse_grid}p{params.patch_grid}r{params.ladder_rungs}"
     rest = f"gbs_{grids}_{params_hash(params)}_y{int(weather_year)}_r{round(era5_resolution_deg * 100):03d}"
-    return Path(cache_dir) / f"cov{format_scenario_number(coverage)}" / region / f"{rest}.zarr"
+    if exact:
+        rest += "_exact"
+    return Path(cache_dir) / scenario_token(coverage, min_load) / region / f"{rest}.zarr"
 
 
 def frontier_cache_exists(
@@ -125,9 +135,12 @@ def frontier_cache_exists(
     params: SearchParams,
     weather_year: int,
     era5_resolution_deg: float,
+    exact: bool = False,
+    min_load: float | None = None,
 ) -> bool:
     """True if the store exists on disk. Does not validate its contents."""
-    return frontier_cache_path(cache_dir, region, coverage, params, weather_year, era5_resolution_deg).exists()
+    path = frontier_cache_path(cache_dir, region, coverage, params, weather_year, era5_resolution_deg, exact, min_load)
+    return path.exists()
 
 
 # ----- fraction quantisation --------------------------------------------------
@@ -272,16 +285,29 @@ def build_frontier_meta(
     weather_year: int,
     era5_resolution_deg: float,
     anchors: Sequence[CostCoefficients],
+    exact: bool = False,
+    min_load: float | None = None,
 ) -> dict:
     """
     Assemble `group.attrs["meta"]`.
 
     `search_params` is stored field by field rather than only as a hash, so a mismatch can
     say *which* field moved instead of only that something did. `run_params` carries what
-    is not a `SearchParams` field but still determines the contents. `anchors` records where
-    the dense patches were placed, so a later run can tell whether the store covers the cost
-    mixes it is about to query (`boa.model.anchors.anchors_for_build`).
+    is not a `SearchParams` field but still determines the contents, `exact` and `min_load`
+    among them only when they are set, so a default store's meta holds no key for either.
+    `anchors` records where the dense patches were placed, so a later run can tell whether the
+    store covers the cost mixes it is about to query (`boa.model.anchors.anchors_for_build`).
     """
+    exact = exact or min_load is not None
+    run_params: dict = {
+        "coverage": float(coverage),
+        "weather_year": int(weather_year),
+        "era5_resolution_deg": float(era5_resolution_deg),
+    }
+    if exact:
+        run_params["exact"] = True
+    if min_load is not None:
+        run_params["min_load"] = float(min_load)
     return {
         "schema_version": FRONTIER_SCHEMA_VERSION,
         "cache_version": FRONTIER_CACHE_VERSION,
@@ -289,11 +315,7 @@ def build_frontier_meta(
         "n_points": int(n_points),
         "search_params_hash": params_hash(params),
         "search_params": asdict(params),
-        "run_params": {
-            "coverage": float(coverage),
-            "weather_year": int(weather_year),
-            "era5_resolution_deg": float(era5_resolution_deg),
-        },
+        "run_params": run_params,
         "anchors": [asdict(a) for a in anchors],
         "built_at": datetime.now(timezone.utc).isoformat(),
         "code_git_sha": git_sha(),
@@ -387,11 +409,32 @@ def _check_stored_params(path: Path, meta: dict, expected: SearchParams) -> None
         raise ValueError(f"frontier cache at {path} was built with different search parameters ({detail}); rebuild it.")
 
 
-def _check_run_params(path: Path, meta: dict, coverage: float | None, weather_year: int | None) -> None:
-    """Same refusal for the run-level parameters, which are not `SearchParams` fields."""
+def _check_run_params(
+    path: Path,
+    meta: dict,
+    coverage: float | None,
+    weather_year: int | None,
+    exact: bool | None = None,
+    min_load: float | None = None,
+) -> None:
+    """
+    Same refusal for the run-level parameters, which are not `SearchParams` fields. The
+    minimum load is checked whenever it or the coverage is given, since the two name the
+    scenario together: a read at a coverage with `min_load=None` asks for flat demand. It is
+    checked before exact designs, which it turns on, so that its refusal names the cause.
+    """
     stored = meta.get("run_params")
     if not isinstance(stored, dict):
         raise ValueError(f"frontier cache at {path} carries no run_params; delete it and rebuild.")
+    wanted_min_load = None if min_load is None else float(min_load)
+    if (coverage is not None or min_load is not None) and stored.get("min_load") != wanted_min_load:
+        raise ValueError(
+            f"frontier cache at {path} was built at minimum load {stored.get('min_load')!r}, not {min_load!r}; "
+            "rebuild it."
+        )
+    if exact is not None and bool(stored.get("exact", False)) != exact:
+        built = "with" if stored.get("exact") else "without"
+        raise ValueError(f"frontier cache at {path} was built {built} exact designs; rebuild it.")
     if coverage is not None and float(stored.get("coverage", float("nan"))) != float(coverage):
         raise ValueError(
             f"frontier cache at {path} was built at coverage {stored.get('coverage')!r}, not {coverage!r}; rebuild it."
@@ -422,14 +465,18 @@ def read_frontier_cache(
     expected_params: SearchParams | None = None,
     coverage: float | None = None,
     weather_year: int | None = None,
+    exact: bool | None = None,
+    min_load: float | None = None,
 ) -> RegionFrontierCache:
     """
     Load a frontier cache, refusing anything that does not match what was asked for.
 
-    Pass `expected_params` (and, where known, `coverage` and `weather_year`) at every
-    production call site. They are optional only so a diagnostic can open a store whose
-    parameters it does not yet know.
+    Pass `expected_params` (and, where known, `coverage`, `weather_year`, `exact` and
+    `min_load`) at every production call site. They are optional only so a diagnostic can open
+    a store whose parameters it does not yet know. A minimum load turns `exact` on, as in the
+    build, and is checked whenever it or `coverage` is given.
     """
+    exact = True if min_load is not None else exact
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"frontier cache missing: {path}")
@@ -453,8 +500,8 @@ def read_frontier_cache(
         )
     if expected_params is not None:
         _check_stored_params(path, meta, expected_params)
-    if coverage is not None or weather_year is not None:
-        _check_run_params(path, meta, coverage, weather_year)
+    if coverage is not None or weather_year is not None or exact is not None:
+        _check_run_params(path, meta, coverage, weather_year, exact, min_load)
 
     return RegionFrontierCache(
         region=str(meta.get("region", path.parent.name)),

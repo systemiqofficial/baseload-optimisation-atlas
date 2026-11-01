@@ -23,6 +23,7 @@ from boa.model.frontier_cache import (
     fraction_to_uint16_floor,
     fraction_to_uint16_nearest,
     frontier_at,
+    frontier_cache_exists,
     frontier_cache_path,
     params_hash,
     read_frontier_cache,
@@ -111,6 +112,20 @@ def test_coverage_and_weather_year_separate_stores(tmp_path):
     b = frontier_cache_path(tmp_path, "R", 0.95, PARAMS, 2024, ERA5_RES)
     c = frontier_cache_path(tmp_path, "R", 0.85, PARAMS, 2023, ERA5_RES)
     assert len({a, b, c}) == 3
+
+
+def test_only_exact_designs_add_a_token_to_the_store_name(tmp_path):
+    default = frontier_cache_path(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES)
+    assert default.name == f"gbs_g25p15r1_{params_hash(PARAMS)}_y2024_r025.zarr"
+    assert frontier_cache_path(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, exact=False) == default
+    exact = frontier_cache_path(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, exact=True)
+    assert exact == default.with_name(default.stem + "_exact.zarr")
+
+
+def test_a_default_store_does_not_count_as_one_with_exact_designs(tmp_path):
+    frontier_cache_path(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES).mkdir(parents=True)
+    assert frontier_cache_exists(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES)
+    assert not frontier_cache_exists(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, exact=True)
 
 
 # --------------------------------------------------------------------------
@@ -277,6 +292,61 @@ def test_read_refuses_a_different_coverage_or_weather_year(tmp_path, profiles, a
         read_frontier_cache(path, PARAMS, COVERAGE, 2023)
 
 
+def test_read_refuses_a_store_built_with_or_without_exact_designs(tmp_path, profiles, anchor_costs):
+    _, cache = _one_pixel_cache(profiles, anchor_costs)
+    default = write_frontier_cache(cache, tmp_path / "default.zarr")
+    with pytest.raises(ValueError, match="without exact designs"):
+        read_frontier_cache(default, PARAMS, COVERAGE, WEATHER_YEAR, exact=True)
+    # The refusal needs neither the coverage nor the weather year.
+    with pytest.raises(ValueError, match="without exact designs"):
+        read_frontier_cache(default, exact=True)
+    read_frontier_cache(default, PARAMS, COVERAGE, WEATHER_YEAR, exact=False)
+
+    cache.meta = build_frontier_meta("TESTREGION", 1, COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, [anchor_costs], True)
+    exact = write_frontier_cache(cache, tmp_path / "exact.zarr")
+    with pytest.raises(ValueError, match="with exact designs"):
+        read_frontier_cache(exact, PARAMS, COVERAGE, WEATHER_YEAR, exact=False)
+    read_frontier_cache(exact, PARAMS, COVERAGE, WEATHER_YEAR, exact=True)
+    # A diagnostic that does not say opens either.
+    read_frontier_cache(exact, PARAMS, COVERAGE, WEATHER_YEAR)
+
+
+def test_a_minimum_load_names_its_own_store(tmp_path):
+    default = frontier_cache_path(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES)
+    loaded = frontier_cache_path(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, min_load=0.3)
+    assert loaded.parts[-3] == "cov0p85_minload0p3"
+    # A minimum load turns exact designs on, so the store's name says so with or without the flag.
+    assert loaded.name == default.stem + "_exact.zarr"
+    assert frontier_cache_path(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, True, 0.3) == loaded
+    assert frontier_cache_path(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, min_load=0.2) != loaded
+    loaded.mkdir(parents=True)
+    assert frontier_cache_exists(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, min_load=0.3)
+    assert not frontier_cache_exists(tmp_path, "R", COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES)
+
+
+def test_read_refuses_a_store_built_at_another_minimum_load(tmp_path, profiles, anchor_costs):
+    _, cache = _one_pixel_cache(profiles, anchor_costs)
+    default = write_frontier_cache(cache, tmp_path / "default.zarr")
+    with pytest.raises(ValueError, match="minimum load"):
+        read_frontier_cache(default, PARAMS, COVERAGE, WEATHER_YEAR, min_load=0.3)
+
+    cache.meta = build_frontier_meta(
+        "TESTREGION", 1, COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, [anchor_costs], min_load=0.3
+    )
+    assert cache.meta["run_params"]["min_load"] == 0.3 and cache.meta["run_params"]["exact"] is True
+    loaded = write_frontier_cache(cache, tmp_path / "loaded.zarr")
+    read_frontier_cache(loaded, PARAMS, COVERAGE, WEATHER_YEAR, exact=True, min_load=0.3)
+    for other in (0.2, None):
+        with pytest.raises(ValueError, match="minimum load"):
+            read_frontier_cache(loaded, PARAMS, COVERAGE, WEATHER_YEAR, min_load=other)
+    # A minimum load turns exact designs on, as in the build, and is checked without a coverage too.
+    read_frontier_cache(loaded, PARAMS, COVERAGE, WEATHER_YEAR, exact=False, min_load=0.3)
+    with pytest.raises(ValueError, match="minimum load"):
+        read_frontier_cache(loaded, PARAMS, None, WEATHER_YEAR, min_load=0.2)
+    # A diagnostic that names neither opens it.
+    read_frontier_cache(loaded)
+
+
 def test_read_refuses_a_foreign_schema_version(tmp_path, profiles, anchor_costs):
     import zarr
 
@@ -303,6 +373,10 @@ def test_meta_records_what_built_it(profiles, anchor_costs):
     assert meta["run_params"]["coverage"] == COVERAGE
     # Stored field by field as well as hashed, so a mismatch can name the field.
     assert meta["search_params"]["patch_grid"] == PARAMS.patch_grid
+    # Exact designs enter the meta only when set, so a default store's meta holds no key for them.
+    assert set(meta["run_params"]) == {"coverage", "weather_year", "era5_resolution_deg"}
+    exact = build_frontier_meta("R", 1, COVERAGE, PARAMS, WEATHER_YEAR, ERA5_RES, [anchor_costs], exact=True)
+    assert exact["run_params"]["exact"] is True
 
 
 def test_the_store_records_its_anchors(tmp_path, profiles, anchor_costs):

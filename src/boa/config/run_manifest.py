@@ -86,7 +86,7 @@ def _availability_signature(path_config: PathConfig) -> str | None:
     return found.pop() if len(found) == 1 else "mixed:" + ",".join(sorted(found))
 
 
-def non_scenario_params_hash(search_params: SearchParams) -> str:
+def non_scenario_params_hash(search_params: SearchParams, exact: bool = False, min_load: float | None = None) -> str:
     """
     Stable 4-hex digest over everything a run folder name must fork on: physical constants
     plus the full search-quality dial set. Baked directly into the run directory name (see
@@ -97,20 +97,35 @@ def non_scenario_params_hash(search_params: SearchParams) -> str:
     Narrower in scope than `provenance()`: `input_set`/`cost_set`/the xlsx hash are allowed
     to evolve within a run and are separately guarded by `record_invocation`'s field-by-field
     diff, not folded into this hash.
+
+    `exact` (exact designs, `build_pixel_frontier`) and `min_load` (a process's minimum load)
+    join the digest only when they are set, so a run without them gets the digest of its other
+    parameters alone. A minimum load turns exact designs on, here as in the build.
     """
-    payload = {"lifetimes": physical_parameters.LIFETIMES, "search_params": search_params.as_dict()}
+    exact = exact or min_load is not None
+    payload: dict[str, Any] = {"lifetimes": physical_parameters.LIFETIMES, "search_params": search_params.as_dict()}
+    if exact:
+        payload["exact"] = True
+    if min_load is not None:
+        payload["min_load"] = float(min_load)
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:4]
 
 
-def provenance(path_config: PathConfig, search_params: SearchParams = SearchParams()) -> dict[str, Any]:
-    """Everything that must stay fixed within a run."""
+def provenance(
+    path_config: PathConfig,
+    search_params: SearchParams = SearchParams(),
+    exact: bool = False,
+    min_load: float | None = None,
+) -> dict[str, Any]:
+    """Everything that must stay fixed within a run; `exact` and `min_load` only when they are set."""
     from boa.inputs.profiles import detect_weather_year  # lazy: config must stay importable without the inputs package
 
+    exact = exact or min_load is not None
     try:
         weather_year = detect_weather_year(path_config)
     except (FileNotFoundError, ValueError):
         weather_year = None
-    return {
+    record: dict[str, Any] = {
         "input_set": path_config.input_set,
         "cost_set": path_config.cost_set,
         "input_data_sha256": _sha256(path_config.input_data_path),
@@ -120,6 +135,11 @@ def provenance(path_config: PathConfig, search_params: SearchParams = SearchPara
         "lifetimes": physical_parameters.LIFETIMES,
         "era5_data_year": weather_year,
     }
+    if exact:
+        record["exact"] = True
+    if min_load is not None:
+        record["min_load"] = float(min_load)
+    return record
 
 
 def load(path_config: PathConfig) -> dict[str, Any] | None:
@@ -133,6 +153,8 @@ def record_invocation(
     argv: list[str],
     parameters: dict[str, Any] | None = None,
     search_params: SearchParams = SearchParams(),
+    exact: bool = False,
+    min_load: float | None = None,
 ) -> dict[str, Any]:
     """Create the manifest on first use, verify provenance on later ones, append this invocation.
 
@@ -140,14 +162,14 @@ def record_invocation(
     ``boa-run`` is reconstructible from the manifest even though its argv is empty.
     """
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    current = provenance(path_config, search_params)
+    current = provenance(path_config, search_params, exact, min_load)
     manifest = load(path_config)
 
     if manifest is None:
         manifest = {
             "schema_version": SCHEMA_VERSION,
             "run": path_config.run,
-            "non_scenario_params_hash": non_scenario_params_hash(search_params),
+            "non_scenario_params_hash": non_scenario_params_hash(search_params, exact, min_load),
             "created_at": now,
             "provenance": current,
             "invocations": [],
@@ -164,8 +186,12 @@ def record_invocation(
             f"SearchParams record and cannot be verified against it -- use a new --run."
         )
     else:
+        # Both sides' keys, because a field recorded only when set (`exact`) is missing on one.
+        recorded = manifest["provenance"]
         diffs = {
-            k: (manifest["provenance"].get(k), v) for k, v in current.items() if manifest["provenance"].get(k) != v
+            k: (recorded.get(k), current.get(k))
+            for k in sorted(set(recorded) | set(current))
+            if recorded.get(k) != current.get(k)
         }
         if diffs:
             raise RuntimeError(

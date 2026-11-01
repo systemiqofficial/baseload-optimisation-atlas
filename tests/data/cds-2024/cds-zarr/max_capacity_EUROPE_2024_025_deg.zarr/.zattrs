@@ -1,0 +1,11 @@
+{
+  "description": "Maximum installable capacity per pixel (MW)",
+  "method": "pixel_area(lat, R=6371.0 km) x density (no availability layers)",
+  "density_mw_per_km2": "{'pv': 46.827000000000005, 'wind': 10.42}",
+  "availability_layers": "",
+  "availability_signature": "ee73b3a9ae7eb497",
+  "generated_by": "boa.cds.max_capacity",
+  "generated_at": "2026-10-14T15:37:34+00:00",
+  "lulc_source": "none",
+  "lulc_codes": "n/a"
+}

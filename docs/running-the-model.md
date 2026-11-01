@@ -44,6 +44,42 @@ follow-up "Grid 2" work): every query currently reports the *unconstrained* opti
 its coverage target, regardless of `--load-density`, and logs a warning saying so. Do not
 promote results from a run in this window.
 
+`--exact-designs`, on `boa-run` and each of its subcommands, makes the dense patch search
+dispatch only the float32 sizes that a frontier keeps, so every design it keeps meets the
+coverage target. Without it, the float32 rounding leaves a few stored designs short of their
+target: 1 in about 12,000 over ten sample cells of BOA's 2024 weather. The flag is off by
+default. It gives the run a folder of its own, since it enters the run's hash, and the run's
+frontier caches names of their own, ending in `_exact`. When one label has run folders with
+and without it, `boa-promote-lcoe --run` needs the folder's full name, `<label>_<hash>`.
+
+## A process with a minimum load
+
+`--min-load <share>` builds and prices for a process that can turn down. In any hour when the
+battery's charge and the hour's solar and wind reach that share of full load, the process runs,
+taking up to its full load; below it, the process stops and the battery stores the hour's
+generation. Coverage then counts the hours the process runs, the served fraction is the energy
+it uses, and the levelised cost of electricity (LCOE) is per MWh used.
+
+```bash
+boa-run --load-density 1.0 --coverage 0.85 --min-load 0.3
+```
+
+- **Names of its own.** The minimum load names the run's folder, its frontier caches
+  (`cov0p85_minload0p3`) and its outputs, and the outputs' attributes record it as `min_load`.
+- **Exact designs.** A minimum load turns `--exact-designs` on: every stored design is one the
+  search dispatched at the sizes the cache keeps, and every stored battery size meets the
+  coverage target.
+- **Energy below hours.** The energy used, as a share of full-load energy, can fall well below
+  the share of hours run. On the extract of BOA's 2024 weather for two Spanish blocks
+  (`tests/data/`), at coverage 0.85 and cost year 2025, the cheapest design of every cell runs in 85 per cent of
+  hours, but flat designs deliver about 0.90 of full-load energy, designs at a minimum load of
+  0.3 use 0.75 to 0.78 of it and designs at 0.2 use 0.62 to 0.74.
+- **No proof claimed.** BOA does not present the search or the containment certificate as
+  proof of the cheapest design under a minimum load.
+- **Never promoted.** The promoted file is a contract with the steel simulation for flat
+  demand, so promotion refuses such a run. After a minimum-load run under the same label as a
+  flat one, `boa-promote-lcoe --run` needs the flat run's full folder name, `<label>_<hash>`.
+
 ## Handing LCOE to the steel simulation
 
 `boa` imports nothing from `steelo`; the dependency runs one way (steelo → boa). The steel

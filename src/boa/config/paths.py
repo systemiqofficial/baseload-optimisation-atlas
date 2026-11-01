@@ -53,6 +53,21 @@ def parse_scenario_number(token: str) -> float:
     return float(token.replace("p", ".", 1))
 
 
+def scenario_token(coverage: float, min_load: float | None = None) -> str:
+    """
+    The scenario's name in folders and files: ``cov<c>``, or ``cov<c>_minload<m>`` for a
+    process with a minimum load (``build_pixel_frontier``'s ``min_load``). A minimum load
+    changes every stored design and every result, so it names its own stores and outputs;
+    without one the token is ``cov<c>`` alone.
+
+    ``<m>`` is the shortest decimal that reads back as the same float (``repr``), with ``p``
+    for the dot, so ``0.3`` gives ``0p3``. ``format_scenario_number`` keeps six significant
+    digits, which would give ``1/3`` and ``0.333333`` one name, and so one store.
+    """
+    token = f"cov{format_scenario_number(coverage)}"
+    return token if min_load is None else f"{token}_minload{repr(float(min_load)).replace('.', 'p')}"
+
+
 def make_run_dirname(run: str, params_hash: str) -> str:
     """``<run>_<params_hash>`` — the on-disk run directory name.
 
@@ -139,13 +154,14 @@ class PathConfig:
         │   └── cache_costs/               per-year costs; depends only on the xlsx
         ├── runs/<run>_<hash>/             <hash> = non_scenario_params_hash(search_params);
         │   ├── run.json                   same run label + same params -> same directory
-        │   └── outputs/wy<year>/<rho>MWkm2/cov<c>/nc/<REGION>/
-        │             optimal_sol_wy<year>_<rho>MWkm2_cov<c>_<REGION>_<inv_year>.nc
+        │   └── outputs/wy<year>/<rho>MWkm2/cov<c>[_minload<m>]/nc/<REGION>/
+        │             optimal_sol_wy<year>_<rho>MWkm2_cov<c>[_minload<m>]_<REGION>_<inv_year>.nc
         └── lcoe-only/<run>_<hash>/        combined per-run LCOE files the steel sim reads
 
     ``<rho>``/``<c>`` are dot-free, formatted via ``format_scenario_number`` (e.g.
     ``rho=2.5`` -> ``"02p5MWkm2"``, ``coverage=0.95`` -> ``"cov0p95"``); ``<year>`` is the
-    weather year (``wy<year>``), ``<inv_year>`` the investment year.
+    weather year (``wy<year>``), ``<inv_year>`` the investment year. ``_minload<m>`` appears
+    only for a process with a minimum load (``scenario_token``, e.g. ``"cov0p85_minload0p3"``).
 
     Build paths through the helpers rather than inline so a layout change touches one place.
     """
@@ -205,9 +221,12 @@ class PathConfig:
         """
         return self.root / "inputs" / weather_set_name(weather_year) / "cache_frontiers"
 
-    def scenario_dir(self, weather_year: int, load_density: float, coverage: float) -> Path:
+    def scenario_dir(
+        self, weather_year: int, load_density: float, coverage: float, min_load: float | None = None
+    ) -> Path:
         """
-        ``outputs/wy<weather_year>/<rho>MWkm2/cov<coverage>`` — root for one scenario's artifacts.
+        ``outputs/wy<weather_year>/<rho>MWkm2/cov<coverage>[_minload<min_load>]``: root for one
+        scenario's artifacts.
 
         Nested outermost on weather year so one run can hold a full weather-year sweep (each
         year's outputs live in their own subtree) the same way it already holds a coverage/
@@ -223,39 +242,65 @@ class PathConfig:
         density beside it. It was previously the *uncovered* percentile (``p15`` for 85%
         coverage), which every reader had to invert and which collided under rounding:
         ``--coverage 0.995`` and ``--coverage 1.0`` both produced ``p0`` -- ``format_scenario_number``
-        avoids that same failure mode for the current dot-free encoding too.
+        avoids that same failure mode for the current dot-free encoding too. A process with a
+        minimum load adds ``_minload<min_load>`` to the token (``scenario_token``).
         """
         return (
             self.outputs_dir
             / f"wy{int(weather_year)}"
             / f"{format_scenario_number(load_density, pad_int_digits=2)}MWkm2"
-            / f"cov{format_scenario_number(coverage)}"
+            / scenario_token(coverage, min_load)
         )
 
-    def maps_dir(self, weather_year: int, load_density: float, coverage: float, region: str | None = None) -> Path:
+    def maps_dir(
+        self,
+        weather_year: int,
+        load_density: float,
+        coverage: float,
+        region: str | None = None,
+        min_load: float | None = None,
+    ) -> Path:
         """Native NetCDF dir for the scenario; per-region when ``region`` given."""
-        d = self.scenario_dir(weather_year, load_density, coverage) / "nc"
+        d = self.scenario_dir(weather_year, load_density, coverage, min_load) / "nc"
         return d / region if region else d
 
     def optimal_sol_filename(
-        self, weather_year: int, load_density: float, coverage: float, region: str, year: int
+        self,
+        weather_year: int,
+        load_density: float,
+        coverage: float,
+        region: str,
+        year: int,
+        min_load: float | None = None,
     ) -> str:
         """Self-describing NetCDF filename:
-        ``optimal_sol_wy<weather_year>_<rho>MWkm2_cov<c>_<REGION>_<year>.nc``."""
+        ``optimal_sol_wy<weather_year>_<rho>MWkm2_<scenario>_<REGION>_<year>.nc``, the scenario
+        being ``scenario_token``'s."""
         return (
             f"optimal_sol_wy{int(weather_year)}_"
             f"{format_scenario_number(load_density, pad_int_digits=2)}MWkm2_"
-            f"cov{format_scenario_number(coverage)}_{region}_{int(year)}.nc"
+            f"{scenario_token(coverage, min_load)}_{region}_{int(year)}.nc"
         )
 
-    def optimal_sol_path(self, weather_year: int, load_density: float, coverage: float, region: str, year: int) -> Path:
+    def optimal_sol_path(
+        self,
+        weather_year: int,
+        load_density: float,
+        coverage: float,
+        region: str,
+        year: int,
+        min_load: float | None = None,
+    ) -> Path:
         """Canonical path of one region-year optimal-solution NetCDF."""
-        return self.maps_dir(weather_year, load_density, coverage, region) / self.optimal_sol_filename(
-            weather_year, load_density, coverage, region, year
+        return self.maps_dir(weather_year, load_density, coverage, region, min_load) / self.optimal_sol_filename(
+            weather_year, load_density, coverage, region, year, min_load
         )
 
     def optimal_sol_year_glob(self, weather_year: int, load_density: float, coverage: float, region: str) -> str:
-        """Glob matching every year of one region's optimal-solution NetCDFs."""
+        """
+        Glob matching every year of one region's optimal-solution NetCDFs under flat demand. It
+        matches no output of a minimum load: promotion, its one caller, reads flat outputs only.
+        """
         return (
             f"optimal_sol_wy{int(weather_year)}_"
             f"{format_scenario_number(load_density, pad_int_digits=2)}MWkm2_"
@@ -286,9 +331,11 @@ class PathConfig:
             weather_year, load_density, coverage, year_start, year_end
         )
 
-    def map_plots_dir(self, weather_year: int, load_density: float, coverage: float, region: str) -> Path:
+    def map_plots_dir(
+        self, weather_year: int, load_density: float, coverage: float, region: str, min_load: float | None = None
+    ) -> Path:
         """Per-region diagnostic-plot dir for the scenario."""
-        return self.scenario_dir(weather_year, load_density, coverage) / "plots" / region
+        return self.scenario_dir(weather_year, load_density, coverage, min_load) / "plots" / region
 
     @property
     def plots_dir(self) -> Path:

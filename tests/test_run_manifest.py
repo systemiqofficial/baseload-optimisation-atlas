@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 import pytest
@@ -46,6 +47,68 @@ def test_non_scenario_params_hash_is_stable_and_forks_on_change(tmp_path):
 
     changed = dataclasses.replace(SearchParams(), ladder_rungs=SearchParams().ladder_rungs + 1)
     assert run_manifest.non_scenario_params_hash(changed) != base
+
+
+def test_a_default_run_keeps_the_hash_of_its_other_parameters_alone():
+    """A key for an option left off, even one holding `None`, would rename every existing default run folder."""
+    payload = {"lifetimes": physical_parameters.LIFETIMES, "search_params": SearchParams().as_dict()}
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:4]
+    assert run_manifest.non_scenario_params_hash(SearchParams()) == digest
+
+
+def test_exact_designs_fork_the_run_hash_and_provenance_only_when_set(tmp_path):
+    base = run_manifest.non_scenario_params_hash(SearchParams())
+    assert run_manifest.non_scenario_params_hash(SearchParams(), exact=False) == base
+    assert run_manifest.non_scenario_params_hash(SearchParams(), exact=True) != base
+
+    cfg = _cfg(tmp_path, input_set="cds", cost_set="c1")
+    assert "exact" not in run_manifest.provenance(cfg)
+    assert run_manifest.provenance(cfg, exact=True)["exact"] is True
+
+
+@pytest.mark.parametrize("option", [{"exact": True}, {"min_load": 0.3}])
+def test_the_manifest_records_the_run_hash_with_each_option(tmp_path, option):
+    cfg = _cfg(tmp_path, input_set="cds", cost_set="c1")
+    manifest = run_manifest.record_invocation(cfg, "run", [], **option)
+    assert manifest["non_scenario_params_hash"] == run_manifest.non_scenario_params_hash(SearchParams(), **option)
+
+
+@pytest.mark.parametrize("first", [False, True])
+def test_a_run_refuses_to_mix_exact_and_default_designs_either_way(tmp_path, first):
+    cfg = _cfg(tmp_path, input_set="cds", cost_set="c1", run="shared")
+    run_manifest.record_invocation(cfg, "query", [], exact=first)
+    with pytest.raises(RuntimeError, match="exact"):
+        run_manifest.record_invocation(cfg, "query", [], exact=not first)
+
+
+def test_a_minimum_load_forks_the_run_hash_and_provenance_only_when_set(tmp_path):
+    base = run_manifest.non_scenario_params_hash(SearchParams())
+    assert run_manifest.non_scenario_params_hash(SearchParams(), min_load=None) == base
+    loaded = run_manifest.non_scenario_params_hash(SearchParams(), min_load=0.3)
+    assert loaded not in (base, run_manifest.non_scenario_params_hash(SearchParams(), exact=True))
+    # A minimum load turns exact designs on, so the flag changes nothing on top of it.
+    assert run_manifest.non_scenario_params_hash(SearchParams(), exact=True, min_load=0.3) == loaded
+    assert run_manifest.non_scenario_params_hash(SearchParams(), min_load=0.2) != loaded
+
+    cfg = _cfg(tmp_path, input_set="cds", cost_set="c1")
+    assert "min_load" not in run_manifest.provenance(cfg)
+    assert run_manifest.provenance(cfg, min_load=0.3)["min_load"] == 0.3
+
+
+@pytest.mark.parametrize("first, second", [(None, 0.3), (0.3, None), (0.3, 0.2)])
+def test_a_run_refuses_to_mix_minimum_loads(tmp_path, first, second):
+    cfg = _cfg(tmp_path, input_set="cds", cost_set="c1", run="shared")
+    run_manifest.record_invocation(cfg, "query", [], min_load=first)
+    with pytest.raises(RuntimeError, match="min_load"):
+        run_manifest.record_invocation(cfg, "query", [], min_load=second)
+
+
+def test_a_minimum_load_records_exact_designs_with_or_without_the_flag(tmp_path):
+    """`boa-run --min-load 0.3` and `boa-run query --min-load 0.3 --exact-designs` share a run folder."""
+    cfg = _cfg(tmp_path, input_set="cds", cost_set="c1", run="shared")
+    run_manifest.record_invocation(cfg, "run", [], min_load=0.3)
+    manifest = run_manifest.record_invocation(cfg, "query", [], exact=True, min_load=0.3)
+    assert manifest["provenance"]["exact"] is True
 
 
 def test_record_invocation_stores_description_hash_only_at_creation(tmp_path):

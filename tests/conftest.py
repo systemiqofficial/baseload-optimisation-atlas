@@ -13,8 +13,16 @@ Every profile obeys the contract `calculate_served_fraction` documents
 say so at the callsite.
 """
 
+import os
+import shutil
+import tempfile
+from collections.abc import Iterator
+from pathlib import Path
+
 import numpy as np
 import pytest
+
+from boa.config.paths import PathConfig
 
 # Three weeks of hourly data. Long enough for multi-day battery behaviour to
 # show up, short enough that a full grid sweep in a test stays sub-second.
@@ -59,6 +67,16 @@ def dead_profiles() -> dict[str, np.ndarray]:
 def poor_profiles() -> dict[str, np.ndarray]:
     """Very low capacity factor on both technologies -> dismissal-screen territory."""
     return {"solar": _daily_solar(peak=0.04), "wind": _noisy_wind(mean=0.02, seed=1)}
+
+
+@pytest.fixture(scope="session")
+def rounding_profiles() -> dict[str, np.ndarray]:
+    """
+    A year of the same synthetic weather, on which one design the store keeps misses a
+    coverage target of 0.90 once rounded to float32, under `anchor_costs`. Found by
+    searching wind seeds; `test_exact_designs.py` relies on it.
+    """
+    return {"solar": _daily_solar(hours=8784), "wind": _noisy_wind(hours=8784, seed=16)}
 
 
 @pytest.fixture(scope="session")
@@ -150,3 +168,29 @@ def cds_masks_dir(tmp_path):
         d / "ANCI_WPM-mask_C3S2LOT1_025d_v1.00.nc"
     )
     return d
+
+
+# --------------------------------------------------------------------------
+# Weather extract
+# --------------------------------------------------------------------------
+
+WEATHER_EXTRACT = Path(__file__).parent / "data" / "cds-2024"
+
+
+@pytest.fixture(scope="module")
+def extract_data_root() -> Iterator[PathConfig]:
+    """
+    A throwaway data root that runs BOA on the Spanish weather extract in `tests/data/`.
+
+    It holds the cost data and the country grid of the prepared data root that
+    `BOA_TEST_DATA_ROOT` names, and the extract as input set `cds-2024`; it skips without one.
+    """
+    source = os.environ.get("BOA_TEST_DATA_ROOT")
+    if not source:
+        pytest.skip("BOA_TEST_DATA_ROOT is not set: point it at a data root that boa-data-prepare built")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "root"
+        for folder in ("costs", "data"):
+            shutil.copytree(Path(source) / folder, root / folder)
+        shutil.copytree(WEATHER_EXTRACT, root / "inputs" / "cds-2024")
+        yield PathConfig.from_root(root, input_set="cds-2024", cost_set="default")
