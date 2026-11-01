@@ -30,6 +30,32 @@ def _lcoe_tech_weights(
     return w0, wH
 
 
+def lcoe_key_terms(
+    investment_horizon: int,
+    capex: dict,
+    opex_pct: dict,
+    cost_of_capital: float,
+) -> tuple[float, float, float, float]:
+    """
+    The part of `lcoe_coefficients` that the costs alone decide, before the baseload scales it:
+    `(x_s, x_w, x_b, s_d)`, the discounted lifetime cost per unit of solar, wind and battery,
+    and the sum of the discount factors over the horizon.
+
+    `boa.model.frontier_pricing.cost_arrays` evaluates it once per distinct set of costs in a
+    region and still equals `lcoe_coefficients` bit for bit, because both multiply the same four
+    numbers by each cell's baseload, in the same order.
+    """
+    discount_factors = np.array([1.0 / (1.0 + cost_of_capital) ** t for t in range(investment_horizon + 1)])
+    w0, wH = {}, {}
+    for tech in ("solar", "wind", "battery"):
+        w0[tech], wH[tech] = _lcoe_tech_weights(discount_factors, opex_pct[tech], LIFETIMES[tech], investment_horizon)
+
+    x_s = w0["solar"] * capex["solar"][0] + wH["solar"] * capex["solar"][investment_horizon]
+    x_w = w0["wind"] * capex["wind"][0] + wH["wind"] * capex["wind"][investment_horizon]
+    x_b = w0["battery"] * capex["battery"][0] + wH["battery"] * capex["battery"][investment_horizon]
+    return x_s, x_w, x_b, discount_factors[1 : investment_horizon + 1].sum()
+
+
 def lcoe_coefficients(
     investment_horizon: int,
     capex: dict,
@@ -51,23 +77,15 @@ def lcoe_coefficients(
     Every coefficient scales linearly with `baseload_demand`, which is what makes LCOE
     exactly baseload-invariant rather than approximately so.
     """
-    discount_factors = np.array([1.0 / (1.0 + cost_of_capital) ** t for t in range(investment_horizon + 1)])
-    w0, wH = {}, {}
-    for tech in ("solar", "wind", "battery"):
-        w0[tech], wH[tech] = _lcoe_tech_weights(discount_factors, opex_pct[tech], LIFETIMES[tech], investment_horizon)
-
-    a_s = baseload_demand * (w0["solar"] * capex["solar"][0] + wH["solar"] * capex["solar"][investment_horizon])
-    a_w = baseload_demand * (w0["wind"] * capex["wind"][0] + wH["wind"] * capex["wind"][investment_horizon])
+    x_s, x_w, x_b, s_d = lcoe_key_terms(investment_horizon, capex, opex_pct, cost_of_capital)
+    a_s = baseload_demand * x_s
+    a_w = baseload_demand * x_w
     # AVERAGE_IMPLIED_STORAGE**(1-GAMMA) is the modular battery-CAPEX correction's
     # normalisation constant, folded in here so a_b*b**GAMMA reproduces
     # capex * (b/AVERAGE_IMPLIED_STORAGE)**BATTERY_UNIT_CAPEX_SCALING_FACTOR * b exactly
     # (see the vectorised pricer's own battery term, which this replaces).
-    a_b = (
-        baseload_demand
-        * AVERAGE_IMPLIED_STORAGE ** (1.0 - GAMMA)
-        * (w0["battery"] * capex["battery"][0] + wH["battery"] * capex["battery"][investment_horizon])
-    )
-    d0 = baseload_demand * HOURS_IN_YEAR * discount_factors[1 : investment_horizon + 1].sum()
+    a_b = baseload_demand * AVERAGE_IMPLIED_STORAGE ** (1.0 - GAMMA) * x_b
+    d0 = baseload_demand * HOURS_IN_YEAR * s_d
     return CostCoefficients(a_s=a_s, a_w=a_w, a_b=a_b, d0=d0)
 
 

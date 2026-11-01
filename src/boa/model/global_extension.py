@@ -22,16 +22,14 @@ from boa.model.bisection import (
     CostCoefficients,
     PixelFrontier,
     SearchParams,
-    argmin_lcoe,
     build_pixel_frontier,
 )
 from boa.model.anchors import Candidates, anchors_for_build, uncovered
-from boa.model.cost_calculations import installation_cost_breakdown, lcoe_coefficients
+from boa.model.cost_calculations import installation_cost_breakdown
 from boa.model.frontier_cache import (
     FRONTIER_CACHE_VERSION,
     RegionFrontierCache,
     build_frontier_meta,
-    frontier_at,
     frontier_cache_path,
     read_frontier_anchors,
     read_frontier_cache,
@@ -39,6 +37,7 @@ from boa.model.frontier_cache import (
     stack_pixel_frontiers,
     write_frontier_cache,
 )
+from boa.model.frontier_pricing import BATCH_CELLS, cost_arrays, price_frontiers
 from boa.inputs.profiles import detect_weather_year
 
 
@@ -112,7 +111,10 @@ def _query_frontier_tile(
     stored at build time, so ranking and reporting use the same number by construction.
 
     What remains is arithmetic: four cost scalars against cached physics, an argmin, and the
-    installation-cost breakdown.
+    installation-cost breakdown. The first two run over the whole tile at once in
+    `boa.model.frontier_pricing`, which equals `lcoe_coefficients` and `argmin_lcoe` bit for bit.
+    The breakdown is one Python call per cell, because it raises a ratio to a power with `**`, and
+    numpy's `power` may round that differently on some processors.
 
     **The capacity ceiling is not applied.** `argmin_lcoe` takes no capacity parameter -- the
     ceiling belongs to Grid 2 -- so between M3 and M4 this reports the *unconstrained* optimum.
@@ -129,7 +131,17 @@ def _query_frontier_tile(
     results: list[dict] = []
     counters = {"certified": 0, "truncated": 0, "no_optimum": 0, "zero_potential": 0}
 
-    for k in tile_indices:
+    tile_indices = np.asarray(tile_indices)
+    costs = cost_arrays(
+        investment_horizon,
+        {tech: capex_per_tech[tech][tile_indices] for tech in ("solar", "wind", "battery")},
+        {tech: opex_per_tech[tech][tile_indices] for tech in ("solar", "wind", "battery")},
+        coc_arr[tile_indices],
+        load_mw[tile_indices],
+    )
+    optima = price_frontiers(cache, costs, tile_indices)
+
+    for position, k in enumerate(tile_indices):
         cost_key = str(cost_keys[k]) if cost_keys[k] else ""
         load_k = float(load_mw[k])
         status = int(cache.status[k])
@@ -155,9 +167,7 @@ def _query_frontier_tile(
             continue
 
         capex_k = {tech: capex_per_tech[tech][k] for tech in ("solar", "wind", "battery")}
-        opex_k = {tech: float(opex_per_tech[tech][k]) for tech in ("solar", "wind", "battery")}
-        coeffs = lcoe_coefficients(investment_horizon, capex_k, opex_k, float(coc_arr[k]), load_k)
-        optimum = argmin_lcoe(frontier_at(cache, int(k)), coeffs)
+        optimum = optima.optimum(position)
         total, ic_s, ic_w, ic_b = installation_cost_breakdown(
             optimum.solar, optimum.wind, optimum.battery, load_k, capex_k
         )
@@ -383,6 +393,11 @@ def query_frontier_cache_for_region(
     value. Each pixel's own `load_mw = load_density * pixel_area(lat)` is what actually scales
     its reported design.
 
+    Pricing runs on the calling thread: `boa.model.frontier_pricing.price_frontiers` prices the
+    region's cells in batches, equal to `argmin_lcoe` cell by cell, so `n_workers` does not
+    affect the query. It is a parameter because `boa-run` passes its `--workers` to the build
+    and the query alike.
+
     **The capacity ceiling is not applied.** Grid 2 lands in M4; until then this reports the
     unconstrained optimum, and the warning below says so at every call. Delete the warning with
     the note in `_query_frontier_tile` when the constrained search arrives.
@@ -412,30 +427,16 @@ def query_frontier_cache_for_region(
     # region rather than per pixel inside the tile worker.
     load_mw = load_density * pixel_area(cache.lats)
 
-    n_tiles = _adaptive_n_tiles(npts, n_workers)
-    order = np.arange(npts)
-    tiles = [t for t in (order[i::n_tiles] for i in range(n_tiles)) if len(t)]
-
+    # Every point in one tile, priced on this thread: the kernel works through it in batches.
+    tile = np.arange(npts)
     t_lcoe = time.time()
-    with ThreadPoolExecutor(max_workers=n_workers) as ex:
-        raw = list(
-            ex.map(
-                lambda t: _query_frontier_tile(
-                    t,
-                    cache,
-                    capex_per_tech,
-                    opex_per_tech,
-                    coc_arr,
-                    cost_keys,
-                    load_mw,
-                    investment_horizon,
-                ),
-                tiles,
-            )
-        )
-    logging.info(f"[timing] LCOE parallel ({len(tiles)} tiles, n_workers={n_workers}): {time.time() - t_lcoe:.1f}s")
+    _, results, counters = _query_frontier_tile(
+        tile, cache, capex_per_tech, opex_per_tech, coc_arr, cost_keys, load_mw, investment_horizon
+    )
+    logging.info(
+        f"[timing] LCOE kernel ({npts} points, one thread, batches of {BATCH_CELLS}): {time.time() - t_lcoe:.1f}s"
+    )
 
-    counters = {key: sum(r[2][key] for r in raw) for key in ("certified", "truncated", "no_optimum", "zero_potential")}
     solved = npts - counters["no_optimum"] - counters["zero_potential"]
     if solved > 0:
         # Certificate telemetry. A low certified rate is a symptom of the coarse tier's
@@ -462,8 +463,8 @@ def query_frontier_cache_for_region(
         "capacity_ceiling_applied": 0,
     }
     optimal_sol = _assemble_optimal_sol(
-        tiles,
-        [r[1] for r in raw],
+        [tile],
+        [results],
         npts,
         cache.all_lats,
         cache.all_lons,

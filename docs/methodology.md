@@ -88,6 +88,12 @@ It also returns two diagnostics:
 When the certificate does not fire, `check_repair_budget` (`bisection.py:1416`) bounds the
 share of a run that may fall back to an on-the-fly full patch rebuild before the run fails.
 
+The region query does not call `argmin_lcoe` cell by cell. `frontier_pricing.price_frontiers`
+prices a region's stored frontiers in numpy, 1,024 cells at a time, and returns for every cell
+what `argmin_lcoe` returns, bit for bit: the same design, the same LCOE, the same certificate and
+the same truncation flag. `argmin_lcoe` stays the readable reference. The two must change
+together, and `tests/test_frontier_pricing.py` compares them.
+
 ## Parameters
 
 `SearchParams` (`bisection.py:77`) holds every search-quality knob. The full field set is
