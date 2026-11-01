@@ -119,6 +119,42 @@ def calculate_served_fraction(soc: np.ndarray, net_energy: np.ndarray) -> float:
     return float(1.0 - unmet_norm.mean())
 
 
+def minimum_load_dispatch(gen_nrg: np.ndarray, battery_capacity: float, min_load: float) -> tuple[float, float]:
+    """
+    [REFERENCE IMPLEMENTATION: no production callers. The readable specification that
+    tests/test_minimum_load.py checks `bisection.dispatch_metrics_min_load` against.]
+
+    Dispatch for a process that runs between a minimum load and its full load, by the rule
+    "stop and store". In each hour, if the battery's charge plus the hour's generation
+    reaches `min_load`, the process runs: it takes up to its full load, and what is left
+    charges the battery, up to its capacity. Otherwise the process stops, and the hour's
+    generation charges the battery. The battery starts empty and loses nothing.
+
+    Parameters:
+      gen_nrg: Generation from solar and wind at each hour, normalised by the process's full
+        load (full load = 1): `C_s * solar_profile + C_w * wind_profile`.
+      battery_capacity: Battery overscale factor in **hours** of full load.
+      min_load: Minimum load, as a share of full load, in (0, 1).
+
+    Returns:
+      The share of hours the process runs, and the energy it uses as a share of the energy
+      it would use running at full load in every hour.
+    """
+    charge = 0.0
+    hours_run = 0
+    energy_used = 0.0
+    for generation in gen_nrg:
+        available = charge + generation
+        if available >= min_load:
+            hours_run += 1
+            load = min(available, 1.0)
+            energy_used += load
+            charge = min(available - load, battery_capacity)
+        else:
+            charge = min(available, battery_capacity)
+    return hours_run / len(gen_nrg), energy_used / len(gen_nrg)
+
+
 def calculate_net_energy_production(
     C_s: float, solar_profile: np.ndarray, C_w: float, wind_profile: np.ndarray
 ) -> np.ndarray:

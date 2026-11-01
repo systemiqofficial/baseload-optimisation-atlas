@@ -454,7 +454,63 @@ def dispatch_metrics(solar, wind, s, w, b):
 
 
 @numba.njit(cache=True, nogil=True)
-def _bracket_jit(solar, wind, s, w, target, hint, b_cap):
+def dispatch_metrics_min_load(solar, wind, s, w, b, m):
+    """
+    One year of battery dispatch for a process that runs between a minimum load `m` and its
+    full load of 1, returning `(hours_run, energy_used)`, each as a share of the record.
+
+    Stop and store: in an hour when the battery's charge and the hour's solar and wind
+    together reach `m`, the process runs, taking up to its full load, and the battery keeps
+    what is left up to its size; below `m` the process stops, and the battery stores the
+    hour's generation. `tests/test_minimum_load.py` checks this exactly against its readable
+    reference, `boa.model.logic.minimum_load_dispatch`.
+
+    The flat dispatch's conventions carry over: the battery starts empty and loses nothing.
+    Energy used counts only the hours the process runs, at whatever load it runs, so it can
+    lie well below `hours_run`. It takes the served fraction's place as the denominator of
+    the levelised cost, which then reads per MWh used.
+
+    The search relies on the flat dispatch's hours covered never falling as the battery grows.
+    The flat dispatch's argument for that does not carry over to this rule, so the build does
+    not rely on the property: `build_pixel_frontier` checks every stored battery size against
+    the target, and the tests sweep the battery for a fall in hours run. Under a minimum load
+    the build does not claim the coarse tier's values as bounds, and BOA does not present the
+    containment certificate as proof.
+    """
+    n_hours = solar.shape[0]
+    prev = 0.0
+    run = 0
+    used = 0.0
+    for t in range(n_hours):
+        available = prev + (s * solar[t] + w * wind[t])
+        if available >= m:
+            run += 1
+            if available >= 1.0:
+                used += 1.0
+                current = available - 1.0
+            else:
+                used += available
+                current = 0.0
+        else:
+            current = available
+        current = min(current, b)
+        prev = current
+    return run / n_hours, used / n_hours
+
+
+@numba.njit(cache=True, nogil=True)
+def _metrics(solar, wind, s, w, b, m):
+    """
+    BOA's flat dispatch when `m` is `None`, a branch numba resolves when it compiles, so the
+    default path calls `dispatch_metrics` alone; otherwise the minimum-load dispatch at `m`.
+    """
+    if m is None:
+        return dispatch_metrics(solar, wind, s, w, b)
+    return dispatch_metrics_min_load(solar, wind, s, w, b, m)
+
+
+@numba.njit(cache=True, nogil=True)
+def _bracket_jit(solar, wind, s, w, target, hint, b_cap, m):
     """
     An infeasible/feasible pair straddling `b_min`, as `(lo, hi, coverage, served_fraction)`
     with the metrics taken at `hi`.
@@ -469,12 +525,12 @@ def _bracket_jit(solar, wind, s, w, target, hint, b_cap):
     find: both branches still establish a genuine infeasible/feasible pair, so whatever
     closes the bracket is hint-independent to its own tolerance.
     """
-    cov, sf = dispatch_metrics(solar, wind, s, w, 0.0)
+    cov, sf = _metrics(solar, wind, s, w, 0.0, m)
     if cov >= target:
         return 0.0, 0.0, cov, sf
 
     if hint > 0.0:
-        cov_h, sf_h = dispatch_metrics(solar, wind, s, w, hint)
+        cov_h, sf_h = _metrics(solar, wind, s, w, hint, m)
         if cov_h >= target:
             # Already feasible at the hint: halve downward for a tighter lower bound
             # rather than restarting the doubling from scratch.
@@ -484,7 +540,7 @@ def _bracket_jit(solar, wind, s, w, target, hint, b_cap):
                 probe *= 0.5
                 if probe <= _B_TOL_ABS:
                     break
-                cov_p, sf_p = dispatch_metrics(solar, wind, s, w, probe)
+                cov_p, sf_p = _metrics(solar, wind, s, w, probe, m)
                 if cov_p >= target:
                     hi, cov_hi, sf_hi = probe, cov_p, sf_p
                 else:
@@ -496,7 +552,7 @@ def _bracket_jit(solar, wind, s, w, target, hint, b_cap):
         lo, hi = 0.0, 0.25
 
     while hi <= b_cap:
-        cov_p, sf_p = dispatch_metrics(solar, wind, s, w, hi)
+        cov_p, sf_p = _metrics(solar, wind, s, w, hi, m)
         if cov_p >= target:
             return lo, hi, cov_p, sf_p
         lo = hi
@@ -517,7 +573,7 @@ def _as_stored(x, exact):
 
 
 @numba.njit(cache=True, nogil=True)
-def _b_min_jit(solar, wind, s, w, target, hint, b_cap, tol_rel, exact):
+def _b_min_jit(solar, wind, s, w, target, hint, b_cap, tol_rel, exact, m):
     """
     Smallest battery reaching `target` coverage at this `(s, w)`, with the metrics at
     that battery. Returns `(inf, 0, 0)` when no battery at or below `b_cap` gets there.
@@ -536,8 +592,13 @@ def _b_min_jit(solar, wind, s, w, target, hint, b_cap, tol_rel, exact):
 
     The metrics come from the last probe that set `hi`, which by construction sits at the
     returned battery size -- so the ladder's first rung costs nothing.
+
+    Under a minimum load `m` the search does not rely on hours run rising with battery size,
+    so it returns a battery at which they reach the target and does not claim that battery is
+    the smallest. It met the target when the kernel dispatched it, which is all a stored design
+    needs.
     """
-    lo, hi, cov_hi, sf_hi = _bracket_jit(solar, wind, s, w, target, _as_stored(hint, exact), b_cap)
+    lo, hi, cov_hi, sf_hi = _bracket_jit(solar, wind, s, w, target, _as_stored(hint, exact), b_cap, m)
     if not np.isfinite(hi):
         return np.inf, 0.0, 0.0
 
@@ -548,7 +609,7 @@ def _b_min_jit(solar, wind, s, w, target, hint, b_cap, tol_rel, exact):
         # values, which only a tolerance far below BOA's default reaches; stop rather than loop.
         if exact is not None and not lo < mid < hi:
             break
-        cov_m, sf_m = dispatch_metrics(solar, wind, s, w, mid)
+        cov_m, sf_m = _metrics(solar, wind, s, w, mid, m)
         if cov_m >= target:
             hi, cov_hi, sf_hi = mid, cov_m, sf_m
         else:
@@ -558,7 +619,7 @@ def _b_min_jit(solar, wind, s, w, target, hint, b_cap, tol_rel, exact):
 
 
 @numba.njit(cache=True, nogil=True)
-def _b_min_bound_jit(solar, wind, s, w, target, hint, b_cap, max_steps):
+def _b_min_bound_jit(solar, wind, s, w, target, hint, b_cap, max_steps, m):
     """
     A *lower bound* on `b_min`, plus a feasible battery above it, as `(lo, hi)`.
 
@@ -568,8 +629,10 @@ def _b_min_bound_jit(solar, wind, s, w, target, hint, b_cap, max_steps):
 
     `hi` comes back only so the caller can chain it into the next node's `hint`; it is a
     feasible battery, not an answer.
+
+    Under a minimum load `m` the build does not claim the result as a bound: it ranks seeds.
     """
-    lo, hi, _, _ = _bracket_jit(solar, wind, s, w, target, hint, b_cap)
+    lo, hi, _, _ = _bracket_jit(solar, wind, s, w, target, hint, b_cap, m)
     if not np.isfinite(hi):
         return np.inf, np.inf
     if hi <= 0.0:
@@ -577,7 +640,7 @@ def _b_min_bound_jit(solar, wind, s, w, target, hint, b_cap, max_steps):
 
     for _ in range(max_steps):
         mid = 0.5 * (lo + hi)
-        cov_m, _sf = dispatch_metrics(solar, wind, s, w, mid)
+        cov_m, _sf = _metrics(solar, wind, s, w, mid, m)
         if cov_m >= target:
             hi = mid
         else:
@@ -590,6 +653,15 @@ def _kernel_exact(exact: bool) -> bool | None:
     return True if exact else None
 
 
+def _kernel_min_load(min_load: float | None) -> float | None:
+    """The compiled kernels' minimum load: `None` selects BOA's flat dispatch."""
+    if min_load is None:
+        return None
+    if not 0.0 < min_load < 1.0:
+        raise ValueError(f"min_load must be a share of full load in (0, 1), or None for flat demand, got {min_load!r}")
+    return float(min_load)
+
+
 def b_min_at(
     solar: np.ndarray,
     wind: np.ndarray,
@@ -599,9 +671,12 @@ def b_min_at(
     params: SearchParams,
     hint: float = -1.0,
     exact: bool = False,
+    min_load: float | None = None,
 ) -> tuple[float, float, float]:
     """
-    Smallest feasible battery at one grid point, as `(b_min, hours_covered, served_fraction)`.
+    Smallest feasible battery at one grid point, as `(b_min, hours_covered, served_fraction)`;
+    under a minimum load, a battery that meets the target, which the search does not claim is
+    the smallest (`_b_min_jit`).
 
     `coverage` is the fraction of hours that must be fully met, the same number the CLI
     takes. It used to be the *uncovered percentile* (15 for 85% coverage), which every
@@ -609,10 +684,13 @@ def b_min_at(
     passing 0.85 asked for 99.15% coverage rather than 85%, with no error anywhere.
 
     With `exact`, the battery is a float32 value, as the store keeps it; the caller passes
-    `s` and `w` already rounded to float32 (`build_pixel_frontier`).
+    `s` and `w` already rounded to float32 (`build_pixel_frontier`). `min_load`, a share of
+    full load in (0, 1), dispatches by `dispatch_metrics_min_load`: `hours_covered` is then
+    the share of hours run and `served_fraction` the energy used. It turns `exact` on.
     """
     _check_coverage(coverage)
     target = coverage
+    m = _kernel_min_load(min_load)
     return _b_min_jit(
         solar,
         wind,
@@ -622,18 +700,20 @@ def b_min_at(
         float(hint),
         params.b_cap,
         params.tol_rel_patch,
-        _kernel_exact(exact),
+        _kernel_exact(exact or m is not None),
+        m,
     )
 
 
 @numba.njit(cache=True, nogil=True)
-def _rung_metrics_jit(solar, wind, s, w, b_min, cov0, sf0, spans, out_b, out_cov, out_sf, exact):
+def _rung_metrics_jit(solar, wind, s, w, b_min, cov0, sf0, spans, out_b, out_cov, out_sf, exact, target, m):
     """
     Dispatch at each rung above `b_min`, filling `(out_b, out_cov, out_sf)` in place.
 
     Rung 0 is `b_min` itself and costs no dispatch: `(cov0, sf0)` are the metrics of the
     last probe of the bisection that found it. Every later rung is one pass, at a float32
-    battery when `exact` is set (`_as_stored`).
+    battery when `exact` is set (`_as_stored`). Under a minimum load `m`, a rung that misses
+    `target` comes back as infeasible: an infinite battery that serves nothing.
 
     `b_min <= 0` yields every rung at `b_min` with its own metrics: a multiple of zero is
     still zero, so there is nothing above it to price, and this design does not special-case
@@ -647,7 +727,12 @@ def _rung_metrics_jit(solar, wind, s, w, b_min, cov0, sf0, spans, out_b, out_cov
 
     for r in range(1, spans.shape[0]):
         b = _as_stored(b_min * spans[r], exact)
-        cov, sf = dispatch_metrics(solar, wind, s, w, b)
+        cov, sf = _metrics(solar, wind, s, w, b, m)
+        if m is not None and cov < target:
+            # Under a minimum load the build does not rely on a larger battery running as many
+            # hours, so it stores a size that misses the target as infeasible, as it stores a
+            # node with no feasible battery.
+            b, cov, sf = np.inf, 0.0, 0.0
         out_b[r], out_cov[r], out_sf[r] = b, cov, sf
 
 
@@ -686,6 +771,8 @@ def battery_rungs(
     sf0: float,
     params: SearchParams,
     exact: bool = False,
+    min_load: float | None = None,
+    coverage: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Dispatch metrics at every stored battery size for one node, as
@@ -700,7 +787,15 @@ def battery_rungs(
     Feasibility holds at every rung: coverage is non-decreasing in battery size and rung 0
     is `b_min`, so no rung misses the coverage target at the sizes it was dispatched at.
     The store keeps those sizes as float32; only with `exact` are they the same values.
+
+    Under `min_load` the build does not rely on that: this function then needs `coverage`,
+    checks each rung above `b_min` against it, and returns a rung that misses it as infeasible,
+    an infinite battery that serves nothing, which `argmin_lcoe` skips. `min_load` turns
+    `exact` on.
     """
+    m = _kernel_min_load(min_load)
+    if m is not None and coverage is None:
+        raise ValueError("battery_rungs needs the coverage target under a minimum load, to check each size against it")
     spans = rung_spans(params)
     r = spans.shape[0]
     out_b = np.empty(r, dtype=np.float64)
@@ -718,7 +813,9 @@ def battery_rungs(
         out_b,
         out_cov,
         out_sf,
-        _kernel_exact(exact),
+        _kernel_exact(exact or m is not None),
+        0.0 if coverage is None else float(coverage),
+        m,
     )
     return out_b, out_cov, out_sf
 
@@ -763,11 +860,13 @@ class PixelFrontier:
     # The three sizes of a design are float32; they are the values the kernel dispatched
     # only for a frontier built with `exact` (`build_pixel_frontier`).
     b_patch: np.ndarray  # (K, P, P, R) float32 -- battery, in baseload-hours
-    # Fraction of annual *energy* delivered. This is the LCOE denominator.
+    # Fraction of annual *energy* delivered. This is the LCOE denominator. Under a minimum
+    # load it is the energy the process uses, as a share of full-load energy.
     energy_served_frac: np.ndarray  # (K, P, P, R) float64
     # Fraction of *hours* in which demand was fully met. This is the feasibility
     # constraint, reported but never ranked on -- the two differ, and conflating them is
-    # the inconsistency this rewrite exists to remove.
+    # the inconsistency this rewrite exists to remove. Under a minimum load it is the
+    # share of hours the process runs.
     hours_covered_frac: np.ndarray  # (K, P, P, R) float64
     # Coarse-grid index bounds (i0, i1, j0, j1) each patch was snapped to, so the query-time
     # containment certificate can tell exactly which coarse cells are "inside some patch"
@@ -842,6 +941,7 @@ def coarse_b_min_grid(
     w_vals: np.ndarray,
     coverage: float,
     params: SearchParams,
+    min_load: float | None = None,
 ) -> np.ndarray:
     """
     Lower bounds on `b_min` across the whole box, cheaply.
@@ -875,9 +975,14 @@ def coarse_b_min_grid(
     Returns float64 with `inf` where no battery at or below `b_cap` meets the target;
     `inf` propagates down-and-left correctly, since a dominated node needs at least as
     much battery.
+
+    Under `min_load` the build does not rely on these monotonicities and does not claim the
+    grid's values as bounds: the grid ranks seeds, and BOA does not present the containment
+    certificate built on it as proof.
     """
     _check_coverage(coverage)
     target = coverage
+    m = _kernel_min_load(min_load)
     si = _sub_lattice(len(s_vals), params.coarse_stride)
     wj = _sub_lattice(len(w_vals), params.coarse_stride)
 
@@ -887,7 +992,15 @@ def coarse_b_min_grid(
         hint = row_hint
         for b, j in enumerate(wj):
             lo, hi = _b_min_bound_jit(
-                solar, wind, float(s_vals[i]), float(w_vals[j]), target, hint, params.b_cap, params.coarse_bisect_steps
+                solar,
+                wind,
+                float(s_vals[i]),
+                float(w_vals[j]),
+                target,
+                hint,
+                params.b_cap,
+                params.coarse_bisect_steps,
+                m,
             )
             lattice[a, b] = lo
             if np.isfinite(hi) and hi > 0.0:
@@ -918,7 +1031,9 @@ def anchor_score(s_vals: np.ndarray, w_vals: np.ndarray, b_lower: np.ndarray, an
       * `served_fraction` is unknown on the coarse grid, so this is a numerator, not an
         LCOE. The denominator lies in `[coverage, 1]`, a narrow band near 1, so it cannot
         reorder basins that are more than a few percent apart -- and `seed_tolerance`
-        exists precisely to keep the ones that are;
+        exists precisely to keep the ones that are. Under a minimum load the denominator is
+        the energy used, which can lie below the coverage, so there the ranking is a
+        heuristic;
       * `b_lower` is a lower bound, so the score is optimistic. That is the right
         direction: a basin is explored if it *could* be good, and the query-time
         containment certificate catches any basin that was skipped and should not have
@@ -1160,6 +1275,7 @@ def build_pixel_frontier(
     anchor: CostCoefficients | Sequence[CostCoefficients],
     hint: float = -1.0,
     exact: bool = False,
+    min_load: float | None = None,
 ) -> PixelFrontier:
     """
     Everything one pixel contributes to the frontier cache.
@@ -1204,7 +1320,17 @@ def build_pixel_frontier(
     store quantises them to 16 bits. The coarse sweep dispatches its float64 grid either
     way, since it stores bounds rather than designs. Off by default, and then nothing is
     rounded before a dispatch.
+
+    `min_load`, a share of full load in (0, 1), builds the frontier of a process that runs
+    whenever site power reaches that load and stops below it (`dispatch_metrics_min_load`).
+    The stored hours are then hours run and the stored energy is energy used, so
+    `argmin_lcoe` ranks designs by cost per MWh used. It turns `exact` on, and `battery_rungs`
+    checks every stored battery size against the target, so every stored design is one the
+    kernel dispatched and found to meet it. BOA does not claim that the search finds the
+    cheapest design under this rule, and does not present the containment certificate as
+    proof under it.
     """
+    exact = exact or _kernel_min_load(min_load) is not None
     anchors = [anchor] if isinstance(anchor, CostCoefficients) else list(anchor)
     if not anchors:
         raise ValueError("build_pixel_frontier needs at least one anchor")
@@ -1244,7 +1370,7 @@ def build_pixel_frontier(
     while True:
         s_coarse = np.linspace(0.0, s_max, gc)
         w_coarse = np.linspace(0.0, w_max, gc)
-        b_coarse = coarse_b_min_grid(solar, wind, s_coarse, w_coarse, coverage, params)
+        b_coarse = coarse_b_min_grid(solar, wind, s_coarse, w_coarse, coverage, params, min_load)
         if params.corner_cut_threshold is not None:
             b_coarse = np.where(
                 corner_cut_mask(s_coarse, w_coarse, s_max, w_max, params.corner_cut_threshold), np.inf, b_coarse
@@ -1323,14 +1449,26 @@ def build_pixel_frontier(
         for a in range(n_s):
             node_hint = row_hint
             for b in range(n_w):
-                b_min, cov, sf = b_min_at(solar, wind, s_vals[a], w_vals[b], coverage, params, node_hint, exact)
+                b_min, cov, sf = b_min_at(
+                    solar, wind, s_vals[a], w_vals[b], coverage, params, node_hint, exact, min_load
+                )
                 if np.isfinite(b_min):
                     if b_min > 0.0:
                         node_hint = b_min
                         if b == 0:
                             row_hint = b_min
                     b_r, cov_r, sf_r = battery_rungs(
-                        solar, wind, float(s_vals[a]), float(w_vals[b]), b_min, cov, sf, params, exact
+                        solar,
+                        wind,
+                        float(s_vals[a]),
+                        float(w_vals[b]),
+                        b_min,
+                        cov,
+                        sf,
+                        params,
+                        exact,
+                        min_load,
+                        coverage,
                     )
                 else:
                     # Infeasible node: every rung carries the infinite b_min, and a zero
@@ -1370,7 +1508,9 @@ class Optimum:
     # is the share of annual *energy* delivered and is the LCOE denominator; `hours_covered` is
     # the share of *hours* fully met, which is the constraint the search enforced. Ranking on
     # the second while reporting the first is the inconsistency this rewrite removes, so they
-    # travel together rather than one being re-derived downstream.
+    # travel together rather than one being re-derived downstream. Under a minimum load
+    # `served_fraction` holds the energy the process uses, and `hours_covered` the share of
+    # hours it runs.
     served_fraction: float
     hours_covered: float
     patch_index: int
@@ -1421,6 +1561,9 @@ def _containment_certificate(frontier: PixelFrontier, coeffs: CostCoefficients, 
     might use -- not only `b_min` -- and `served_fraction <= 1` gives the largest possible
     denominator. So `(a_s*s + a_w*w + a_b*b_lo**GAMMA) / d0` bounds LCOE below for any
     design in that cell, at any battery size, with no reference to a ladder at all.
+
+    For a frontier built under a minimum load, the build does not claim `b_coarse` as a bound
+    (`coarse_b_min_grid`), so BOA does not present a `True` there as proof.
     """
     s_c = frontier.s_coarse.astype(np.float64)
     w_c = frontier.w_coarse.astype(np.float64)
@@ -1441,7 +1584,9 @@ def argmin_lcoe(frontier: PixelFrontier, coeffs: CostCoefficients) -> Optimum:
     No dispatch, no bisection, no coverage check: every cached rung sits at or above its
     node's own `b_min`, and coverage is non-decreasing in battery size, so feasibility
     holds by construction for a frontier built with `exact`. Without it, the float32
-    rounding of a stored design can leave it short of its target (`build_pixel_frontier`).
+    rounding of a stored design can leave it short of its target (`build_pixel_frontier`). For a
+    frontier built under a minimum load, the build checked every stored design against the
+    target, and the denominator is the energy used, so `lcoe` reads per MWh used.
 
     Searches every populated patch slot **and every rung**, not just the anchor's
     favourite. Both matter for the same reason: the build's frozen anchor costs are not
