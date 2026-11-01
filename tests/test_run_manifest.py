@@ -48,6 +48,30 @@ def test_non_scenario_params_hash_is_stable_and_forks_on_change(tmp_path):
     assert run_manifest.non_scenario_params_hash(changed) != base
 
 
+def test_exact_designs_fork_the_run_hash_and_provenance_only_when_set(tmp_path):
+    base = run_manifest.non_scenario_params_hash(SearchParams())
+    assert run_manifest.non_scenario_params_hash(SearchParams(), exact=False) == base
+    assert run_manifest.non_scenario_params_hash(SearchParams(), exact=True) != base
+
+    cfg = _cfg(tmp_path, input_set="cds", cost_set="c1")
+    assert "exact" not in run_manifest.provenance(cfg)
+    assert run_manifest.provenance(cfg, exact=True)["exact"] is True
+
+
+def test_the_manifest_records_the_run_hash_with_exact_designs(tmp_path):
+    cfg = _cfg(tmp_path, input_set="cds", cost_set="c1")
+    manifest = run_manifest.record_invocation(cfg, "run", [], exact=True)
+    assert manifest["non_scenario_params_hash"] == run_manifest.non_scenario_params_hash(SearchParams(), exact=True)
+
+
+@pytest.mark.parametrize("first", [False, True])
+def test_a_run_refuses_to_mix_exact_and_default_designs_either_way(tmp_path, first):
+    cfg = _cfg(tmp_path, input_set="cds", cost_set="c1", run="shared")
+    run_manifest.record_invocation(cfg, "query", [], exact=first)
+    with pytest.raises(RuntimeError, match="exact"):
+        run_manifest.record_invocation(cfg, "query", [], exact=not first)
+
+
 def test_record_invocation_stores_description_hash_only_at_creation(tmp_path):
     cfg = _cfg(tmp_path, input_set="cds", cost_set="c1")
     m1 = run_manifest.record_invocation(cfg, "run", [])

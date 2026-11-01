@@ -70,6 +70,16 @@ def poor_profiles() -> dict[str, np.ndarray]:
 
 
 @pytest.fixture(scope="session")
+def rounding_profiles() -> dict[str, np.ndarray]:
+    """
+    A year of the same synthetic weather, on which one design the store keeps misses a
+    coverage target of 0.90 once rounded to float32, under `anchor_costs`. Found by
+    searching wind seeds; `test_exact_designs.py` relies on it.
+    """
+    return {"solar": _daily_solar(hours=8784), "wind": _noisy_wind(hours=8784, seed=16)}
+
+
+@pytest.fixture(scope="session")
 def anchor_costs():
     """
     Frozen cost coefficients standing in for `PATCH_ANCHOR_COST_RATIOS`.

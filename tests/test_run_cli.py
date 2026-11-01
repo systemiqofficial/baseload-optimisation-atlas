@@ -1,5 +1,7 @@
 """Unit tests for the boa-run CLI: weather-year detection, preflight, arg surface."""
 
+import inspect
+
 import pytest
 
 from boa.cli.run_simulation import main_point, main_run, preflight
@@ -121,6 +123,84 @@ def test_dry_run_accepts_short_flags(tmp_path, monkeypatch):
     config.input_data_path.parent.mkdir(parents=True)
     config.input_data_path.touch()
     assert main_run(["--dry-run", "-r", "0.8", "-c", "0.9", "-s", "2030", "-e", "2035", "-f", "5", "-w", "2"]) == 0
+
+
+def test_exact_designs_give_the_run_a_folder_of_its_own():
+    from boa.cli.run_simulation import resolve_run_id
+
+    default = resolve_run_id(_namespace(cost_input="default", run=None))
+    assert resolve_run_id(_namespace(cost_input="default", run=None, exact_designs=False)) == default
+    assert resolve_run_id(_namespace(cost_input="default", run=None, exact_designs=True)) != default
+
+
+def test_resolved_parameters_record_exact_designs_only_when_set():
+    from boa.cli.run_simulation import resolved_parameters
+
+    scenario = {"load_density": 1.0, "coverage": 0.85}
+    assert "exact_designs" not in resolved_parameters(_namespace(**scenario, exact_designs=False))
+    assert resolved_parameters(_namespace(**scenario, exact_designs=True))["exact_designs"] is True
+
+
+# BOA's own calls inside each command's loops, with what each stub returns.
+BUILD_STEPS: dict[str, object] = {
+    "cost_candidates": {},
+    "open_regional_dataset": None,
+    "build_frontier_cache_for_region": None,
+}
+QUERY_STEPS: dict[str, object] = {
+    "_validate_cost_set": (None, 25),
+    "query_frontier_cache_for_region": None,
+    "combine_regional_datasets_into_global_dataset": None,
+}
+POINT_STEPS: dict[str, object] = {"execute_single_point_baseload_power_simulation": None}
+TAKES_EXACT = (
+    "record_invocation",
+    "build_frontier_cache_for_region",
+    "query_frontier_cache_for_region",
+    "execute_single_point_baseload_power_simulation",
+)
+PER_REGION = ("open_regional_dataset", "build_frontier_cache_for_region", "query_frontier_cache_for_region")
+
+
+@pytest.mark.parametrize(
+    "command, argv, steps",
+    [
+        ("main_run", [], {**BUILD_STEPS, **QUERY_STEPS}),
+        ("main_build_cache", [], BUILD_STEPS),
+        ("main_query", [], QUERY_STEPS),
+        ("main_point", ["--lat", "40", "--lon", "-3"], POINT_STEPS),
+    ],
+)
+def test_exact_designs_reach_every_step_of_each_command(tmp_path, monkeypatch, command, argv, steps):
+    """The calls inside the loops are stubbed rather than the loops, so a loop that drops the option fails too."""
+    import boa.cli.run_simulation as cli
+
+    calls: dict[str, list[dict]] = {}
+
+    def stub(owner, name, result):
+        """Record each call's arguments by name, as the real function would bind them."""
+        signature = inspect.signature(getattr(owner, name))
+        calls[name] = []
+
+        def step(*args, **kwargs):
+            calls[name].append(signature.bind(*args, **kwargs).arguments)
+            return result
+
+        monkeypatch.setattr(owner, name, step)
+
+    monkeypatch.setenv("BOA_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(cli, "preflight", lambda *args, **kwargs: 2024)
+    stub(cli.run_manifest, "record_invocation", None)
+    for name, result in steps.items():
+        stub(cli, name, result)
+
+    assert getattr(cli, command)([*argv, "--exact-designs"]) == 0
+    assert all(calls.values()), [name for name, made in calls.items() if not made]
+    for name in TAKES_EXACT:
+        assert all(arguments.get("exact") is True for arguments in calls.get(name, [])), name
+    for name in PER_REGION:
+        if name in calls:
+            assert {arguments["region"] for arguments in calls[name]} == set(REGION_COORDS), name
 
 
 def test_dry_run_fails_cleanly_on_missing_inputs(tmp_path, monkeypatch):

@@ -208,6 +208,17 @@ def add_promote_lcoe_arg(parser: argparse._ActionsContainer) -> None:
     )
 
 
+def add_exact_designs_arg(parser: argparse._ActionsContainer) -> None:
+    """Takes a parser or an argument group, so the flag lands beside the other optional ones."""
+    parser.add_argument(
+        "--exact-designs",
+        action="store_true",
+        help="Use exact designs: the patch search dispatches only the float32 sizes a frontier keeps, so every "
+        "design it keeps meets the coverage target. Off by default; it gives the run a folder of its own, and "
+        "any frontier store the command builds or reads a name of its own.",
+    )
+
+
 def run_promotion(path_config: PathConfig, weather_year: int, load_density: float, coverage: float) -> int:
     """Promote this scenario's LCOE, reporting a failure without discarding the completed query."""
     try:
@@ -266,6 +277,8 @@ def resolved_parameters(args: argparse.Namespace, years: List[int] | None = None
         params["workers"] = args.workers
     if hasattr(args, "lat"):
         params["lat"], params["lon"] = args.lat, args.lon
+    if getattr(args, "exact_designs", False):
+        params["exact_designs"] = True
     return params
 
 
@@ -281,7 +294,8 @@ def resolve_run_id(args: argparse.Namespace, search_params: SearchParams = Searc
     manifest scan needed (see ``run_manifest.non_scenario_params_hash``).
     """
     base_run = args.run or args.cost_input
-    return make_run_dirname(base_run, run_manifest.non_scenario_params_hash(search_params))
+    exact = getattr(args, "exact_designs", False)
+    return make_run_dirname(base_run, run_manifest.non_scenario_params_hash(search_params, exact))
 
 
 def build_path_config(args: argparse.Namespace, weather_input: str, run: str) -> PathConfig:
@@ -344,6 +358,7 @@ def build_all_caches(
     years: List[int],
     n_workers: int,
     force: bool = False,
+    exact: bool = False,
 ) -> None:
     """
     Build the year- and baseload-independent frontier cache for every region.
@@ -367,6 +382,7 @@ def build_all_caches(
             path_config=path_config,
             n_workers=n_workers,
             force=force,
+            exact=exact,
         )
 
 
@@ -379,6 +395,7 @@ def query_all_years(
     weather_year: int,
     force: bool = False,
     generate_plots: bool = True,
+    exact: bool = False,
 ) -> None:
     """
     Derive optimal-solution NetCDFs for every (region, year) from the frontier caches.
@@ -401,6 +418,7 @@ def query_all_years(
                 path_config=path_config,
                 n_workers=n_workers,
                 force=force,
+                exact=exact,
             )
             if generate_plots:
                 plot_regional_optimum_baseload_power_simulation_map(
@@ -447,6 +465,7 @@ def main_run(argv: list[str]) -> int:
         help="Generate per-region and global map plots during the run (off by default; plots can be regenerated later from saved NetCDFs)",
     )
     add_promote_lcoe_arg(optional_group)
+    add_exact_designs_arg(optional_group)
     add_data_args(parser)
     args = parser.parse_args(argv)
 
@@ -487,8 +506,10 @@ def main_run(argv: list[str]) -> int:
             logging.info(f"Outputs: {path_config.outputs_dir}")
             continue
 
-        run_manifest.record_invocation(path_config, "run", list(argv), parameters=resolved_parameters(args, years))
-        build_all_caches(path_config, args.coverage, years, args.workers)
+        run_manifest.record_invocation(
+            path_config, "run", list(argv), parameters=resolved_parameters(args, years), exact=args.exact_designs
+        )
+        build_all_caches(path_config, args.coverage, years, args.workers, exact=args.exact_designs)
         query_all_years(
             path_config,
             years,
@@ -497,6 +518,7 @@ def main_run(argv: list[str]) -> int:
             args.workers,
             weather_year,
             generate_plots=args.plots,
+            exact=args.exact_designs,
         )
         if args.promote_lcoe and run_promotion(path_config, weather_year, args.load_density, args.coverage) != 0:
             return 1
@@ -524,6 +546,7 @@ def main_build_cache(argv: list[str]) -> int:
     add_workers_arg(parser)
     parser.add_argument("--force", action="store_true", help="Rebuild each frontier cache even if it already exists.")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging.")
+    add_exact_designs_arg(parser)
     add_data_args(parser)
     args = parser.parse_args(argv)
 
@@ -549,13 +572,16 @@ def main_build_cache(argv: list[str]) -> int:
         except (FileNotFoundError, ValueError) as e:
             logging.error(str(e))
             return 1
-        run_manifest.record_invocation(path_config, "build-cache", list(argv), parameters=resolved_parameters(args))
+        run_manifest.record_invocation(
+            path_config, "build-cache", list(argv), parameters=resolved_parameters(args), exact=args.exact_designs
+        )
         build_all_caches(
             path_config,
             args.coverage,
             get_simulation_years(args.start_year, args.end_year, args.frequency),
             args.workers,
             force=args.force,
+            exact=args.exact_designs,
         )
     logging.info("\nbuild-cache: all regions complete.")
     return 0
@@ -582,6 +608,7 @@ def main_query(argv: list[str]) -> int:
     parser.add_argument("--plots", action="store_true", help="Generate per-region and global map plots.")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging.")
     add_promote_lcoe_arg(parser)
+    add_exact_designs_arg(parser)
     add_data_args(parser)
     args = parser.parse_args(argv)
 
@@ -610,7 +637,9 @@ def main_query(argv: list[str]) -> int:
         except (FileNotFoundError, ValueError) as e:
             logging.error(str(e))
             return 1
-        run_manifest.record_invocation(path_config, "query", list(argv), parameters=resolved_parameters(args, years))
+        run_manifest.record_invocation(
+            path_config, "query", list(argv), parameters=resolved_parameters(args, years), exact=args.exact_designs
+        )
         query_all_years(
             path_config,
             years,
@@ -620,6 +649,7 @@ def main_query(argv: list[str]) -> int:
             weather_year,
             force=args.force,
             generate_plots=args.plots,
+            exact=args.exact_designs,
         )
         if args.promote_lcoe and run_promotion(path_config, weather_year, args.load_density, args.coverage) != 0:
             return 1
@@ -642,6 +672,7 @@ def main_point(argv: list[str]) -> int:
     add_temporal_args(parser)
     add_scenario_args(parser)
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging.")
+    add_exact_designs_arg(parser)
     add_data_args(parser)
     args = parser.parse_args(argv)
 
@@ -675,7 +706,9 @@ def main_point(argv: list[str]) -> int:
         except (FileNotFoundError, ValueError) as e:
             logging.error(str(e))
             return 1
-        run_manifest.record_invocation(path_config, "point", list(argv), parameters=resolved_parameters(args, years))
+        run_manifest.record_invocation(
+            path_config, "point", list(argv), parameters=resolved_parameters(args, years), exact=args.exact_designs
+        )
 
         for year in years:
             logging.info(f"\nRunning single-point simulation for year {year}")
@@ -687,6 +720,7 @@ def main_point(argv: list[str]) -> int:
                     lon=args.lon,
                     load_density=args.load_density,
                     coverage=args.coverage,
+                    exact=args.exact_designs,
                 )
             except Exception as e:
                 logging.error(f"Failed to run simulation for year {year}: {e}")

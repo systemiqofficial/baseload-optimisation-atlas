@@ -217,6 +217,7 @@ def execute_single_point_baseload_power_simulation(
     generate_plots: bool = True,
     include_plot_data: bool = False,
     progress_callback: Optional[Callable[[int, str], None]] = None,
+    exact: bool = False,
 ) -> dict:
     """
     Execute the baseload power simulation for a single point (lat, lon): geocode, derive its
@@ -226,7 +227,8 @@ def execute_single_point_baseload_power_simulation(
     `load_density * pixel_area(lat)`. LCOE is baseload-invariant, so it only sets the absolute
     MW/MWh scale of the reported design, never its LCOE. `progress_callback`, if given, is
     invoked as `(percent, message)` at each stage so a caller (e.g. the Celery task driving an
-    API job) can report fine-grained progress to a UI.
+    API job) can report fine-grained progress to a UI. `exact` builds the point's frontier
+    with exact designs (`build_pixel_frontier`).
 
     Returns a dict with keys `'design'` (`{'solar', 'wind', 'battery'}` overscale factors),
     `'lcoe'` ($/MWh), `'installation_cost'` ($), and `'status'`
@@ -343,6 +345,7 @@ def execute_single_point_baseload_power_simulation(
         coverage,
         params,
         dimensionless_anchor,
+        exact=exact,
     )
 
     if frontier.status != STATUS_OK:

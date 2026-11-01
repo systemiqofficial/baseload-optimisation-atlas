@@ -102,6 +102,7 @@ def frontier_cache_path(
     params: SearchParams,
     weather_year: int,
     era5_resolution_deg: float,
+    exact: bool = False,
 ) -> Path:
     """
     Resolve a store's path from its parameters, deterministically.
@@ -112,9 +113,14 @@ def frontier_cache_path(
 
     No baseload level: the store is baseload-independent. The capacity ceiling is not in
     the path either, because it is not in the store.
+
+    A store built with `exact` (`build_pixel_frontier`) holds other float32 sizes, so its
+    name ends in `_exact`; a store built without it carries no token for it.
     """
     grids = f"g{params.coarse_grid}p{params.patch_grid}r{params.ladder_rungs}"
     rest = f"gbs_{grids}_{params_hash(params)}_y{int(weather_year)}_r{round(era5_resolution_deg * 100):03d}"
+    if exact:
+        rest += "_exact"
     return Path(cache_dir) / f"cov{format_scenario_number(coverage)}" / region / f"{rest}.zarr"
 
 
@@ -125,9 +131,10 @@ def frontier_cache_exists(
     params: SearchParams,
     weather_year: int,
     era5_resolution_deg: float,
+    exact: bool = False,
 ) -> bool:
     """True if the store exists on disk. Does not validate its contents."""
-    return frontier_cache_path(cache_dir, region, coverage, params, weather_year, era5_resolution_deg).exists()
+    return frontier_cache_path(cache_dir, region, coverage, params, weather_year, era5_resolution_deg, exact).exists()
 
 
 # ----- fraction quantisation --------------------------------------------------
@@ -272,16 +279,25 @@ def build_frontier_meta(
     weather_year: int,
     era5_resolution_deg: float,
     anchors: Sequence[CostCoefficients],
+    exact: bool = False,
 ) -> dict:
     """
     Assemble `group.attrs["meta"]`.
 
     `search_params` is stored field by field rather than only as a hash, so a mismatch can
     say *which* field moved instead of only that something did. `run_params` carries what
-    is not a `SearchParams` field but still determines the contents. `anchors` records where
+    is not a `SearchParams` field but still determines the contents, `exact` among them only
+    when it is set, so a default store's meta holds no key for it. `anchors` records where
     the dense patches were placed, so a later run can tell whether the store covers the cost
     mixes it is about to query (`boa.model.anchors.anchors_for_build`).
     """
+    run_params: dict = {
+        "coverage": float(coverage),
+        "weather_year": int(weather_year),
+        "era5_resolution_deg": float(era5_resolution_deg),
+    }
+    if exact:
+        run_params["exact"] = True
     return {
         "schema_version": FRONTIER_SCHEMA_VERSION,
         "cache_version": FRONTIER_CACHE_VERSION,
@@ -289,11 +305,7 @@ def build_frontier_meta(
         "n_points": int(n_points),
         "search_params_hash": params_hash(params),
         "search_params": asdict(params),
-        "run_params": {
-            "coverage": float(coverage),
-            "weather_year": int(weather_year),
-            "era5_resolution_deg": float(era5_resolution_deg),
-        },
+        "run_params": run_params,
         "anchors": [asdict(a) for a in anchors],
         "built_at": datetime.now(timezone.utc).isoformat(),
         "code_git_sha": git_sha(),
@@ -387,11 +399,16 @@ def _check_stored_params(path: Path, meta: dict, expected: SearchParams) -> None
         raise ValueError(f"frontier cache at {path} was built with different search parameters ({detail}); rebuild it.")
 
 
-def _check_run_params(path: Path, meta: dict, coverage: float | None, weather_year: int | None) -> None:
+def _check_run_params(
+    path: Path, meta: dict, coverage: float | None, weather_year: int | None, exact: bool | None = None
+) -> None:
     """Same refusal for the run-level parameters, which are not `SearchParams` fields."""
     stored = meta.get("run_params")
     if not isinstance(stored, dict):
         raise ValueError(f"frontier cache at {path} carries no run_params; delete it and rebuild.")
+    if exact is not None and bool(stored.get("exact", False)) != exact:
+        built = "with" if stored.get("exact") else "without"
+        raise ValueError(f"frontier cache at {path} was built {built} exact designs; rebuild it.")
     if coverage is not None and float(stored.get("coverage", float("nan"))) != float(coverage):
         raise ValueError(
             f"frontier cache at {path} was built at coverage {stored.get('coverage')!r}, not {coverage!r}; rebuild it."
@@ -422,11 +439,12 @@ def read_frontier_cache(
     expected_params: SearchParams | None = None,
     coverage: float | None = None,
     weather_year: int | None = None,
+    exact: bool | None = None,
 ) -> RegionFrontierCache:
     """
     Load a frontier cache, refusing anything that does not match what was asked for.
 
-    Pass `expected_params` (and, where known, `coverage` and `weather_year`) at every
+    Pass `expected_params` (and, where known, `coverage`, `weather_year` and `exact`) at every
     production call site. They are optional only so a diagnostic can open a store whose
     parameters it does not yet know.
     """
@@ -453,8 +471,8 @@ def read_frontier_cache(
         )
     if expected_params is not None:
         _check_stored_params(path, meta, expected_params)
-    if coverage is not None or weather_year is not None:
-        _check_run_params(path, meta, coverage, weather_year)
+    if coverage is not None or weather_year is not None or exact is not None:
+        _check_run_params(path, meta, coverage, weather_year, exact)
 
     return RegionFrontierCache(
         region=str(meta.get("region", path.parent.name)),

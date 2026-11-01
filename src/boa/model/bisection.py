@@ -505,7 +505,19 @@ def _bracket_jit(solar, wind, s, w, target, hint, b_cap):
 
 
 @numba.njit(cache=True, nogil=True)
-def _b_min_jit(solar, wind, s, w, target, hint, b_cap, tol_rel):
+def _as_stored(x, exact):
+    """
+    `x` as the store keeps a design's sizes: rounded to float32 when `exact` is `True`,
+    unchanged when it is `None`. The `None` branch is resolved when numba compiles, so
+    BOA's default path carries no rounding at all.
+    """
+    if exact is None:
+        return x
+    return np.float64(np.float32(x))
+
+
+@numba.njit(cache=True, nogil=True)
+def _b_min_jit(solar, wind, s, w, target, hint, b_cap, tol_rel, exact):
     """
     Smallest battery reaching `target` coverage at this `(s, w)`, with the metrics at
     that battery. Returns `(inf, 0, 0)` when no battery at or below `b_cap` gets there.
@@ -516,16 +528,26 @@ def _b_min_jit(solar, wind, s, w, target, hint, b_cap, tol_rel):
     above the true minimum, never below it, and a design that missed the coverage target
     would be a correctness failure rather than an imprecision.
 
+    That holds for the float64 battery returned here. The store keeps it as float32, and
+    rounding it down can lose the last required hour when it sits within a rounding step
+    of the jump. With `exact` set, every probe is a float32 value, so the battery returned
+    is one the store keeps exactly; the bracket's own probes already are, since they start
+    from 0.25 or the rounded hint and only double or halve.
+
     The metrics come from the last probe that set `hi`, which by construction sits at the
     returned battery size -- so the ladder's first rung costs nothing.
     """
-    lo, hi, cov_hi, sf_hi = _bracket_jit(solar, wind, s, w, target, hint, b_cap)
+    lo, hi, cov_hi, sf_hi = _bracket_jit(solar, wind, s, w, target, _as_stored(hint, exact), b_cap)
     if not np.isfinite(hi):
         return np.inf, 0.0, 0.0
 
     tol = max(tol_rel * hi, _B_TOL_ABS)
     while hi - lo > tol:
-        mid = 0.5 * (lo + hi)
+        mid = _as_stored(0.5 * (lo + hi), exact)
+        # A float32 midpoint lands on an end only when `lo` and `hi` are adjacent float32
+        # values, which only a tolerance far below BOA's default reaches; stop rather than loop.
+        if exact is not None and not lo < mid < hi:
+            break
         cov_m, sf_m = dispatch_metrics(solar, wind, s, w, mid)
         if cov_m >= target:
             hi, cov_hi, sf_hi = mid, cov_m, sf_m
@@ -563,6 +585,11 @@ def _b_min_bound_jit(solar, wind, s, w, target, hint, b_cap, max_steps):
     return lo, hi
 
 
+def _kernel_exact(exact: bool) -> bool | None:
+    """`exact` as the compiled kernels take it: numba compiles `None` without the rounding."""
+    return True if exact else None
+
+
 def b_min_at(
     solar: np.ndarray,
     wind: np.ndarray,
@@ -571,6 +598,7 @@ def b_min_at(
     coverage: float,
     params: SearchParams,
     hint: float = -1.0,
+    exact: bool = False,
 ) -> tuple[float, float, float]:
     """
     Smallest feasible battery at one grid point, as `(b_min, hours_covered, served_fraction)`.
@@ -579,19 +607,33 @@ def b_min_at(
     takes. It used to be the *uncovered percentile* (15 for 85% coverage), which every
     caller had to invert and which silently accepted a coverage fraction as a percentile —
     passing 0.85 asked for 99.15% coverage rather than 85%, with no error anywhere.
+
+    With `exact`, the battery is a float32 value, as the store keeps it; the caller passes
+    `s` and `w` already rounded to float32 (`build_pixel_frontier`).
     """
     _check_coverage(coverage)
     target = coverage
-    return _b_min_jit(solar, wind, float(s), float(w), target, float(hint), params.b_cap, params.tol_rel_patch)
+    return _b_min_jit(
+        solar,
+        wind,
+        float(s),
+        float(w),
+        target,
+        float(hint),
+        params.b_cap,
+        params.tol_rel_patch,
+        _kernel_exact(exact),
+    )
 
 
 @numba.njit(cache=True, nogil=True)
-def _rung_metrics_jit(solar, wind, s, w, b_min, cov0, sf0, spans, out_b, out_cov, out_sf):
+def _rung_metrics_jit(solar, wind, s, w, b_min, cov0, sf0, spans, out_b, out_cov, out_sf, exact):
     """
     Dispatch at each rung above `b_min`, filling `(out_b, out_cov, out_sf)` in place.
 
     Rung 0 is `b_min` itself and costs no dispatch: `(cov0, sf0)` are the metrics of the
-    last probe of the bisection that found it. Every later rung is one pass.
+    last probe of the bisection that found it. Every later rung is one pass, at a float32
+    battery when `exact` is set (`_as_stored`).
 
     `b_min <= 0` yields every rung at `b_min` with its own metrics: a multiple of zero is
     still zero, so there is nothing above it to price, and this design does not special-case
@@ -604,7 +646,7 @@ def _rung_metrics_jit(solar, wind, s, w, b_min, cov0, sf0, spans, out_b, out_cov
         return
 
     for r in range(1, spans.shape[0]):
-        b = b_min * spans[r]
+        b = _as_stored(b_min * spans[r], exact)
         cov, sf = dispatch_metrics(solar, wind, s, w, b)
         out_b[r], out_cov[r], out_sf[r] = b, cov, sf
 
@@ -643,6 +685,7 @@ def battery_rungs(
     cov0: float,
     sf0: float,
     params: SearchParams,
+    exact: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Dispatch metrics at every stored battery size for one node, as
@@ -655,7 +698,8 @@ def battery_rungs(
     real prices rather than the build's.
 
     Feasibility holds at every rung: coverage is non-decreasing in battery size and rung 0
-    is `b_min`, so nothing stored here can miss the coverage target.
+    is `b_min`, so no rung misses the coverage target at the sizes it was dispatched at.
+    The store keeps those sizes as float32; only with `exact` are they the same values.
     """
     spans = rung_spans(params)
     r = spans.shape[0]
@@ -663,7 +707,18 @@ def battery_rungs(
     out_cov = np.empty(r, dtype=np.float64)
     out_sf = np.empty(r, dtype=np.float64)
     _rung_metrics_jit(
-        solar, wind, float(s), float(w), float(b_min), float(cov0), float(sf0), spans, out_b, out_cov, out_sf
+        solar,
+        wind,
+        float(s),
+        float(w),
+        float(b_min),
+        float(cov0),
+        float(sf0),
+        spans,
+        out_b,
+        out_cov,
+        out_sf,
+        _kernel_exact(exact),
     )
     return out_b, out_cov, out_sf
 
@@ -705,6 +760,8 @@ class PixelFrontier:
     # is `b_min`, the rest climb to `ladder_max_span * b_min`. Storing the set rather than
     # a build-time pick is what keeps this array pure physics -- no cost enters it, so it
     # serves every year, and `argmin_lcoe` chooses the rung with that year's real prices.
+    # The three sizes of a design are float32; they are the values the kernel dispatched
+    # only for a frontier built with `exact` (`build_pixel_frontier`).
     b_patch: np.ndarray  # (K, P, P, R) float32 -- battery, in baseload-hours
     # Fraction of annual *energy* delivered. This is the LCOE denominator.
     energy_served_frac: np.ndarray  # (K, P, P, R) float64
@@ -1102,6 +1159,7 @@ def build_pixel_frontier(
     params: SearchParams,
     anchor: CostCoefficients | Sequence[CostCoefficients],
     hint: float = -1.0,
+    exact: bool = False,
 ) -> PixelFrontier:
     """
     Everything one pixel contributes to the frontier cache.
@@ -1135,6 +1193,17 @@ def build_pixel_frontier(
 
     No cost year, cost scenario or baseload is read anywhere in here, which is what makes
     `status` year-invariant -- the property `lcoe_promotion` requires.
+
+    `exact` makes every stored design one the kernel dispatched. The frontier keeps solar,
+    wind and battery as float32, while the patch lattice and the bisection work in float64,
+    and rounding a design to float32 can cost it the last hour it needed: on BOA's 2024
+    weather, 1 in about 12,000 stored designs of ten sample cells. With `exact`, the patch
+    search dispatches only float32 sizes: each patch's lattice is rounded to float32 before
+    its nodes are dispatched, and the battery search probes only float32 values. Each stored
+    design then meets the target, and its stored fractions are its own until the region
+    store quantises them to 16 bits. The coarse sweep dispatches its float64 grid either
+    way, since it stores bounds rather than designs. Off by default, and then nothing is
+    rounded before a dispatch.
     """
     anchors = [anchor] if isinstance(anchor, CostCoefficients) else list(anchor)
     if not anchors:
@@ -1242,6 +1311,9 @@ def build_pixel_frontier(
 
     for slot, (i, j) in enumerate(seeds):
         s_vals, w_vals, bounds = patch_lattice(s_coarse, w_coarse, i, j, params)
+        if exact:
+            s_vals = s_vals.astype(np.float32).astype(np.float64)
+            w_vals = w_vals.astype(np.float32).astype(np.float64)
         n_s, n_w = len(s_vals), len(w_vals)
         patches["s_patch"][slot, :n_s] = s_vals
         patches["w_patch"][slot, :n_w] = w_vals
@@ -1251,14 +1323,14 @@ def build_pixel_frontier(
         for a in range(n_s):
             node_hint = row_hint
             for b in range(n_w):
-                b_min, cov, sf = b_min_at(solar, wind, s_vals[a], w_vals[b], coverage, params, node_hint)
+                b_min, cov, sf = b_min_at(solar, wind, s_vals[a], w_vals[b], coverage, params, node_hint, exact)
                 if np.isfinite(b_min):
                     if b_min > 0.0:
                         node_hint = b_min
                         if b == 0:
                             row_hint = b_min
                     b_r, cov_r, sf_r = battery_rungs(
-                        solar, wind, float(s_vals[a]), float(w_vals[b]), b_min, cov, sf, params
+                        solar, wind, float(s_vals[a]), float(w_vals[b]), b_min, cov, sf, params, exact
                     )
                 else:
                     # Infeasible node: every rung carries the infinite b_min, and a zero
@@ -1368,7 +1440,8 @@ def argmin_lcoe(frontier: PixelFrontier, coeffs: CostCoefficients) -> Optimum:
 
     No dispatch, no bisection, no coverage check: every cached rung sits at or above its
     node's own `b_min`, and coverage is non-decreasing in battery size, so feasibility
-    holds by construction.
+    holds by construction for a frontier built with `exact`. Without it, the float32
+    rounding of a stored design can leave it short of its target (`build_pixel_frontier`).
 
     Searches every populated patch slot **and every rung**, not just the anchor's
     favourite. Both matter for the same reason: the build's frozen anchor costs are not

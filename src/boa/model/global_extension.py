@@ -198,6 +198,7 @@ def _frontier_tile(
     coverage: float,
     params: SearchParams,
     anchors: list[CostCoefficients],
+    exact: bool = False,
 ) -> tuple[float, list[PixelFrontier]]:
     """
     Build-phase worker for the grid-bisection search: one frontier per point in the tile.
@@ -213,7 +214,9 @@ def _frontier_tile(
     carry, and a wrong choice is a slower warm start rather than a wrong answer.
     """
     t0 = time.time()
-    frontiers = [build_pixel_frontier(solar_arr[k], wind_arr[k], coverage, params, anchors) for k in tile_indices]
+    frontiers = [
+        build_pixel_frontier(solar_arr[k], wind_arr[k], coverage, params, anchors, exact=exact) for k in tile_indices
+    ]
     return time.time() - t0, frontiers
 
 
@@ -226,9 +229,13 @@ def build_frontier_cache_for_region(
     n_workers: int,
     params: SearchParams | None = None,
     force: bool = False,
+    exact: bool = False,
 ) -> Path:
     """
     Build the schema v3 frontier cache for one region and persist it.
+
+    `exact` builds every frontier with exact designs (`build_pixel_frontier`), into a store
+    of its own (`frontier_cache_path`).
 
     Idempotent: an existing store matching the parameter tuple, whose recorded anchors cover
     every cost mix in `candidates`, is returned untouched unless `force`. Otherwise it is
@@ -259,7 +266,7 @@ def build_frontier_cache_for_region(
         raise ValueError("build_frontier_cache_for_region needs at least one cost mix to anchor on")
     weather_year = detect_weather_year(path_config)
     cache_dir = path_config.frontier_cache_dir(weather_year)
-    cache_file = frontier_cache_path(cache_dir, region, coverage, params, weather_year, ERA5_DATA_RESOLUTION)
+    cache_file = frontier_cache_path(cache_dir, region, coverage, params, weather_year, ERA5_DATA_RESOLUTION, exact)
     where = cache_file.relative_to(cache_dir)
     built_version = read_frontier_cache_version(cache_file) if cache_file.exists() else FRONTIER_CACHE_VERSION
     stale = built_version != FRONTIER_CACHE_VERSION
@@ -320,7 +327,9 @@ def build_frontier_cache_for_region(
 
     t_compute = time.time()
     with ThreadPoolExecutor(max_workers=n_workers) as ex:
-        tile_results = list(ex.map(lambda t: _frontier_tile(t, solar_arr, wind_arr, coverage, params, anchors), tiles))
+        tile_results = list(
+            ex.map(lambda t: _frontier_tile(t, solar_arr, wind_arr, coverage, params, anchors, exact), tiles)
+        )
 
     tile_times = np.array([tr[0] for tr in tile_results])
     wall = time.time() - t_compute
@@ -347,7 +356,7 @@ def build_frontier_cache_for_region(
         lons=pt_lons,
         iy=iy,
         ix=ix,
-        meta=build_frontier_meta(region, npts, coverage, params, weather_year, ERA5_DATA_RESOLUTION, anchors),
+        meta=build_frontier_meta(region, npts, coverage, params, weather_year, ERA5_DATA_RESOLUTION, anchors, exact),
     )
     written = write_frontier_cache(cache, cache_file)
     solved = int(np.sum(cache.status == STATUS_OK))
@@ -369,9 +378,15 @@ def query_frontier_cache_for_region(
     n_workers: int,
     params: SearchParams | None = None,
     force: bool = False,
+    exact: bool = False,
 ) -> xr.Dataset:
     """
     Price one region's cached frontiers for one investment year and write the NetCDF.
+
+    `exact` prices the store built with exact designs, and records `exact_designs = 1` in
+    the output's attributes. The output's path does not change with it: a run that sets it
+    lives in a run folder of its own (`run_manifest.non_scenario_params_hash`). Unless
+    `force`, it refuses an existing output written the other way rather than return it.
 
     No profile dataset: the sampler needed one at query time to re-run dispatch on its winner,
     and the frontier store already holds every dispatch result the pricing needs. That is the
@@ -390,11 +405,18 @@ def query_frontier_cache_for_region(
     params = SearchParams() if params is None else params
     weather_year = detect_weather_year(path_config)
     cache_dir = path_config.frontier_cache_dir(weather_year)
-    cache_file = frontier_cache_path(cache_dir, region, coverage, params, weather_year, ERA5_DATA_RESOLUTION)
+    cache_file = frontier_cache_path(cache_dir, region, coverage, params, weather_year, ERA5_DATA_RESOLUTION, exact)
     out_path = path_config.optimal_sol_path(weather_year, load_density, coverage, region, year)
     if out_path.exists() and not force:
+        existing = xr.open_dataset(out_path)
+        if bool(existing.attrs.get("exact_designs", 0)) != exact:
+            existing.close()
+            built = "without" if exact else "with"
+            raise ValueError(
+                f"{out_path} already exists {built} exact designs; re-derive it with --force, or use another run."
+            )
         logging.info(f"{out_path.name} already exists; skipping (use --force to re-derive).")
-        return xr.open_dataset(out_path)
+        return existing
 
     logging.warning(
         "[UNCONSTRAINED] The capacity ceiling is not applied yet (Grid 2 arrives in M4), so "
@@ -403,7 +425,7 @@ def query_frontier_cache_for_region(
         "not promote them."
     )
 
-    cache = read_frontier_cache(cache_file, params, coverage, weather_year)
+    cache = read_frontier_cache(cache_file, params, coverage, weather_year, exact)
     npts = cache.n_points
     logging.info(f"Querying frontier cache for {region} y{year}: {npts} points, {len(cache.all_lats)} lat rows.")
 
@@ -461,6 +483,8 @@ def query_frontier_cache_for_region(
         "frontier_cache_path": str(cache_file.relative_to(cache_dir)),
         "capacity_ceiling_applied": 0,
     }
+    if exact:
+        attrs["exact_designs"] = 1
     optimal_sol = _assemble_optimal_sol(
         tiles,
         [r[1] for r in raw],
@@ -736,6 +760,14 @@ def combine_regional_datasets_into_global_dataset(
         if len(hashes) != 1:
             raise ValueError(
                 f"regional files disagree on search_params_hash: {sorted(map(str, hashes))}. "
+                "Re-query the stale regions before combining."
+            )
+        # The same holds for exact designs, which the attrs record only when set.
+        exact = {region: int(ds.attrs.get("exact_designs", 0)) for region, ds in regional_datasets.items()}
+        if len(set(exact.values())) != 1:
+            with_exact = sorted(region for region, flag in exact.items() if flag)
+            raise ValueError(
+                f"regional files disagree on exact_designs: only {with_exact} were queried with exact designs. "
                 "Re-query the stale regions before combining."
             )
 

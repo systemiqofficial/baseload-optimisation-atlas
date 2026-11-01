@@ -44,6 +44,14 @@ follow-up "Grid 2" work): every query currently reports the *unconstrained* opti
 its coverage target, regardless of `--load-density`, and logs a warning saying so. Do not
 promote results from a run in this window.
 
+`--exact-designs`, on `boa-run` and each of its subcommands, makes the dense patch search
+dispatch only the float32 sizes that a frontier keeps, so every design it keeps meets the
+coverage target. Without it, the float32 rounding leaves a few stored designs short of their
+target: 1 in about 12,000 over ten sample cells of BOA's 2024 weather. The flag is off by
+default. It gives the run a folder of its own, since it enters the run's hash, and the run's
+frontier caches names of their own, ending in `_exact`. When one label has run folders with
+and without it, `boa-promote-lcoe --run` needs the folder's full name, `<label>_<hash>`.
+
 ## Handing LCOE to the steel simulation
 
 `boa` imports nothing from `steelo`; the dependency runs one way (steelo → boa). The steel
