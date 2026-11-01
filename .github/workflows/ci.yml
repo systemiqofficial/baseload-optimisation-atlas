@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Fail instead of updating uv.lock when it no longer matches pyproject.toml.
+  UV_LOCKED: "1"
+  # Python 3.13, the oldest that requires-python allows: on its own, requires-python would let uv take a newer one.
+  UV_PYTHON: "3.13"
+
+jobs:
+  tests:
+    name: BOA's tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The tests run the pull request's own code, which needs no credentials.
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.8"
+          enable-cache: true
+      - name: Install
+        run: uv sync
+      # BOA's tests build their own synthetic inputs; those that need a prepared data root skip without one.
+      - name: Tests
+        run: uv run pytest
