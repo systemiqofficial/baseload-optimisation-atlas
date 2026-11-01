@@ -1,0 +1,576 @@
+{
+  "header": {
+    "boa_version": "1.10.0",
+    "search_params_hash": "a7d2c707",
+    "core_data": {
+      "version": "0.1",
+      "sha256": "eb236ce9f2231a0fc413ccb78d07cab789a0a1835da3b6ad1083ddff66a94b59"
+    },
+    "cost_data": {
+      "version": "0.1",
+      "sha256": "4df88c32a4186120ecad369016e55d772e3f57dde730b2d7dbaec27f0cc426d4"
+    },
+    "extract_sha256": {
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/.zattrs": "d5278ddfefccb8f2641bdc4ccc5b42dc052d58891e9d0f4ea3b52e7990f2fc1a",
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/.zgroup": "7c578b275a7ccb234a2427d173bed71c9e7dc5d413052265b68ab5f9b2812ff3",
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/.zmetadata": "6fe5b167224f979ec61b468cf91a099206ae002005ac1d5207b9b07c0759937f",
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/pv/.zarray": "fe60396efec82a1cd11e5ddc9c90d6639f5f2178b94cfc68143c6b718981a706",
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/pv/.zattrs": "21b3a06b68e610e44a42ce1c6116d32f7be35553786e1a64c83aa9aab0a5d67d",
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/pv/0.0": "d8404b9763057396071ddab66c5cac941deadee464ee401f5e3eb13bbb7f7a5b",
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/wind/.zarray": "fe60396efec82a1cd11e5ddc9c90d6639f5f2178b94cfc68143c6b718981a706",
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/wind/.zattrs": "21b3a06b68e610e44a42ce1c6116d32f7be35553786e1a64c83aa9aab0a5d67d",
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/wind/0.0": "9aa703cf6a8ab63d36be13b60f1356ead833a83bd98ec20c0299b57eacf0edb5",
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/x/.zarray": "dbf39e7093627263961f2bae22683b51e27354e6cf9619991eff2b1b44b7e31c",
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/x/.zattrs": "75006af16bb0ca583472677266ce6b963b7a6cfd1d541f47614493bfc3d3bcbf",
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/x/0": "64c0886cc8ab5e6e1b25f74ed8a27c6a8dc2142fe1d8e004fc428fe046446c43",
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/y/.zarray": "dbf39e7093627263961f2bae22683b51e27354e6cf9619991eff2b1b44b7e31c",
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/y/.zattrs": "43919800cb47fcd438a9e34c8ca553c7bf72a46a2cf9e68bc928caa21d04026b",
+      "cds-2024/cds-zarr/max_capacity_EUROPE_2024_025_deg.zarr/y/0": "b688a4a6657c12e3ad984a63a0e6009727f9ca050c75ebbb33f782efe7ffc7ed",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/.zattrs": "10e4bf735ed68596a943df9dc5818d15925213490bb9215dbd874a5aafe7dd99",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/.zgroup": "7c578b275a7ccb234a2427d173bed71c9e7dc5d413052265b68ab5f9b2812ff3",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/.zmetadata": "fb0e5af38bcea11898daef595455866b4444d61348b581728e85c8c69590e720",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/solar/.zarray": "36ef06d9e70f505184db7147b5d8b1c8763170cd92e81ab7f65a6632647a6ce5",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/solar/.zattrs": "ad0c119e81f28dabfd20ab2d334444c51b17099c68ac9306f2c56b83e4d3a163",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/solar/0.0.1": "c2653d53df07ce5f6ad0a9835058acef2efecb37de60330d25800cb05a12a8a6",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/solar/0.1.0": "70841b7f337f3290c9d94718d51a51b0be7e35cb0ebcdf48152137c8fb099cab",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/time/.zarray": "b31a2be7e50bcaae6159b528038fb973035a97107377d8586abb830599b1021d",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/time/.zattrs": "a9eece4f4cf3959b4f93323a601715a3549c41a38f2f0a50b8b37764c1b9a97e",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/time/0": "9a61abdf7db4584df1e586590bd4900b4b2df4605b013203c61bd9fcbf074048",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/wind/.zarray": "36ef06d9e70f505184db7147b5d8b1c8763170cd92e81ab7f65a6632647a6ce5",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/wind/.zattrs": "986d0ae5aaf7323cfab627a3f3eb744b54723650d6a5c5b458c096f14d46b18d",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/wind/0.0.1": "288cc20d25ebd55b8f9807de42761889bffed2637ae7fc810ef3a3e217fb8816",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/wind/0.1.0": "dbd3f65daa45a046d550160c248a8c3069f825502355f61aa4be610e61f541ad",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/x/.zarray": "dbf39e7093627263961f2bae22683b51e27354e6cf9619991eff2b1b44b7e31c",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/x/.zattrs": "75006af16bb0ca583472677266ce6b963b7a6cfd1d541f47614493bfc3d3bcbf",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/x/0": "64c0886cc8ab5e6e1b25f74ed8a27c6a8dc2142fe1d8e004fc428fe046446c43",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/y/.zarray": "dbf39e7093627263961f2bae22683b51e27354e6cf9619991eff2b1b44b7e31c",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/y/.zattrs": "43919800cb47fcd438a9e34c8ca553c7bf72a46a2cf9e68bc928caa21d04026b",
+      "cds-2024/cds-zarr/pv_and_wind_potential_EUROPE_2024_025_deg.zarr/y/0": "b688a4a6657c12e3ad984a63a0e6009727f9ca050c75ebbb33f782efe7ffc7ed"
+    },
+    "numpy": "2.5.3",
+    "numba": "0.67.0",
+    "platform": "macOS-26.7.1-arm64-arm-64bit-Mach-O"
+  },
+  "point": [
+    {
+      "inputs": {
+        "cell": "central Spain",
+        "lat": 39.5,
+        "lon": -3.0,
+        "coverage": 0.85,
+        "cost_year": 2025,
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 67.8892059906974,
+        "solar": 3.982208490371704,
+        "wind": 0.9283958673477173,
+        "battery": 11.466796875,
+        "hours_covered": 0.8504098360655737,
+        "served_fraction": 0.8990759719128487,
+        "frontier_sha256": "38ef687167e825d14b7066a238d2d26ed241aca34bd7d01701b2903d5c204211"
+      }
+    },
+    {
+      "inputs": {
+        "cell": "central Spain",
+        "lat": 39.5,
+        "lon": -3.0,
+        "coverage": 0.85,
+        "cost_year": 2030,
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 55.68103981698153,
+        "solar": 5.068265438079834,
+        "wind": 0.5570375323295593,
+        "battery": 11.49609375,
+        "hours_covered": 0.8508652094717668,
+        "served_fraction": 0.9006558862351991,
+        "frontier_sha256": "e7a09d855846d7e9bc1d77f1c9e8cefec5c50117f9bd401e43e08bb067a1e580"
+      }
+    },
+    {
+      "inputs": {
+        "cell": "central Spain",
+        "lat": 39.5,
+        "lon": -3.0,
+        "coverage": 0.95,
+        "cost_year": 2025,
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 79.31845856825088,
+        "solar": 5.792303085327148,
+        "wind": 0.9283958673477173,
+        "battery": 13.597412109375,
+        "hours_covered": 0.9500227686703097,
+        "served_fraction": 0.9658312284303787,
+        "frontier_sha256": "8a9c8ce00952f2ac0f9e58dc829b8244e8ff78afeccb00cccf7844a76c6b4813"
+      }
+    },
+    {
+      "inputs": {
+        "cell": "central Spain",
+        "lat": 39.5,
+        "lon": -3.0,
+        "coverage": 0.95,
+        "cost_year": 2030,
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 64.62997729039814,
+        "solar": 6.154322147369385,
+        "wind": 0.7427166700363159,
+        "battery": 14.804351806640625,
+        "hours_covered": 0.9502504553734062,
+        "served_fraction": 0.9657434220906714,
+        "frontier_sha256": "8a9c8ce00952f2ac0f9e58dc829b8244e8ff78afeccb00cccf7844a76c6b4813"
+      }
+    },
+    {
+      "inputs": {
+        "cell": "north-west coast of Spain",
+        "lat": 43.75,
+        "lon": -7.75,
+        "coverage": 0.85,
+        "cost_year": 2025,
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 69.90682016791565,
+        "solar": 3.5974466800689697,
+        "wind": 1.2064610719680786,
+        "battery": 10.81124496459961,
+        "hours_covered": 0.8501821493624773,
+        "served_fraction": 0.8997919269727076,
+        "frontier_sha256": "b7c89c000dd61dac0e9e22760235980f60f526c832104c9052661c117f38bc53"
+      }
+    },
+    {
+      "inputs": {
+        "cell": "north-west coast of Spain",
+        "lat": 43.75,
+        "lon": -7.75,
+        "coverage": 0.85,
+        "cost_year": 2030,
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 58.520424007331606,
+        "solar": 4.0471272468566895,
+        "wind": 0.9651688933372498,
+        "battery": 12.490310668945312,
+        "hours_covered": 0.850068306010929,
+        "served_fraction": 0.9031651972326854,
+        "frontier_sha256": "70ac043dba3b876e44c61b4b235730e68d8821a2bc6c9c91eb40114c8e79e6d1"
+      }
+    },
+    {
+      "inputs": {
+        "cell": "north-west coast of Spain",
+        "lat": 43.75,
+        "lon": -7.75,
+        "coverage": 0.95,
+        "cost_year": 2025,
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 84.29433971673978,
+        "solar": 4.946488857269287,
+        "wind": 1.3271071910858154,
+        "battery": 16.9566650390625,
+        "hours_covered": 0.950136612021858,
+        "served_fraction": 0.9636050080724141,
+        "frontier_sha256": "7f48afe5cf458724865b7064818b6c8c43c325fec9b8e45c624653be9e990bd2"
+      }
+    },
+    {
+      "inputs": {
+        "cell": "north-west coast of Spain",
+        "lat": 43.75,
+        "lon": -7.75,
+        "coverage": 0.95,
+        "cost_year": 2030,
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 70.83196326897068,
+        "solar": 4.946488857269287,
+        "wind": 1.3271071910858154,
+        "battery": 16.9566650390625,
+        "hours_covered": 0.950136612021858,
+        "served_fraction": 0.9636050080724141,
+        "frontier_sha256": "7f48afe5cf458724865b7064818b6c8c43c325fec9b8e45c624653be9e990bd2"
+      }
+    }
+  ],
+  "region": [
+    {
+      "inputs": {
+        "region": "EUROPE",
+        "lat": 39.5,
+        "lon": -3.0,
+        "coverage": 0.95,
+        "cost_year": 2025,
+        "anchor_years": [
+          2025,
+          2030
+        ],
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 79.31939787723066,
+        "solar": 5.792303085327148,
+        "wind": 0.9283958673477173,
+        "battery": 13.597412109375,
+        "hours_covered": 0.9500267032883192,
+        "served_fraction": 0.9658197909514,
+        "frontier_sha256": "27674885f28194684e5f86da45abcd6000ca830a08dab8fd50c845a38cfa0c10"
+      }
+    },
+    {
+      "inputs": {
+        "region": "EUROPE",
+        "lat": 39.5,
+        "lon": -2.75,
+        "coverage": 0.95,
+        "cost_year": 2025,
+        "anchor_years": [
+          2025,
+          2030
+        ],
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 77.30920170736654,
+        "solar": 5.790490627288818,
+        "wind": 0.8498603701591492,
+        "battery": 13.237152099609375,
+        "hours_covered": 0.9503624017700465,
+        "served_fraction": 0.9665674830243381,
+        "frontier_sha256": "dabaf44996c1550dc0c70e6834a7222917d3eba9e5b4cfc035346cfaa4ec9ff7"
+      }
+    },
+    {
+      "inputs": {
+        "region": "EUROPE",
+        "lat": 39.75,
+        "lon": -3.0,
+        "coverage": 0.95,
+        "cost_year": 2025,
+        "anchor_years": [
+          2025,
+          2030
+        ],
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 81.46387185095217,
+        "solar": 6.179015159606934,
+        "wind": 0.9022663235664368,
+        "battery": 13.384780883789062,
+        "hours_covered": 0.9502555886167696,
+        "served_fraction": 0.9670099946593423,
+        "frontier_sha256": "77207c439abbf0e0c39e681344272613cb647b515d330e6e194f251c41f068eb"
+      }
+    },
+    {
+      "inputs": {
+        "region": "EUROPE",
+        "lat": 39.75,
+        "lon": -2.75,
+        "coverage": 0.95,
+        "cost_year": 2025,
+        "anchor_years": [
+          2025,
+          2030
+        ],
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 80.8256504412575,
+        "solar": 6.182028293609619,
+        "wind": 0.8893715739250183,
+        "battery": 12.913192749023438,
+        "hours_covered": 0.9504844739452201,
+        "served_fraction": 0.9661554894331273,
+        "frontier_sha256": "7e62a37d5ddb2cbc327dc099845b9a713573eeffd99fa8a85efd969864012e99"
+      }
+    },
+    {
+      "inputs": {
+        "region": "EUROPE",
+        "lat": 43.5,
+        "lon": -8.0,
+        "coverage": 0.95,
+        "cost_year": 2025,
+        "anchor_years": [
+          2025,
+          2030
+        ],
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 90.39277287357584,
+        "solar": 6.436315059661865,
+        "wind": 1.0539616346359253,
+        "battery": 17.20003890991211,
+        "hours_covered": 0.9500267032883192,
+        "served_fraction": 0.9653620202944991,
+        "frontier_sha256": "2b738dab7cb8bd06df689a86f23ee2d80e13d2b4a10afbb4a2572669b77c4a68"
+      }
+    },
+    {
+      "inputs": {
+        "region": "EUROPE",
+        "lat": 43.5,
+        "lon": -7.75,
+        "coverage": 0.95,
+        "cost_year": 2025,
+        "anchor_years": [
+          2025,
+          2030
+        ],
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 89.47724887646297,
+        "solar": 6.393762588500977,
+        "wind": 1.0325267314910889,
+        "battery": 17.090227127075195,
+        "hours_covered": 0.9500267032883192,
+        "served_fraction": 0.9659113450827802,
+        "frontier_sha256": "a8d77fda6f25813e29e3513574c2b0f388fdc458093427d0e0f77119009ff254"
+      }
+    },
+    {
+      "inputs": {
+        "region": "EUROPE",
+        "lat": 43.75,
+        "lon": -7.75,
+        "coverage": 0.95,
+        "cost_year": 2025,
+        "anchor_years": [
+          2025,
+          2030
+        ],
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 84.2494898668436,
+        "solar": 4.496808052062988,
+        "wind": 1.4477533102035522,
+        "battery": 17.908363342285156,
+        "hours_covered": 0.9500267032883192,
+        "served_fraction": 0.9626306553749905,
+        "frontier_sha256": "2ca1e70881c8441ba858ffc99b7c998004cb1084c9ac74d5c5f170856c1b0812"
+      }
+    },
+    {
+      "inputs": {
+        "region": "EUROPE",
+        "lat": 39.5,
+        "lon": -3.0,
+        "coverage": 0.95,
+        "cost_year": 2030,
+        "anchor_years": [
+          2025,
+          2030
+        ],
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 64.63099354285917,
+        "solar": 6.154322147369385,
+        "wind": 0.7427166700363159,
+        "battery": 14.804351806640625,
+        "hours_covered": 0.9502555886167696,
+        "served_fraction": 0.9657282368200198,
+        "frontier_sha256": "27674885f28194684e5f86da45abcd6000ca830a08dab8fd50c845a38cfa0c10"
+      }
+    },
+    {
+      "inputs": {
+        "region": "EUROPE",
+        "lat": 39.5,
+        "lon": -2.75,
+        "coverage": 0.95,
+        "cost_year": 2030,
+        "anchor_years": [
+          2025,
+          2030
+        ],
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 63.14386789170676,
+        "solar": 5.790490627288818,
+        "wind": 0.8498603701591492,
+        "battery": 13.237152099609375,
+        "hours_covered": 0.9503624017700465,
+        "served_fraction": 0.9665674830243381,
+        "frontier_sha256": "dabaf44996c1550dc0c70e6834a7222917d3eba9e5b4cfc035346cfaa4ec9ff7"
+      }
+    },
+    {
+      "inputs": {
+        "region": "EUROPE",
+        "lat": 39.75,
+        "lon": -3.0,
+        "coverage": 0.95,
+        "cost_year": 2030,
+        "anchor_years": [
+          2025,
+          2030
+        ],
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 66.19093072794324,
+        "solar": 6.542486190795898,
+        "wind": 0.7218130826950073,
+        "battery": 14.571441650390625,
+        "hours_covered": 0.950133516441596,
+        "served_fraction": 0.9666590371557183,
+        "frontier_sha256": "77207c439abbf0e0c39e681344272613cb647b515d330e6e194f251c41f068eb"
+      }
+    },
+    {
+      "inputs": {
+        "region": "EUROPE",
+        "lat": 39.75,
+        "lon": -2.75,
+        "coverage": 0.95,
+        "cost_year": 2030,
+        "anchor_years": [
+          2025,
+          2030
+        ],
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 65.87593082518559,
+        "solar": 6.182028293609619,
+        "wind": 0.8893715739250183,
+        "battery": 12.913192749023438,
+        "hours_covered": 0.9504844739452201,
+        "served_fraction": 0.9661554894331273,
+        "frontier_sha256": "7e62a37d5ddb2cbc327dc099845b9a713573eeffd99fa8a85efd969864012e99"
+      }
+    },
+    {
+      "inputs": {
+        "region": "EUROPE",
+        "lat": 43.5,
+        "lon": -8.0,
+        "coverage": 0.95,
+        "cost_year": 2030,
+        "anchor_years": [
+          2025,
+          2030
+        ],
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 74.26227687091429,
+        "solar": 6.436315059661865,
+        "wind": 1.0539616346359253,
+        "battery": 17.20003890991211,
+        "hours_covered": 0.9500267032883192,
+        "served_fraction": 0.9653620202944991,
+        "frontier_sha256": "2b738dab7cb8bd06df689a86f23ee2d80e13d2b4a10afbb4a2572669b77c4a68"
+      }
+    },
+    {
+      "inputs": {
+        "region": "EUROPE",
+        "lat": 43.5,
+        "lon": -7.75,
+        "coverage": 0.95,
+        "cost_year": 2030,
+        "anchor_years": [
+          2025,
+          2030
+        ],
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 73.32447162706096,
+        "solar": 6.850460052490234,
+        "wind": 0.9034608602523804,
+        "battery": 16.765228271484375,
+        "hours_covered": 0.9502555886167696,
+        "served_fraction": 0.9663996337834745,
+        "frontier_sha256": "a8d77fda6f25813e29e3513574c2b0f388fdc458093427d0e0f77119009ff254"
+      }
+    },
+    {
+      "inputs": {
+        "region": "EUROPE",
+        "lat": 43.75,
+        "lon": -7.75,
+        "coverage": 0.95,
+        "cost_year": 2030,
+        "anchor_years": [
+          2025,
+          2030
+        ],
+        "load_density": 1.0
+      },
+      "outputs": {
+        "status": 1,
+        "cost_key": "ESP",
+        "lcoe": 70.83292139892,
+        "solar": 4.946488857269287,
+        "wind": 1.3271071910858154,
+        "battery": 16.9566650390625,
+        "hours_covered": 0.950133516441596,
+        "served_fraction": 0.9635919737544824,
+        "frontier_sha256": "2ca1e70881c8441ba858ffc99b7c998004cb1084c9ac74d5c5f170856c1b0812"
+      }
+    }
+  ]
+}

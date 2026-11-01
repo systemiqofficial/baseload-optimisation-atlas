@@ -183,14 +183,33 @@ def extract_data_root() -> Iterator[PathConfig]:
     A throwaway data root that runs BOA on the Spanish weather extract in `tests/data/`.
 
     It holds the cost data and the country grid of the prepared data root that
-    `BOA_TEST_DATA_ROOT` names, and the extract as input set `cds-2024`; it skips without one.
+    `BOA_TEST_DATA_ROOT` names, and the extract as input set `cds-2024`. Without one it skips,
+    except in continuous integration (CI), where it fails: the tests that need it, the golden
+    outputs among them, must not stop running unnoticed.
     """
     source = os.environ.get("BOA_TEST_DATA_ROOT")
     if not source:
-        pytest.skip("BOA_TEST_DATA_ROOT is not set: point it at a data root that boa-data-prepare built")
+        reason = "BOA_TEST_DATA_ROOT is not set: point it at a data root that boa-data-prepare built"
+        if os.environ.get("CI") == "true":
+            pytest.fail(reason)
+        pytest.skip(reason)
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "root"
         for folder in ("costs", "data"):
             shutil.copytree(Path(source) / folder, root / folder)
         shutil.copytree(WEATHER_EXTRACT, root / "inputs" / "cds-2024")
         yield PathConfig.from_root(root, input_set="cds-2024", cost_set="default")
+
+
+# --------------------------------------------------------------------------
+# Golden outputs
+# --------------------------------------------------------------------------
+
+
+def pytest_addoption(parser):
+    """`--update-golden` for `test_golden_outputs`. Pytest reads this hook from conftest files, never from a test module."""
+    parser.addoption(
+        "--update-golden",
+        action="store_true",
+        help="write tests/golden/spanish_cells.json from this run instead of comparing with it",
+    )

@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      update-golden:
+        description: Rewrite tests/golden/ on the runner and upload it as an artifact
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Fail instead of updating uv.lock when it no longer matches pyproject.toml.
+  UV_LOCKED: "1"
+  # Python 3.13, the oldest that requires-python allows: on its own, requires-python would let uv take a newer one.
+  UV_PYTHON: "3.13"
+
+jobs:
+  tests:
+    name: BOA's tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The tests run the pull request's own code, which needs no credentials.
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.8"
+          enable-cache: true
+      - name: Install
+        run: uv sync
+      # The golden outputs and the other tests on the weather extract solve real cells, so they
+      # need the core and cost data that boa-data-prepare installs. The cache holds only the root's
+      # data/ folder: the two pinned downloads and the country grid. Its key hashes every file that
+      # decides what goes into that folder: the pins in data_packages.py, the download and install
+      # code in fetch.py and data_prepare.py, the grid builder in iso3_grid_builder.py, and the
+      # libraries in uv.lock. The cache leaves out costs/, so boa-data-prepare rebuilds it from the
+      # cached workbook on every run, in a few seconds, and a change to any cost code reaches the
+      # tests.
+      - name: Restore the downloads and the country grid
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/boa-data-root/data
+          key: boa-data-${{ hashFiles('src/boa/config/data_packages.py', 'src/boa/fetch.py', 'src/boa/cli/data_prepare.py', 'src/boa/geo/iso3_grid_builder.py', 'uv.lock') }}
+      - name: Prepare the data root
+        env:
+          BOA_DATA_ROOT: ${{ runner.temp }}/boa-data-root
+        run: uv run boa-data-prepare
+      # The tests that need a data root copy what they use from it and never write to it.
+      - name: Tests
+        env:
+          BOA_TEST_DATA_ROOT: ${{ runner.temp }}/boa-data-root
+          UPDATE_GOLDEN: ${{ inputs.update-golden }}
+        run: |
+          if [ "$UPDATE_GOLDEN" = true ]; then
+            uv run pytest --update-golden
+          else
+            uv run pytest
+          fi
+      - name: Upload the golden outputs
+        if: inputs.update-golden
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: golden-outputs
+          path: tests/golden/
+          if-no-files-found: error
