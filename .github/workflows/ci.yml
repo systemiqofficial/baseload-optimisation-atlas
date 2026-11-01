@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      update-golden:
+        description: Rewrite tests/golden/ on the runner and upload it as an artifact
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -35,6 +40,38 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync
-      # BOA's tests build their own synthetic inputs; those that need a prepared data root skip without one.
+      # The golden outputs and the other tests on the weather extract solve real cells, so they
+      # need the core and cost data that boa-data-prepare installs. The cache holds only the root's
+      # data/ folder: the two pinned downloads and the country grid. Its key hashes every file that
+      # decides what goes into that folder: the pins in data_packages.py, the download and install
+      # code in fetch.py and data_prepare.py, the grid builder in iso3_grid_builder.py, and the
+      # libraries in uv.lock. The cache leaves out costs/, so boa-data-prepare rebuilds it from the
+      # cached workbook on every run, in a few seconds, and a change to any cost code reaches the
+      # tests.
+      - name: Restore the downloads and the country grid
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/boa-data-root/data
+          key: boa-data-${{ hashFiles('src/boa/config/data_packages.py', 'src/boa/fetch.py', 'src/boa/cli/data_prepare.py', 'src/boa/geo/iso3_grid_builder.py', 'uv.lock') }}
+      - name: Prepare the data root
+        env:
+          BOA_DATA_ROOT: ${{ runner.temp }}/boa-data-root
+        run: uv run boa-data-prepare
+      # The tests that need a data root copy what they use from it and never write to it.
       - name: Tests
-        run: uv run pytest
+        env:
+          BOA_TEST_DATA_ROOT: ${{ runner.temp }}/boa-data-root
+          UPDATE_GOLDEN: ${{ inputs.update-golden }}
+        run: |
+          if [ "$UPDATE_GOLDEN" = true ]; then
+            uv run pytest --update-golden
+          else
+            uv run pytest
+          fi
+      - name: Upload the golden outputs
+        if: inputs.update-golden
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: golden-outputs
+          path: tests/golden/
+          if-no-files-found: error

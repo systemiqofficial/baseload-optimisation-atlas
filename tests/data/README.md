@@ -21,7 +21,17 @@ BOA_DATA_ROOT=<folder> uv run boa-data-prepare
 BOA_TEST_DATA_ROOT=<folder> uv run pytest
 ```
 
-Without `BOA_TEST_DATA_ROOT` those tests skip.
+Without `BOA_TEST_DATA_ROOT` those tests skip on your machine and fail in continuous integration (CI), where the workflow prepares and caches a data root for them.
+
+## Rewrite the golden outputs
+
+The golden outputs (`tests/test_golden_outputs.py`) compare BOA's results on the extract with `tests/golden/spanish_cells.json`. The CI runner writes that file, because the tests compare with it there bit for bit. To rewrite it:
+
+1. Run the CI workflow by hand on the pull request's branch with its input `update-golden` ticked, from the repository's Actions tab or with `gh workflow run ci.yml --ref <branch> -f update-golden=true`. The run uploads the new file as the artifact `golden-outputs`.
+2. Commit the `spanish_cells.json` from that artifact in place of the old file.
+3. Say in the pull request why the golden file changed.
+
+`uv run pytest --update-golden` rewrites the file on your own machine, to compare with it there; your maths library can differ from the runner's in the last bit.
 
 ## Trace the data to its source
 
