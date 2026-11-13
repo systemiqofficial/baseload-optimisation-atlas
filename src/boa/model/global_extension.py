@@ -3,6 +3,7 @@ import xarray as xr
 from concurrent.futures import ThreadPoolExecutor
 import time
 import logging
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -356,6 +357,61 @@ def build_frontier_cache_for_region(
         f"({npts} pts, {solved} solved, {_store_size_mb(written):.1f} MB)."
     )
     return written
+
+
+class FrontierCacheCoverageError(RuntimeError):
+    """A frontier cache a query needs is missing, or its anchors don't cover the query's costs."""
+
+
+def check_frontier_caches_cover(
+    regions: Iterable[str],
+    coverage: float,
+    candidates: Candidates,
+    path_config: PathConfig,
+    params: SearchParams | None = None,
+) -> None:
+    """
+    Raise `FrontierCacheCoverageError` unless every region's frontier cache exists and covers
+    every cost mix in `candidates`.
+
+    The query prices any costs it is given, but a store's patches are dense only near the
+    anchors it was built with. Far from them the cached argmin can sit well above the optimum
+    a search at those costs would find, and nothing in the output shows it. So the query
+    refuses exactly the stores `build_frontier_cache_for_region` would rebuild for the same
+    candidates (`anchors_for_build`), before it writes anything. A store at `max_anchors`
+    passes, as it does for the build; `select_anchors` warns about the gap.
+    """
+    params = SearchParams() if params is None else params
+    weather_year = detect_weather_year(path_config)
+    cache_dir = path_config.frontier_cache_dir(weather_year)
+    problems = []
+    for region in regions:
+        cache_file = frontier_cache_path(cache_dir, region, coverage, params, weather_year, ERA5_DATA_RESOLUTION)
+        where = cache_file.relative_to(cache_dir)
+        if not cache_file.exists():
+            problems.append(f"{region}: no frontier cache at {where}")
+            continue
+        stale = read_frontier_cache_version(cache_file) != FRONTIER_CACHE_VERSION
+        stored = None if stale else read_frontier_anchors(cache_file)
+        if anchors_for_build(stored, candidates, params) is None:
+            continue
+        if stale:
+            problems.append(f"{region}: {where} was built by another frontier-cache version")
+        elif stored is None:
+            problems.append(f"{region}: {where} records no anchors, so it can't show what it covers")
+        else:
+            problems.append(
+                f"{region}: {uncovered(stored, candidates, params.anchor_tol)} of {len(candidates)} "
+                f"(cost key, year) mixes lie further than anchor_tol={params.anchor_tol} from the "
+                f"{len(stored)} anchors of {where}"
+            )
+    if problems:
+        raise FrontierCacheCoverageError(
+            "The frontier caches do not cover this query's costs:\n  "
+            + "\n  ".join(problems)
+            + "\nRun `boa-run build-cache` with the same --weather-input, --cost-input, --coverage and "
+            "year arguments (or a bare `boa-run`), then query again."
+        )
 
 
 def query_frontier_cache_for_region(
