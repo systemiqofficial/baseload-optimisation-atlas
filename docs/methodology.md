@@ -8,8 +8,8 @@ search finds the optimum, how close the result is to the true optimum, and which
 The [Overview](overview.md) introduces the concepts that this page uses. The
 [model assumptions](model-assumptions.md) page gives the physical parameters and their sources.
 [Known limitations](known-limitations.md) describes the limits of the method and their effect on
-the results. The [Glossary](glossary.md) defines each technical term. The first use of each term
-on this page links to the glossary.
+the results. The [Glossary](glossary.md) defines the technical terms that other pages also use.
+This page defines the terms of the search itself (bold) where it first uses them.
 
 ## The design
 
@@ -40,7 +40,7 @@ is empty at the start: `q[0] = 0`. In each hour:
 
 1. The generation is `g[t] = s·S[t] + w·W[t]`, and the net generation is `n[t] = g[t] − 1`.
 2. The available energy is `a[t] = q[t−1] + n[t]`. The hour is
-   [**covered**](glossary.md#covered-hour) when `a[t] ≥ 0`: the generation and the battery charge
+   **covered** when `a[t] ≥ 0`: the generation and the battery charge
    together supply the full demand.
 3. The new charge is `q[t] = min(max(a[t], 0), b)`.
 4. When `n[t] ≥ 0`, the surplus charges the battery by `q[t] − q[t−1]`. The remaining surplus
@@ -103,14 +103,14 @@ subject to  coverage(s, w, b) ≥ c
 - The coverage target `c` is the lowest coverage that a design must have. It is a fraction with
   `0 < c < 1`. Other values stop the run with an error.
 - `coverage` and `served_fraction` come from the dispatch rules above.
-- `a_s`, `a_w`, `a_b` and `d0` are the four [**cost coefficients**](glossary.md#cost-coefficients)
+- `a_s`, `a_w`, `a_b` and `d0` are the four **cost coefficients**
   of one investment year and one [cost key](glossary.md#cost-key)
   ([`CostCoefficients`][boa.model.bisection.CostCoefficients], calculated by
   [`lcoe_coefficients`][boa.model.cost_calculations.lcoe_coefficients]). `a_s`, `a_w` and `a_b`
   are the discounted lifetime costs of one unit of each factor. `d0` is the discounted demand
   energy over the investment horizon.
-- [`GAMMA`](glossary.md#gamma) is 0.85: `1 + BATTERY_UNIT_CAPEX_SCALING_FACTOR`, with the scaling
-  factor −0.15 (see [model assumptions](model-assumptions.md)). The battery cost is not
+- `GAMMA`, the battery cost exponent, is 0.85: `1 + BATTERY_UNIT_CAPEX_SCALING_FACTOR`, with the
+  scaling factor −0.15 (see [model assumptions](model-assumptions.md)). The battery cost is not
   proportional to `b`: the cost per MWh decreases when the battery duration increases.
 
 The LCOE is the cost for each MWh that the system delivers to the demand. The unmet energy is
@@ -150,7 +150,7 @@ design: each per-year file records `capacity_ceiling_applied = 0`. See
 
 **The frontier.** For a fixed solar and wind factor, the coverage cannot decrease when the
 battery increases. Thus there is a smallest battery `b_min(s, w)` that meets the coverage target.
-We call it the [**minimum battery**](glossary.md#minimum-battery). We call the set of these
+We call it the **minimum battery**. We call the set of these
 designs the [**frontier**](glossary.md#frontier). A design with `b < b_min(s, w)` does not meet
 the target. When `b_min = 0`, the generation alone meets the target.
 
@@ -160,12 +160,12 @@ the target. When `b_min = 0`, the generation alone meets the target.
 (a) The minimum battery `b_min(s, w)`. In the grey region, no battery of 256 hours or less meets
 the target. For a solar factor of 1 or more, the generation alone meets the target above a wind
 factor of about 4.4. With no solar, this wind factor is about 4.9. The dashed line is the
-[corner cut](glossary.md#corner-cut) of the search (see below). (b) The LCOE of the design with
+[corner cut](#3-the-coarse-grid) of the search (see below). (b) The LCOE of the design with
 the minimum battery, for cost set A of the figure script. It is an index: the minimum on the
 reference grid is 100. The low-cost designs are in a narrow valley along the edge of the grey
 region. The valley has more than one low point. The diamond is the result of the search: its LCOE
 is 1.0 % above the minimum on the reference grid (the star). The reference grid has 97 × 97
-nodes. This is half the node spacing of the search [patches](glossary.md#patch). The battery
+nodes. This is half the node spacing of the search [patches](#6-patches). The battery
 tolerance of the reference grid is 0.01 %. The profiles and the costs are synthetic. The script is
 `docs_figures/methodology_figures.py`.
 
@@ -174,9 +174,10 @@ tolerance of the reference grid is 0.01 %. The profiles and the costs are synthe
 BOA does not evaluate all designs. It evaluates a finite set of designs on grids in the plane of
 the solar and wind factors. It stores their dispatch results in the
 [frontier cache](glossary.md#frontier-cache). Each stored design is on the frontier or just above
-it. Its battery is the `b_min` that the [bisection](glossary.md#bisection) finds (see
-[below](#the-minimum-battery-by-bisection)), or a [battery rung](glossary.md#battery-rung) above
-it.
+it. Its battery is the `b_min` that the **bisection** finds, or a
+[battery rung](#7-battery-rungs) above it. The bisection is the method that finds `b_min` at one
+node: it halves an interval of battery sizes again and again (see
+[below](#the-minimum-battery-by-bisection)).
 Thus each stored design meets the coverage target. The query then selects the cheapest stored
 design.
 
@@ -190,7 +191,7 @@ gets [status code](glossary.md#status-code) 3.
 
 ### 2. The search box
 
-The search looks only at designs inside the [**search box**](glossary.md#search-box)
+The search looks only at designs inside the **search box**
 `0 ≤ s ≤ s_max`, `0 ≤ w ≤ w_max` ([`search_box`][boa.model.bisection.search_box]). The box comes
 from the mean capacity factor `CF` of each technology over the weather year:
 
@@ -204,33 +205,37 @@ with a zero capacity factor gets `box_abs_max`, which is 200.
 
 ### 3. The coarse grid
 
-The [**coarse grid**](glossary.md#coarse-grid) has `coarse_grid × coarse_grid` nodes (25 × 25),
-evenly spaced in the box ([`coarse_b_min_grid`][boa.model.bisection.coarse_b_min_grid]). At each
-node, the coarse grid holds a [**lower bound**](glossary.md#lower-bound) on `b_min`, not `b_min`
-itself:
+The **coarse grid** has `coarse_grid × coarse_grid` nodes (25 × 25), evenly spaced in the box
+([`coarse_b_min_grid`][boa.model.bisection.coarse_b_min_grid]). The distance between two adjacent
+nodes on one axis is one **coarse step**: `s_max` or `w_max` divided by `coarse_grid − 1` (24).
+At each node, the coarse grid holds a **lower bound** on `b_min`, not `b_min` itself. A lower bound
+at a node is a battery size that `b_min` cannot be below. It is infinite when no battery up to the
+**battery limit** `b_cap` (500 hours) meets the target at the node, or when the corner cut (below)
+removes the node.
 
 - BOA solves only every `coarse_stride`-th node on each axis (every third node, 9 × 9
-  [**solved nodes**](glossary.md#solved-node)). At a solved node, the
-  [bisection](glossary.md#bisection) (see [below](#the-minimum-battery-by-bisection)) stops after
+  **solved nodes**). At a solved node, the
+  bisection (see [below](#the-minimum-battery-by-bisection)) stops after
   `coarse_bisect_steps` steps (3). It keeps the infeasible end of the interval, which is a lower
   bound on `b_min` at that node.
 - `b_min` cannot increase when `s` or `w` increases. Thus each solved node takes the largest
   lower bound of all solved nodes with equal or larger `s` and `w`. Each other node is a
-  [**filled node**](glossary.md#filled-node). It takes the value of the nearest solved node with
+  **filled node**. It takes the value of the nearest solved node with
   equal or larger `s` and `w`.
-- When no battery up to the tested limit meets the target at a solved node, the bound is
+- When no battery up to the battery limit meets the target at a solved node, the bound is
   infinite. This propagates to all nodes with equal or smaller `s` and `w`.
 
-**Corner cut.** Nodes where `s/s_max + w/w_max > corner_cut_threshold` (1.2) get an infinite
-bound ([`corner_cut_mask`][boa.model.bisection.corner_cut_mask]). The cut removes the corner of
-the box where both factors are large. It does not touch the axes `s = 0` and `w = 0`.
+**Corner cut.** The corner cut removes the corner of the box where both factors are large. Nodes
+where `s/s_max + w/w_max > corner_cut_threshold` (1.2) get an infinite bound
+([`corner_cut_mask`][boa.model.bisection.corner_cut_mask]). It does not touch the axes `s = 0` and
+`w = 0`.
 
 ### 4. Seeds
 
-A [**seed**](glossary.md#seed) is a solved coarse node where the search looks in detail. BOA
-ranks the solved nodes with a [**seed score**](glossary.md#seed-score) for each cost
-[**anchor**](glossary.md#anchor). An anchor is one set of cost coefficients that the build uses
-to rank the seeds (see [Cost anchors](#cost-anchors)). The function is
+A **seed** is a solved coarse node where the search looks in detail. BOA ranks the solved nodes
+with a **seed score** for each cost [**anchor**](glossary.md#anchor). An anchor is one set of cost
+coefficients that the cache build uses to rank the seeds. Only its cost mix (the shares of the
+solar, wind and battery coefficients) matters (see [Cost anchors](#cost-anchors)). The function is
 [`anchor_score`][boa.model.bisection.anchor_score]:
 
 ```text
@@ -261,31 +266,31 @@ gets status code 2, and the search stops.
 A seed can be on the outer edge of the coarse grid (`s = s_max` or `w = w_max`), or next to the
 corner cut. Then the optimum can be outside the box. In this case, BOA doubles `s_max` and
 `w_max` (up to `box_abs_max`) and does steps 3 and 4 again. This is
-[**widening**](glossary.md#widening). BOA does it at most `max_box_widenings` times (2). The
+**widening**. BOA does it at most `max_box_widenings` times (2). The
 stored `box_widenings` gives the number of widenings. Widening occurs only when there is a seed:
 a pixel with no seed in the first box is not widened.
 
 ### 6. Patches
 
-Around each seed, BOA builds a [**patch**](glossary.md#patch): a dense grid of designs
+Around each seed, BOA builds a **patch**: a dense grid of designs
 ([`patch_lattice`][boa.model.bisection.patch_lattice]).
 
-- The [**patch box**](glossary.md#patch-box) extends from the seed by the larger of
+- The **patch box** extends from the seed by the larger of
   `patch_halfwidth` (20 %) of the seed coordinate and `coarse_stride` (3) coarse steps, on each
   axis ([`patch_bounds_for_seed`][boa.model.bisection.patch_bounds_for_seed]).
 - BOA moves each edge of the patch box outward to the next coarse node. Thus each coarse node is
   either inside a patch box or outside all patch boxes.
-- The [**patch nodes**](glossary.md#patch-node) have a fixed spacing of one coarse step divided
-  by `lattice_refinement` (2). With the default settings, this is `box / 48` on each axis.
+- The **patch nodes** are the nodes of the patch. They have a fixed spacing of one coarse step
+  divided by `lattice_refinement` (2). With the default settings, this is `box / 48` on each axis.
 
 At each patch node, the bisection runs to the full tolerance and gives `b_min`, its coverage and
 its served fraction ([`b_min_at`][boa.model.bisection.b_min_at]). When no battery up to the
-tested limit meets the target, the node is infeasible, and the query does not use it.
+battery limit meets the target, the node is infeasible, and the query does not use it.
 
 ### 7. Battery rungs
 
 At each feasible patch node, BOA stores the dispatch results for `ladder_rungs`
-[**battery rungs**](glossary.md#battery-rung). These are battery sizes from `b_min` to
+**battery rungs**. These are battery sizes from `b_min` to
 `ladder_max_span · b_min` ([`battery_rungs`][boa.model.bisection.battery_rungs]). The default is
 one rung: BOA stores only `b_min`. Thus the query does not evaluate a battery larger than
 `b_min`, even if a larger battery with a higher served fraction has a lower LCOE.
@@ -302,9 +307,9 @@ corner cut. Anchor A proposes two seeds. Anchor B proposes the same solar-only s
 (the square hides the circle). Anchor C proposes a wind-only seed. (b) The three patch boxes and
 their nodes, and the cheapest stored design under each of the three cost sets. Each cost set
 selects a different design. For cost set C, the
-[containment check](glossary.md#containment-check) (`patch_certified`) is true. For cost sets A
+[containment check](#the-query) (`patch_certified`) is true. For cost sets A
 and B it is false. For A, the winner is on an inner edge of its patch, so
-[`argmin_truncated`](glossary.md#truncation) is true. The profiles and the costs are synthetic.
+[`argmin_truncated`](#the-query) is true. The profiles and the costs are synthetic.
 The script is `docs_figures/methodology_figures.py`.
 
 ### The minimum battery by bisection
@@ -313,10 +318,9 @@ At one node `(s, w)`, BOA finds `b_min` in two parts:
 
 1. **Bracket.** When the coverage with no battery meets the target, `b_min = 0`. Otherwise BOA
    tests the batteries 0.25, 0.5, 1, 2, … hours, each twice the one before, while the battery
-   is not more than `b_cap` (500 hours). The first battery that meets the target is the upper
-   end of the interval, and the one before is the lower end. This interval is the
-   [**bracket**](glossary.md#bracket). When no tested battery meets the target, the node is
-   infeasible.
+   is not more than the battery limit `b_cap` (500 hours). The first battery that meets the target
+   is the upper end of the interval, and the one before is the lower end. This interval is the
+   **bracket**. When no tested battery meets the target, the node is infeasible.
 2. **Bisection.** BOA halves the bracket until its width is at most `tol_rel_patch` (1 %) of
    the upper end, with a minimum of 10⁻⁶ hours. It keeps the upper end, which meets the target.
 
@@ -333,13 +337,14 @@ starts at 0.25 hours.
 
 ### Cost anchors
 
-An anchor is one set of cost coefficients that the build uses to rank the seeds. The anchors are
-the only path from the costs into the build.
+An anchor is one set of cost coefficients that the cache build uses to rank the seeds. Only its
+cost mix (the shares of the solar, wind and battery coefficients) matters. The anchors are the only
+path from the costs into the build.
 
-- The [**candidates**](glossary.md#candidate) are all pairs of an investment year of the run and
+- The **candidates** are all pairs of an investment year of the run and
   a cost key of the cost set. Each candidate has its cost coefficients at a demand of 1
   ([`cost_candidates`][boa.model.anchors.cost_candidates]).
-- BOA normalises the [**cost mix**](glossary.md#cost-mix) `(a_s, a_w, a_b)` of each candidate to
+- BOA normalises the **cost mix** `(a_s, a_w, a_b)` of each candidate to
   a sum of 1. It selects a small set of anchors so that each candidate is within `anchor_tol`
   (0.02) of an anchor, by the largest difference of the three shares. There are at most
   `max_anchors` (32) anchors ([`select_anchors`][boa.model.anchors.select_anchors]).
@@ -372,8 +377,8 @@ The query also calculates two diagnostics for each pixel and year:
 
 | Diagnostic | Value `True` means |
 |---|---|
-| Containment check (`patch_certified`) | At each coarse node outside all patch boxes, a lower bound on the LCOE is equal to or more than the LCOE of the result. The bound is `(a_s·s + a_w·w + a_b·b_lower^GAMMA) / d0`, which uses the coarse lower bound on `b_min` and a served fraction of 1. Nodes that the corner cut removes, and nodes where no tested battery meets the target, always pass this test. |
-| [Truncation](glossary.md#truncation) (`argmin_truncated`) | The result is on an edge of its patch that is inside the coarse grid. An edge at `s = 0`, at `w = 0`, or at the outer edge of the coarse grid does not count. |
+| **Containment check** (`patch_certified`) | At each coarse node outside all patch boxes, a lower bound on the LCOE is equal to or more than the LCOE of the result. The bound is `(a_s·s + a_w·w + a_b·b_lower^GAMMA) / d0`, which uses the coarse lower bound on `b_min` and a served fraction of 1. Nodes that the corner cut removes, and nodes where no tested battery meets the target, always pass this test. |
+| **Truncation** (`argmin_truncated`) | The result is on an edge of its patch that is inside the coarse grid. An edge at `s = 0`, at `w = 0`, or at the outer edge of the coarse grid does not count. |
 
 The containment check tests only the coarse nodes outside the patches. It does not give a limit
 for the error inside a patch. When the check is false, the query still reports the cheapest
@@ -409,7 +414,7 @@ the problem above for these reasons:
   these costs can have no patch. BOA also keeps at most `max_patch_slots` (4) patches for each
   pixel, and it drops the patch boxes with the highest seed scores.
 - **Search box.** Designs outside the box, beyond the corner cut, or with a battery above the
-  tested limit are not evaluated.
+  battery limit are not evaluated.
 - **Stored precision.** The cache stores the served fraction rounded down to a step of
   1/65535, which can make the LCOE slightly higher. It stores the factors as 32-bit
   floating-point numbers.

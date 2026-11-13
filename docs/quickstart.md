@@ -121,8 +121,9 @@ build of the frontier caches takes most of the time. The README gives about 75 m
 coverage target for a run from 2025 to 2060. This page gives no time for the run of this step.
 
 A second run with the same weather year and coverage target can reuse the caches. BOA reuses a
-cache only while its [cost anchors](methodology.md#cost-anchors) cover every combination of cost
-key and investment year in the new run. If they do not, BOA builds the cache again. See
+cache only while the cache covers the cost mixes of every combination of cost key and investment
+year in the new run (see [Cost anchors](methodology.md#cost-anchors)). If it does not, BOA builds
+the cache again. See
 [Reuse of the frontier cache](known-limitations.md#reuse-of-the-frontier-cache).
 
 The last line of the log is `All simulations completed successfully!`.
@@ -174,8 +175,8 @@ search found a result for the pixel. The file attribute `capacity_ceiling_applie
 
 The values are close to the values of step 2, but not the same. The difference can come from the
 placement of the search. The single-point run places its search with the costs of only this pixel.
-A run of all regions places the search with a small set of cost mixes for all pixels (see
-[Search algorithm](methodology.md#cost-anchors)).
+A run of all regions places the search with a small set of cost mixes for all pixels (the
+[anchors](glossary.md#anchor); see [Cost anchors](methodology.md#cost-anchors)).
 
 ## Next steps
 

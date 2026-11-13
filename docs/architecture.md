@@ -10,8 +10,8 @@ itself, see [Search algorithm](methodology.md). For the meaning of each term, se
 ![Diagram of the BOA pipeline. Weather data goes into the frontier cache. The cache and a cost set go into the query step. The query writes one per-year file for each investment year. The per-year files go into one promoted file.](assets/overview/f1_pipeline.svg)
 
 **Figure 1.** The BOA pipeline. The blue steps depend only on the weather. They store no cost. The
-cache build reads the costs only to place the anchors. The yellow and grey steps apply the costs,
-once for each investment year. The yellow step is the [query](glossary.md#query). See the
+cache build reads the costs only to place the [anchors](glossary.md#anchor) of the search. The
+yellow and grey steps apply the costs, once for each investment year. The yellow step is the [query](glossary.md#query). See the
 [Overview](overview.md) for the concepts.
 
 The table gives the code for each step in Figure 1.
@@ -19,7 +19,7 @@ The table gives the code for each step in Figure 1.
 | Step | What the code does | Code |
 |---|---|---|
 | Weather data | Reads the hourly solar and wind capacity factors of one region from the profile store of the input set (Zarr by default). Reads the weather year from the file names of the stores. | [open_regional_dataset][boa.inputs.profiles.open_regional_dataset], [detect_weather_year][boa.inputs.profiles.detect_weather_year] |
-| Anchors (part of the cache build) | Lists each pair of [investment year](glossary.md#investment-year) and [cost key](glossary.md#cost-key) with its cost coefficients, and selects the [anchors](glossary.md#anchor). The anchors place the patches of the search. | [cost_candidates][boa.model.anchors.cost_candidates], [anchors_for_build][boa.model.anchors.anchors_for_build] |
+| Anchors (part of the cache build) | Lists each pair of [investment year](glossary.md#investment-year) and [cost key](glossary.md#cost-key) with its cost coefficients, and selects the [anchors](glossary.md#anchor). The anchors place the [patches](glossary.md#patch) of the search. | [cost_candidates][boa.model.anchors.cost_candidates], [anchors_for_build][boa.model.anchors.anchors_for_build] |
 | [Frontier cache](glossary.md#frontier-cache) | For one region: selects the land pixels, builds the frontier of each pixel in parallel threads, and writes one Zarr store for the region. | [build_frontier_cache_for_region][boa.model.global_extension.build_frontier_cache_for_region], [build_pixel_frontier][boa.model.bisection.build_pixel_frontier], [write_frontier_cache][boa.model.frontier_cache.write_frontier_cache] |
 | Query | For one region and one investment year: reads the store and finds the cost key of each pixel. Then it calculates the cost coefficients and keeps the stored design with the lowest LCOE. It writes one regional NetCDF file. | [query_frontier_cache_for_region][boa.model.global_extension.query_frontier_cache_for_region], [lcoe_coefficients][boa.model.cost_calculations.lcoe_coefficients], [argmin_lcoe][boa.model.bisection.argmin_lcoe] |
 | Per-year files | Puts the regional files of one investment year on one global grid. | [combine_regional_datasets_into_global_dataset][boa.model.global_extension.combine_regional_datasets_into_global_dataset] |
@@ -69,9 +69,9 @@ The package `boa` has these parts. Names are paths from `boa`.
 
 | Module | Content |
 |---|---|
-| [boa.model.bisection][boa.model.bisection] | The search for one pixel. It has the hourly dispatch ([dispatch_metrics][boa.model.bisection.dispatch_metrics]), the smallest battery for a design ([b_min_at][boa.model.bisection.b_min_at]), the coarse grid, the seeds and the patches ([build_pixel_frontier][boa.model.bisection.build_pixel_frontier]). It also has the query of a frontier ([argmin_lcoe][boa.model.bisection.argmin_lcoe]) and the search settings ([SearchParams][boa.model.bisection.SearchParams]). The stored dispatch results depend on no cost, no year and no capacity ceiling. `build_pixel_frontier` takes anchor cost coefficients, but only to place the patches. `argmin_lcoe` takes the cost coefficients of the query. |
+| [boa.model.bisection][boa.model.bisection] | The search for one pixel. It has the hourly dispatch ([dispatch_metrics][boa.model.bisection.dispatch_metrics]), the smallest battery for a design ([b_min_at][boa.model.bisection.b_min_at]), the coarse grid, the seeds and the patches ([build_pixel_frontier][boa.model.bisection.build_pixel_frontier]; see [The search](methodology.md#the-search)). It also has the query of a frontier ([argmin_lcoe][boa.model.bisection.argmin_lcoe]) and the search settings ([SearchParams][boa.model.bisection.SearchParams]). The stored dispatch results depend on no cost, no year and no capacity ceiling. `build_pixel_frontier` takes anchor cost coefficients, but only to place the patches. `argmin_lcoe` takes the cost coefficients of the query. |
 | [boa.model.frontier_cache][boa.model.frontier_cache] | The schema and the file format of the frontier cache, and the functions that write and read it. The cache holds dispatch results only. |
-| [boa.model.anchors][boa.model.anchors] | The anchors: the cost coefficients that decide where the search puts its patches. |
+| [boa.model.anchors][boa.model.anchors] | The anchors: sets of cost coefficients that the cache build uses to rank the seeds. Only the cost mix of each matters. They decide where the search puts its patches. |
 | [boa.model.cost_calculations][boa.model.cost_calculations] | The cost coefficients of a cost key and an investment year, and the cost breakdown of a design. |
 | [boa.model.global_extension][boa.model.global_extension] | The build and the query of one region, and the combination of the regions into the GLOBAL dataset. |
 | [boa.model.lcoe_promotion][boa.model.lcoe_promotion] | The promoted LCOE file. |

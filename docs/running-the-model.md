@@ -19,7 +19,7 @@ boa-run --weather-input cds-2023 --cost-input rev3 --dry-run  # check the inputs
 
 | Command | What it does | Options that are specific to it |
 |---|---|---|
-| `boa-run` | Checks the inputs. Builds the frontier cache of each region when it is missing or when its anchors do not cover the run. Then writes the per-year files for each year. | `--dry-run`, `--plots`, `--promote-lcoe` |
+| `boa-run` | Checks the inputs. Builds the frontier cache of each region when it is missing or when it does not cover the cost mixes of the run. Then writes the per-year files for each year. | `--dry-run`, `--plots`, `--promote-lcoe` |
 | `boa-run build-cache` | Builds the frontier caches. Writes no per-year file. It ignores `--load-density`. | `--force` |
 | `boa-run query` | Writes the per-year files from existing frontier caches. It never builds a cache. | `--force`, `--plots`, `--promote-lcoe` |
 | `boa-run point` | Computes one pixel. Writes no NetCDF file. | `--lat`, `--lon` |
@@ -114,16 +114,17 @@ year, share it.
 
 One frontier cache serves each load density and each investment year. It depends on the weather
 year, the region, the coverage target and the search settings. It also depends on the costs in one
-way: through its anchors (see [Build once, price many](overview.md#build-once-price-many) and
+way: through the cost mixes that it was built for, which are its [anchors](glossary.md#anchor) (see
+[Build once, price many](overview.md#build-once-price-many) and
 [Cost anchors](methodology.md#cost-anchors)).
 
-- **The anchor check.** `boa-run` and `boa-run build-cache` compare the anchors that a stored cache
-  records with the cost mixes of all cost keys. They do this for the investment years that
+- **The cost mix check.** `boa-run` and `boa-run build-cache` compare the cost mixes that a stored
+  cache records with the cost mixes of all cost keys. They do this for the investment years that
   `--start-year`, `--end-year` and `--frequency` give, not for every year in the range. When the
-  anchors cover the mixes, BOA uses the cache as it is. When they do not, BOA builds the cache
-  again with the old anchors and the new anchors. A new cost set, or more years, makes one
+  cache covers the cost mixes, BOA uses the cache as it is. When it does not, BOA builds the cache
+  again for the old cost mixes and the new ones. A new cost set, or more years, makes one
   rebuild, and the cache then covers them.
-- **`boa-run query` does no anchor check.** It reads the cache that it finds at the cache path.
+- **`boa-run query` does no cost mix check.** It reads the cache that it finds at the cache path.
   The path contains the weather year, the region, the coverage target and the search settings. It
   contains neither the cost set nor the years. A query can use a cache that was built for other
   costs or other years, and BOA gives no warning. Run `boa-run build-cache` with the same cost set
@@ -131,20 +132,22 @@ way: through its anchors (see [Build once, price many](overview.md#build-once-pr
 - **A query needs a cache.** When no cache exists, `boa-run query` stops with an error. The
   coverage is part of the cache path. A query with another `--coverage` finds no cache, and stops
   with the same error.
-- **A cache at the limit.** When a cache holds `max_anchors` anchors, BOA uses it as it is, with a
-  warning, because a rebuild cannot add an anchor.
+- **A cache at the limit.** When a cache holds the largest number of cost mixes that it can hold
+  (`max_anchors`, 32 by default), BOA uses it as it is, with a warning, because a rebuild cannot
+  add a cost mix.
 - **A cache from another cache version.** `boa-run` and `build-cache` build it again. `query`
   stops with an error that names `boa-run build-cache`.
-- **Force.** `boa-run build-cache --force` builds each cache again, also when its anchors cover
-  the run. `boa-run` has no `--force` option.
+- **Force.** `boa-run build-cache --force` builds each cache again, also when it covers
+  the cost mixes of the run. `boa-run` has no `--force` option.
 - **After a rebuild, use `boa-run query --force`.** A command that finds a per-year file skips the
-  year. A per-year file does not record the build time, the cache version or the anchors of its
-  cache. A rebuild does not change the existing per-year files, and old and new results can be in
-  one run directory. Run `boa-run query --force` with the same scenario options to write them
-  again.
+  year. A per-year file does not record the build time, the cache version or the cost mixes that its
+  cache was built for. A rebuild does not change the existing per-year files, and old and new
+  results can be in one run directory. Run `boa-run query --force` with the same scenario options
+  to write them again.
 
-A rebuild with more anchors can change the patches, and therefore the LCOE of an earlier cost set
-or year. See [Reuse of the frontier cache](known-limitations.md#reuse-of-the-frontier-cache).
+A rebuild for more cost mixes can change which designs the cache holds, and therefore the LCOE of
+an earlier cost set or year. See
+[Reuse of the frontier cache](known-limitations.md#reuse-of-the-frontier-cache).
 
 ## Plots
 
@@ -197,9 +200,9 @@ in `run.json`. It compares `input_set`, `cost_set`, `input_data_sha256`, `availa
 stops with a `RuntimeError` that lists the differences. BOA also refuses a `run.json` of an older
 schema version. Use a new `--run` label in these cases.
 
-The anchors of a cache depend on the years of the run and on the earlier runs that used the same
-cache (see above). To get the same designs, start with no frontier cache for the weather year and
-coverage, and use the same years.
+The cost mixes that a cache covers depend on the years of the run and on the earlier runs that used
+the same cache (see above). To get the same designs, start with no frontier cache for the weather
+year and coverage, and use the same years.
 
 ## Hand the LCOE to the steel simulation
 

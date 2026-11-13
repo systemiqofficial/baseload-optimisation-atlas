@@ -61,8 +61,8 @@ is set to 1. Thus the design does not depend on the size of the demand.
 | Wind factor | Installed wind capacity divided by the demand | MW per MW of demand |
 | Battery factor | Battery energy capacity divided by the demand | hours of demand |
 
-We call the solar factor and the wind factor **overscale factors**. They are usually larger
-than 1, because solar and wind give less than their installed capacity in most hours.
+The solar factor and the wind factor are usually larger than 1, because solar and wind give less
+than their installed capacity in most hours.
 
 Example: a design with solar factor 3, wind factor 1.5 and battery factor 8, for a demand of
 100 MW, has 300 MW of solar, 150 MW of wind and an 800 MWh battery.
@@ -151,11 +151,12 @@ not decrease with age. The currency year of the LCOE is the currency year of the
     investment year and one cost key
     ([lcoe_coefficients][boa.model.cost_calculations.lcoe_coefficients]). `a_s`, `a_w` and
     `a_b` are the discounted lifetime costs of one unit of each factor. `d0` is the discounted
-    demand energy over the horizon, with 8760 hours in each year. `GAMMA` is 0.85: the battery
-    cost per MWh decreases when the battery duration in hours of demand increases. `GAMMA` is
-    1 plus the battery scaling factor of −0.15; the
-    [model assumptions](model-assumptions.md) page gives this factor. [argmin_lcoe][boa.model.bisection.argmin_lcoe] evaluates
-    this formula for each stored design and returns the design with the lowest value.
+    demand energy over the horizon, with 8760 hours in each year. The battery cost exponent
+    `GAMMA` is 0.85: the battery cost per MWh decreases when the battery duration in hours of
+    demand increases. The exponent is 1 plus the battery scaling factor of −0.15; the
+    [model assumptions](model-assumptions.md) page gives this factor.
+    [argmin_lcoe][boa.model.bisection.argmin_lcoe] evaluates this formula for each stored design
+    and returns the design with the lowest value.
 
 ## How coverage changes the LCOE
 
@@ -218,14 +219,14 @@ result of a design is known, its LCOE is a short formula.
 
 BOA keeps these two parts apart:
 
-- **Build.** For each pixel, BOA examines a **coarse grid** of solar and wind factors. At each
-  node of this grid, it calculates only a **lower bound** on the **minimum battery**: the
-  smallest battery that meets the coverage target. With these bounds, BOA selects a small number
-  of **seeds**: nodes that can give a low LCOE. Around each seed, it builds a **patch**: a fine
-  grid of designs. At each patch node, BOA finds the minimum battery. These designs are the
-  **frontier**: with the same solar and wind factors, a smaller battery does not meet the target.
-  BOA stores the patch designs and their dispatch results in the frontier cache. The stored
-  dispatch results contain no cost, no investment year and no load density.
+- **Build.** For each pixel, BOA examines a coarse grid of solar and wind factors. At the solved
+  nodes of this grid (by default, every third node on each axis), it calculates only a lower
+  limit for the smallest battery that meets the coverage target. With these limits, BOA selects a small number of promising nodes. Around each of them,
+  it builds a **patch**: a fine grid of designs. At each node of a patch, BOA finds the smallest
+  battery that meets the coverage target. These designs are the **frontier**: with the same solar
+  and wind factors, a smaller battery does not meet the target. BOA stores the patch designs and
+  their dispatch results in the frontier cache. The stored dispatch results contain no cost, no
+  investment year and no load density. The steps are in [The search](methodology.md#the-search).
 - **Query.** For each investment year, BOA calculates the cost coefficients of each pixel from
   its costs. Then it prices each stored design and keeps the cheapest. This step does no
   dispatch simulation.
@@ -234,28 +235,30 @@ BOA keeps these two parts apart:
 
 **Figure 4.** Build once, price many. The build simulates the dispatch for the weather and the
 coverage target. The query applies the costs. One cache serves all investment years of a run.
-The dashed line is the only path from the costs to the build: a small set of **anchors** (sets
-of cost coefficients) tells the search where to put the patches. Thus the anchors decide which designs the cache
+The dashed line is the only path from the costs to the build: a small set of
+[**anchors**](glossary.md#anchor) tells the search where to put the patches. An anchor is one set
+of cost coefficients that the cache build uses to rank the seeds. Only its cost mix (the shares of
+the solar, wind and battery coefficients) matters. Thus the anchors decide which designs the cache
 contains, but the dispatch result of each stored design contains no cost.
 
 As a result, each investment year needs only the query step, not a new dispatch simulation. A
 different coverage target, weather year or set of search settings needs a different cache.
 
-The cache depends on the costs in one way: through the anchors. When BOA builds a cache, it
-first compares the anchors of the stored cache with the cost mixes of all cost keys and
-investment years of the run. When the stored anchors do not cover these cost mixes, BOA builds
-the cache again with more anchors. The new cache can have different patches. Thus the LCOE for an
-earlier cost set and investment year can change after this rebuild. A run that only prices a
+The cache depends on the costs in one way: through the cost mixes that it was built for (its
+anchors). When BOA builds a cache, it first compares these cost mixes with the cost mixes of all
+cost keys and investment years of the run. When the stored cache does not cover them, BOA builds
+the cache again for more cost mixes. The new cache can have different patches. Thus the LCOE for
+an earlier cost set and investment year can change after this rebuild. A run that only prices a
 stored cache does not do this comparison: it uses the cache that it finds. BOA identifies a cache
 by the weather-year label, the region, the coverage target and the search settings, not by the
 content of the weather data. [Running the model](running-the-model.md) gives the details, and
 [Known limitations](known-limitations.md) describes the effects on the results.
 
 The search uses grids of designs. Thus the result is the best design that the search found, not
-an exact optimum. For each result, BOA also does a **containment check**: it checks whether the
-lower bound on the LCOE at each coarse node outside the patches is at or above the LCOE of the
-result. The output files do not record the result of this check. The [Methodology](methodology.md) page explains the search and its
-precision.
+an exact optimum. For each result, BOA also does a **containment check**: it checks whether no
+node of the coarse grid outside the patches can have a lower LCOE than the result. The output
+files do not record the result of this check. The [Methodology](methodology.md) page explains
+the search, this check and the precision of the result.
 
 ## Pixels without a result
 

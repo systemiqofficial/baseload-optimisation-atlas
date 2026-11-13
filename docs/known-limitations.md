@@ -32,8 +32,7 @@ writes a warning to the log each time that it computes a region and year.
 
 **What it means for a result.** BOA gives the unconstrained optimum. The design can need more
 land than the pixel has. The design is the solar, wind and battery factors multiplied by the
-demand in MW. A solar or wind factor is an *overscale factor*: the installed capacity divided
-by the demand.
+demand in MW. A solar or wind factor is the installed capacity divided by the demand.
 
 The LCOE of the true unconstrained optimum is at or below the LCOE of the same pixel with a
 ceiling. The value that BOA reports is the best design that the search found (see
@@ -136,14 +135,15 @@ BOA sets the status code when it builds the frontier cache. It depends on the pr
 coverage target and the search settings, not on the investment year or on the costs. The
 promoted file requires the same status in all years.
 
-**Status 2.** The range that BOA examines for a pixel is the search box. It excludes the corner
-in which the solar and the wind factor are both large. It includes batteries up to 256 hours of
-demand.
+**Status 2.** The range of solar and wind factors that BOA examines for a pixel is the search box.
+It excludes the corner in which the solar and the wind factor are both large (the corner cut). It
+includes batteries up to 256 hours of demand.
 
 In the search, the tested battery sizes are 0.25, 0.5, 1, 2 hours and so on. 256 hours is the
-largest of these sizes that is not above the battery limit `b_cap` of 500 hours. BOA sets the
-search box from the mean capacity factors of the pixel. The search settings set the size of the
-box, the corner and `b_cap` (see [Methodology](methodology.md)).
+largest of these sizes that is not above the battery limit `b_cap`, which is 500 hours. The search
+tests no battery above this limit. BOA sets the search box from the mean capacity factors of the
+pixel. The search settings set the size of the box, the corner and `b_cap` (see
+[The search](methodology.md#the-search)).
 
 Thus status 2 does not mean that no system can meet the target at the pixel. It means that BOA
 found no feasible design in its range. A change of the box settings, the corner or `b_cap` can
@@ -167,18 +167,19 @@ with the costs of the investment year ([`argmin_lcoe`][boa.model.bisection.argmi
 not the exact optimum of the problem in [Methodology](methodology.md). The difference has these
 causes:
 
-- **Patch resolution.** The query prices only the nodes of the patches. A better design between
-  two nodes is not found.
-- **Battery tolerance and one battery rung.** The build stores, for each node, the smallest
+- **Patch resolution.** The build stores designs only on fine grids around promising nodes of the
+  coarse grid (the [patches](glossary.md#patch)). The query prices only the nodes of these
+  patches. A better design between two nodes is not found.
+- **Battery tolerance and one battery size per node.** The build stores, for each node, the smallest
   battery that meets the target, with a relative tolerance of 1 %. With the default search
   settings, it stores no larger battery. A larger battery that gives a lower LCOE is not found.
-- **Seeds.** The patches are around the seeds. BOA ranks the seeds with a score that uses the
-  cost of the design and a lower bound of the battery, and it does not use the served fraction.
-  The served fraction can be between the coverage target and 1. This band is wide at a low
-  coverage target. Thus a region of low cost can get no seed and no patch. BOA does not search
-  that region. The [Overview](overview.md) shows an example: on a synthetic pixel, the
+- **Promising nodes (seeds).** The patches are around these nodes. BOA ranks the nodes with a
+  score that uses the cost of the design and a lower limit of the battery, and it does not use the
+  served fraction. The served fraction can be between the coverage target and 1. This band is wide
+  at a low coverage target. Thus a region of low cost can get no seed and no patch. BOA does not
+  search that region. The [Overview](overview.md) shows an example: on a synthetic pixel, the
   LCOE decreases at some steps when the coverage target increases.
-- **Search box and battery limit.** BOA does not evaluate designs outside the search box, in the
+- **Search box and battery size.** BOA does not evaluate designs outside the search box, in the
   corner, or with a battery above 256 hours.
 
 **What it means for a result.** The LCOE is at or above the lowest LCOE of the pixel. The size
@@ -193,37 +194,38 @@ edge of its patch). The per-year files do not contain them. The log of each quer
 of pixels with each diagnostic. BOA does not search again for a pixel that the check does not
 confirm, and it publishes the result. A confirmed result is not always the optimum: the check
 covers only the area outside the patches, and inside a patch the node spacing limits the
-accuracy. The check treats a cell in the corner cut or above the battery limit as not cheaper,
-because BOA does not evaluate these cells.
+accuracy. The check treats a cell in the corner cut as not cheaper. It does the same for a cell
+where no tested battery meets the target. BOA does not evaluate these cells.
 
 ## Reuse of the frontier cache
 
-The frontier cache has the dispatch results, and no costs. But the **anchors** (sets of cost
-coefficients) decide where the build puts the patches, and thus which designs the cache contains
-(see [Methodology](methodology.md#cost-anchors) and
+The frontier cache has the dispatch results, and no costs. But the cost mixes that the cache is
+built for (its [anchors](glossary.md#anchor)) decide where the build puts the patches, and thus
+which designs the cache contains (see [Methodology](methodology.md#cost-anchors) and
 [`anchors_for_build`][boa.model.anchors.anchors_for_build]). This gives these limits:
 
-- **A rebuild can change an earlier result.** When a run has cost mixes that the anchors of a
-  stored cache do not cover, BOA builds the cache again with more anchors. The new cache can have
-  other patches. The LCOE for an earlier cost set and investment year can then be different.
+- **A rebuild can change an earlier result.** When a run has cost mixes that a stored cache does
+  not cover, BOA builds the cache again for more cost mixes. The new cache can have other
+  patches. The LCOE for an earlier cost set and investment year can then be different.
 - **Per-year files are not refreshed.** A command that finds the file of a year skips that year,
   unless you force a new calculation. After a cache rebuild without this, the per-year files in a
-  run can come from different caches. The files do not record the build time or the anchors of the
-  cache. The promotion step cannot find this. See
+  run can come from different caches. The files do not record the build time or the cost mixes
+  that the cache was built for. The promotion step cannot find this. See
   [Rebuild a frontier cache](running-the-model.md#rebuild-a-frontier-cache).
-- **The query does not check the anchors.** The query step uses the cache that it finds. The
+- **The query does not check the cost mixes.** The query step uses the cache that it finds. The
   cache path contains the weather year, the region, the coverage target and the search settings.
   It does not contain the cost set or the years. A cache from another cost set or another range
-  of years is used without a warning. The anchor check runs in the commands that build the cache
-  (see [Rebuild a frontier cache](running-the-model.md#rebuild-a-frontier-cache)). Pixels that
-  the anchors do not cover get results that the check confirms less often. The LCOE can be higher
-  than with covering anchors.
-- **A full cache is used again.** A cache with `max_anchors` anchors (32 by default) is used
-  again when it does not cover the cost mixes of the run. BOA writes a warning.
-- **The global-average costs are not an anchor candidate.** The anchors cover the cost keys in
+  of years is used without a warning. The cost mix check runs in the commands that build the cache
+  (see [Rebuild a frontier cache](running-the-model.md#rebuild-a-frontier-cache)). Pixels whose
+  cost mix the cache does not cover get results that the containment check confirms less often.
+  The LCOE can be higher than with a cache that covers the cost mix.
+- **A full cache is used again.** A cache that is built for the largest number of cost mixes
+  (`max_anchors`, 32 by default) is used again when it does not cover the cost mixes of the run.
+  BOA writes a warning.
+- **The mean costs are not a cost mix that the cache covers.** The cache covers the cost keys in
   the cost set. A pixel whose country is not a cost key, or that has no country, is priced with
-  the mean costs of all cost keys (see [Inputs and costs](#inputs-and-costs)). No anchor covers
-  the cost mix of these mean costs.
+  the mean costs of all cost keys (see [Inputs and costs](#inputs-and-costs)). The cache is not
+  built for the cost mix of these mean costs.
 - **The cache identity is the weather-year label.** BOA does not compare the content of the
   profiles or of the land-sea mask. A new profile build for the same year, or a changed land-sea
   mask, uses the old cache without a warning.
@@ -233,7 +235,7 @@ coefficients) decide where the build puts the patches, and thus which designs th
 **Battery cost scaling.** BOA multiplies the CAPEX of the battery in the cost set by
 `(b / 4)^−0.15`, where `b` is the battery size in hours of demand
 (`BATTERY_UNIT_CAPEX_SCALING_FACTOR = −0.15`). Thus the battery cost increases with `b` to the
-power `GAMMA = 1 − 0.15 = 0.85`. The factor has no outside source (see
+power 1 − 0.15 = 0.85 (`GAMMA` in the code). The factor has no outside source (see
 [model assumptions](model-assumptions.md)). It depends on the duration of the battery in hours
 of demand, not on the absolute size in MWh: a battery of 8 hours has the same unit cost at a
 demand of 1 MW and of 1000 MW. The value 4 hours is `AVERAGE_IMPLIED_STORAGE`. It means that BOA
@@ -266,8 +268,9 @@ When BOA reads the cost workbook, each country in the Country mapping gets a ful
   BOA writes a warning for this last case.
 - OPEX comes from the row of the IRENA region of the country. If the workbook has no such row,
   OPEX comes from the World row.
-- When the cost set has no cost of capital for a country, BOA uses the highest cost of capital in
-  the cost set. A province has no cost of capital of its own: it uses the value of its country.
+- When the cost set has no cost of capital for a country, BOA uses the highest cost of capital of
+  all mapped countries in the cost set. A province has no cost of capital of its own: it uses the
+  value of its country.
 
 When BOA gives a pixel its cost key, it uses these rules:
 
@@ -283,9 +286,9 @@ shows the key that BOA used. A key that ends in `:GLOBAL_AVG` shows that BOA use
 
 **Rounding.** The frontier cache stores the served fraction with a step of 1/65 535, rounded down.
 The stored LCOE can be higher than the exact value, by at most about 0.0015 % for a served
-fraction near 1. The cache stores the coverage with the nearest step, and the output `coverage` can be slightly below
-the coverage target: for a target of 0.95, a file can show 0.94999. The design always meets the
-target in the search.
+fraction near 1. The cache stores the coverage with the nearest step. Thus the output `coverage` can be slightly
+below the coverage target: for a target of 0.95, a file can show 0.94999. The design always meets
+the target in the search.
 
 ## Region extent
 
