@@ -55,3 +55,9 @@ dev = [
     "mypy",
     "ruff>=0.8.0",
 ]
+# Docs site (Zensical, configured by mkdocs.yml); mkdocstrings reads src/boa statically, so the
+# package itself is not needed. Zensical is pre-1.0, so it is pinned and updated on purpose.
+docs = [
+    "zensical==0.0.73",
+    "mkdocstrings[python]>=0.26",
+]
