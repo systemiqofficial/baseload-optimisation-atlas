@@ -2,7 +2,7 @@
 Shared figure style for the docs site.
 
 Every figure script in `docs_figures/` imports this module, so that solar, wind, battery and
-demand have the same colour in every figure (spec: `notes/docs-spec.md`, section 7).
+demand have the same colour in every figure.
 
 The palette is Okabe-Ito, which is safe for the common types of colour blindness. Each figure
 has a solid white background, so it is legible in the light and the dark site theme.
