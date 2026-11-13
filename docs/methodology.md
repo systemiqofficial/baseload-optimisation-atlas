@@ -343,7 +343,12 @@ path from the costs into the build.
 
 - The **candidates** are all pairs of an investment year of the run and
   a cost key of the cost set. Each candidate has its cost coefficients at a demand of 1
-  ([`cost_candidates`][boa.model.anchors.cost_candidates]).
+  ([`cost_candidates`][boa.model.anchors.cost_candidates]). For each investment year, the mean
+  costs of all cost keys are one more candidate, under the label `GLOBAL_AVG`. The query prices a
+  pixel with these mean costs when the cost set has no costs for the country of the pixel
+  (see [Known limitations](known-limitations.md#inputs-and-costs)). The output file shows the
+  key of such a pixel as `<ISO3>:GLOBAL_AVG`. Thus the build anchors the cost mix that these
+  pixels use.
 - BOA normalises the **cost mix** `(a_s, a_w, a_b)` of each candidate to
   a sum of 1. It selects a small set of anchors so that each candidate is within `anchor_tol`
   (0.02) of an anchor, by the largest difference of the three shares. There are at most
@@ -353,8 +358,14 @@ path from the costs into the build.
   When they cover all candidates, the build uses the cache again. When they do not, the build
   makes the cache again with the old anchors and the new ones. A cache with `max_anchors`
   anchors is used again with a warning.
-- The query does not compare the anchors of the cache with its costs. A query-only run prices the
-  cache that is at the cache path.
+- Before the query writes a file, it applies the same rule to the cache of each region, with the
+  same `anchor_tol`
+  ([`check_frontier_caches_cover`][boa.model.global_extension.check_frontier_caches_cover]).
+  It stops with
+  [`FrontierCacheCoverageError`][boa.model.global_extension.FrontierCacheCoverageError]. This
+  happens in four cases: the cache is missing; another cache version built it; it records no
+  anchors; its anchors do not cover all candidates. A cache with `max_anchors` anchors passes, as
+  it does for the build.
 - A single-point run builds its frontier with the costs of that point as its only anchor.
 
 The stored dispatch results contain no cost. But the anchors decide where the patches are, and
@@ -383,8 +394,6 @@ The query also calculates two diagnostics for each pixel and year:
 The containment check tests only the coarse nodes outside the patches. It does not give a limit
 for the error inside a patch. When the check is false, the query still reports the cheapest
 stored design, and no other search runs.
-[`check_repair_budget`][boa.model.bisection.check_repair_budget] exists, but no part of the
-pipeline calls it.
 
 The per-year files do not contain the two diagnostics. For each region and year, the query
 writes to the log only two percentages. They are the percentage of solved pixels with a true
@@ -409,10 +418,12 @@ the problem above for these reasons:
   is true when the lower bound at each coarse node outside the patches is at or above the result.
   Nodes that the corner cut removes, and nodes where no tested battery meets the target, always
   pass.
-- **Anchor costs.** The seeds come from the anchor costs. A query-only run does not check that
-  its costs are near an anchor of the cache. In this case, a low-cost region of the plane for
-  these costs can have no patch. BOA also keeps at most `max_patch_slots` (4) patches for each
-  pixel, and it drops the patch boxes with the highest seed scores.
+- **Anchor costs.** The seeds come from the anchor costs. A low-cost region of the plane for
+  other costs can have no patch. The query checks that the costs of the run are near an anchor of
+  the cache (see [Cost anchors](#cost-anchors)). This check passes for a cache with `max_anchors`
+  anchors, also when some cost mixes are not near an anchor. BOA also keeps at most
+  `max_patch_slots` (4) patches for each pixel, and it drops the patch boxes with the highest
+  seed scores.
 - **Search box.** Designs outside the box, beyond the corner cut, or with a battery above the
   battery limit are not evaluated.
 - **Stored precision.** The cache stores the served fraction rounded down to a step of
@@ -509,4 +520,4 @@ The settings change the precision and the build time. The box settings, the corn
     | `ladder_max_span` | 1.05 | Largest rung as a multiple of `b_min`. No effect with one rung. |
     | `b_cap` | 500.0 | Upper limit of the bracket, in hours of demand |
     | `tol_rel_patch` | 0.01 | Relative tolerance of the bisection at the patch nodes |
-    | `repair_rate_cap` | 0.02 | Used only by `check_repair_budget`, which no part of the pipeline calls |
+    | `repair_rate_cap` | 0.02 | Has no effect. The field stays in `SearchParams`. The hash of the search settings names the frontier caches and the run directories, and the removal of a field changes the hash |
