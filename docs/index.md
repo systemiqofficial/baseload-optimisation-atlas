@@ -39,6 +39,10 @@ ceiling to this result** (see [Known limitations](known-limitations.md#the-capac
 so the design in a pixel can need more land than the pixel has. The script is
 `docs_figures/index_figures.py`.
 
+Generated using Copernicus Climate Change Service information 2026. Neither the European
+Commission nor ECMWF is responsible for any use that may be made of the Copernicus information or
+data it contains.
+
 The maps show these features of the 226 160 pixels that have a result:
 
 - Half of the pixels have an LCOE below 91 USD/MWh. One pixel in twenty has an LCOE below 43
