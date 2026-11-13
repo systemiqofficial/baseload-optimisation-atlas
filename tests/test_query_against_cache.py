@@ -1,10 +1,13 @@
 """
-Which frontier stores the query refuses.
+How the query uses a frontier store: which stores it refuses, and when it re-derives its outputs.
 
 - **Coverage.** A store is dense only near its anchors, so pricing costs far from all of them
   can return an LCOE well above the optimum with nothing in the output to show it. The build
   rebuilds such a store; the query never builds, so it must stop instead, on exactly the same
   rule (`anchors_for_build`).
+- **Staleness.** A rebuilt store can give other designs. Every output records the `built_at` of
+  the store it was priced from, so the query, the GLOBAL combine and promotion can tell an old
+  file from a current one.
 
 The region build runs for real on a one-pixel synthetic region under `tmp_path`; only the
 weather-year lookup, the land-sea mask read and the cost-key lookup are replaced.
@@ -111,3 +114,97 @@ def test_a_store_at_the_anchor_cap_passes_as_the_build_reuses_it(staged, anchor_
     candidates = {(2025, "DEU"): anchor_costs, (2025, "FRA"): _far(anchor_costs)}
 
     check_frontier_caches_cover([REGION], COVERAGE, candidates, path_config, params)
+
+
+# --------------------------------------------------------------------------
+# Outputs priced from an earlier build of the store
+# --------------------------------------------------------------------------
+
+
+def _query(path_config, year: int = 2025):
+    return global_extension.query_frontier_cache_for_region(
+        year=year,
+        region=REGION,
+        load_density=LOAD_DENSITY,
+        coverage=COVERAGE,
+        costs=None,
+        investment_horizon=HORIZON,
+        path_config=path_config,
+        n_workers=1,
+    )
+
+
+def _combine(path_config, year: int = 2025):
+    return global_extension.combine_regional_datasets_into_global_dataset(
+        year, COVERAGE, LOAD_DENSITY, path_config, WEATHER_YEAR
+    )
+
+
+def _attr(path, name: str):
+    with xr.open_dataset(path) as ds:
+        return ds.attrs.get(name)
+
+
+def _close(ds) -> None:
+    """The query and the combine return an open dataset; Windows can't overwrite an open file."""
+    if ds is not None:
+        ds.close()
+
+
+def test_a_regional_file_records_the_build_it_was_priced_from(staged):
+    from boa.model.frontier_cache import read_frontier_built_at
+
+    build, path_config = staged
+    store = build()
+    _close(_query(path_config))
+    out = path_config.optimal_sol_path(WEATHER_YEAR, LOAD_DENSITY, COVERAGE, REGION, 2025)
+
+    assert _attr(out, "frontier_cache_built_at") == read_frontier_built_at(store)
+
+
+def test_a_regional_file_is_reused_while_the_store_is_unchanged(staged):
+    build, path_config = staged
+    build()
+    _close(_query(path_config))
+    out = path_config.optimal_sol_path(WEATHER_YEAR, LOAD_DENSITY, COVERAGE, REGION, 2025)
+    created = _attr(out, "created_at")
+
+    _close(_query(path_config))
+
+    assert _attr(out, "created_at") == created
+
+
+def test_a_regional_file_is_re_derived_after_the_store_is_rebuilt(staged):
+    """Without this, a re-run after a rebuild keeps the old LCOE beside new years, and nothing shows it."""
+    from boa.model.frontier_cache import read_frontier_built_at
+
+    build, path_config = staged
+    build()
+    _close(_query(path_config))
+    out = path_config.optimal_sol_path(WEATHER_YEAR, LOAD_DENSITY, COVERAGE, REGION, 2025)
+    created = _attr(out, "created_at")
+
+    store = build(force=True)
+    _close(_query(path_config))
+
+    assert _attr(out, "created_at") != created
+    assert _attr(out, "frontier_cache_built_at") == read_frontier_built_at(store)
+
+
+def test_the_global_file_is_combined_again_after_a_region_is_re_derived(staged):
+    build, path_config = staged
+    build()
+    _close(_query(path_config))
+    _close(_combine(path_config))
+    out = path_config.optimal_sol_path(WEATHER_YEAR, LOAD_DENSITY, COVERAGE, "GLOBAL", 2025)
+    created = _attr(out, "created_at")
+
+    _close(_combine(path_config))
+    assert _attr(out, "created_at") == created, "an unchanged region must not force a new combine"
+
+    build(force=True)
+    _close(_query(path_config))
+    _close(_combine(path_config))
+    assert _attr(out, "created_at") != created
+    regional = path_config.optimal_sol_path(WEATHER_YEAR, LOAD_DENSITY, COVERAGE, REGION, 2025)
+    assert _attr(out, "frontier_cache_built_at") == f"{REGION}={_attr(regional, 'frontier_cache_built_at')}"
