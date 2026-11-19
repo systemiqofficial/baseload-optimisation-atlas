@@ -1,0 +1,398 @@
+# Original source files behind the BOA cost workbooks (CAPEX, OPEX, cost of capital).
+#
+# One [[source]] per original file. The schema and its checks are in cost_sources.py.
+# `boa-sources-fetch` downloads each pinned file into <data root>/sources/<id>/<file> and
+# checks its sha256. A workbook row names its source as "<id>: <item ref>".
+#
+# status        "pinned": url, file, accessed and sha256 are set and the file was downloaded.
+#               "unresolved": a package uses the source, but its original file is not found.
+# redistribute  true if the licence lets us publish a copy of the file. If false, keep only the
+#               url and sha256; do not put the file in a package or in git.
+# used_by       the cost packages that take values from the source, or "reference" for a source
+#               that is registered for comparison only.
+# [[source.item]] one table, figure or page that values come from. ref is the label in the
+#               original (for an IRENA data file: the sheet name).
+#   price_basis "real", "nominal", "not applicable" or "unknown"
+#   tax         "pre-tax", "after-tax", "not applicable" or "unknown"
+
+# --- IRENA -----------------------------------------------------------------------------------
+
+[[source]]
+id = "irena-rpgc-2024-data"
+status = "pinned"
+citation = "IRENA (2025), Renewable power generation costs in 2024, International Renewable Energy Agency, Abu Dhabi. Data file."
+publisher = "International Renewable Energy Agency (IRENA)"
+landing_page = "https://www.irena.org/Publications/2025/Jul/Renewable-Power-Generation-Costs-in-2024"
+url = "https://www.irena.org/-/media/Files/IRENA/Agency/Publication/2025/Jul/IRENA-Datafile-RenPwrGenCosts-in-2024.xlsx"
+file = "IRENA-Datafile-RenPwrGenCosts-in-2024.xlsx"
+accessed = 2026-11-19
+sha256 = "693e09859a4e0ebdb52313e5d0988f184cab80893410c63c660dc1fa7fe7f270"
+licence = "IRENA terms: free use with attribution"
+redistribute = true
+used_by = ["boa-cost-data", "boa-cost-data-irena"]
+
+[[source.item]]
+ref = "Table 2.1"
+content = "Onshore wind total installed cost, weighted average by country or region, 2024"
+unit = "USD/kW"
+currency_year = 2024
+price_basis = "real"
+tax = "not applicable"
+
+[[source.item]]
+ref = "Table 3.1"
+content = "Utility-scale solar PV total installed cost, weighted average by region, 2024"
+unit = "USD/kW"
+currency_year = 2024
+price_basis = "real"
+tax = "not applicable"
+
+[[source.item]]
+ref = "Table S.1"
+content = "Global weighted-average total installed cost by technology, 2024"
+unit = "USD/kW"
+currency_year = 2024
+price_basis = "real"
+tax = "not applicable"
+
+[[source.item]]
+ref = "Table A3"
+content = "Onshore wind O&M cost assumption for the LCOE calculation, by country"
+unit = "USD/kW/year"
+currency_year = 2024
+price_basis = "real"
+tax = "not applicable"
+
+[[source.item]]
+ref = "Table A4"
+content = "Solar PV O&M cost assumption for the LCOE calculation, OECD and non-OECD, by year"
+unit = "USD/kW/year"
+currency_year = 2024
+price_basis = "real"
+tax = "not applicable"
+
+[[source.item]]
+ref = "Fig A1"
+content = "WACC assumption for 2024 by country and technology"
+unit = "fraction (0.05 = 5%)"
+price_basis = "real"
+tax = "after-tax"
+
+[[source.item]]
+ref = "Fig. 9.2"
+content = "Global total installed energy storage project cost, by year"
+unit = "USD/kWh (usable)"
+currency_year = 2024
+price_basis = "real"
+tax = "not applicable"
+
+[[source.item]]
+ref = "Fig. 9.3"
+content = "Turnkey battery storage system price, ratio to the global average, by market and duration (2 h, 4 h)"
+unit = "ratio"
+price_basis = "not applicable"
+tax = "not applicable"
+
+[[source]]
+id = "irena-rpgc-2024-report"
+status = "pinned"
+citation = "IRENA (2025), Renewable power generation costs in 2024, International Renewable Energy Agency, Abu Dhabi."
+publisher = "International Renewable Energy Agency (IRENA)"
+landing_page = "https://www.irena.org/Publications/2025/Jul/Renewable-Power-Generation-Costs-in-2024"
+url = "https://www.irena.org/-/media/Files/IRENA/Agency/Publication/2025/Jul/IRENA_TEC_RPGC_in_2024_2025.pdf"
+file = "IRENA_TEC_RPGC_in_2024_2025.pdf"
+accessed = 2026-11-19
+sha256 = "ffe8ce4bde29616f3edf9ef1a86dbb6ae2d5381a0ecb9bb1f71bb20204b6bada"
+licence = "IRENA terms: free use with attribution"
+redistribute = true
+used_by = ["boa-cost-data-irena"]
+
+[[source.item]]
+ref = "Annex I"
+content = "Default WACC for countries without a Fig A1 value: 5% for OECD countries and China, 7.5% for all other countries"
+unit = "fraction (0.05 = 5%)"
+price_basis = "real"
+tax = "after-tax"
+
+[[source.item]]
+ref = "Annex III"
+content = "Regional groupings of countries, p. 215"
+unit = "list of countries"
+price_basis = "not applicable"
+tax = "not applicable"
+
+[[source]]
+id = "irena-financing-2023"
+status = "pinned"
+citation = "IRENA (2023), The cost of financing for renewable power, International Renewable Energy Agency, Abu Dhabi."
+publisher = "International Renewable Energy Agency (IRENA)"
+landing_page = "https://www.irena.org/Publications/2023/May/The-cost-of-financing-for-renewable-power"
+url = "https://www.irena.org/-/media/Files/IRENA/Agency/Publication/2023/May/IRENA_The_cost_of_financing_renewable_power_2023.pdf"
+file = "IRENA_The_cost_of_financing_renewable_power_2023.pdf"
+accessed = 2026-11-19
+sha256 = "b0a3818bb14401b4624bccb3aba4e4c0a86e017376612ad686e25d1dce876734"
+licence = "IRENA terms: free use with attribution"
+redistribute = true
+used_by = ["boa-cost-data"]
+note = "The steel-iq master input adds a lender margin and a technology premium from this report to the Damodaran cost of capital. The page or table is not stated there."
+
+[[source.item]]
+ref = "lender margin and technology premium"
+content = "Additions to the Damodaran power-sector cost of capital (as stated in the steel-iq master input, Contents sheet)"
+unit = "percentage points"
+price_basis = "unknown"
+tax = "unknown"
+
+# --- IEA -------------------------------------------------------------------------------------
+
+[[source]]
+id = "iea-weo-2025"
+status = "pinned"
+citation = "IEA (2025), World Energy Outlook 2025, International Energy Agency, Paris."
+publisher = "International Energy Agency (IEA)"
+landing_page = "https://www.iea.org/reports/world-energy-outlook-2025"
+url = "https://www.iea.org/files/9753df19-0a71-422a-b725-012c555763b3/WorldEnergyOutlook2025.pdf"
+file = "WorldEnergyOutlook2025.pdf"
+accessed = 2026-11-19
+sha256 = "ebee58b6b93d6aed43db5247d54b03a7248510c2986bd24cfb4cca59d339b8f4"
+licence = "CC BY 4.0; Annex A: CC BY-NC-SA 4.0"
+redistribute = true
+used_by = ["boa-cost-data", "boa-cost-data-irena"]
+note = "Annex A is non-commercial and share-alike. A package with values adapted from it takes CC BY-NC-SA 4.0."
+
+[[source.item]]
+ref = "Table A.3a"
+content = "World electricity sector, installed capacity, Current Policies Scenario (CPS), p. 417"
+unit = "GW"
+price_basis = "not applicable"
+tax = "not applicable"
+
+[[source.item]]
+ref = "Table A.3b"
+content = "World electricity sector, installed capacity, Stated Policies Scenario (STEPS), p. 423"
+unit = "GW"
+price_basis = "not applicable"
+tax = "not applicable"
+
+[[source.item]]
+ref = "Table A.3c"
+content = "World electricity sector, installed capacity, Net Zero Emissions by 2050 Scenario (NZE), p. 429"
+unit = "GW"
+price_basis = "not applicable"
+tax = "not applicable"
+
+[[source]]
+id = "iea-batteries-2024"
+status = "pinned"
+citation = "IEA (2024), Batteries and Secure Energy Transitions, International Energy Agency, Paris."
+publisher = "International Energy Agency (IEA)"
+landing_page = "https://www.iea.org/reports/batteries-and-secure-energy-transitions"
+url = "https://iea.blob.core.windows.net/assets/cb39c1bf-d2b3-446d-8c35-aae6b1f3a4a0/BatteriesandSecureEnergyTransitions.pdf"
+file = "BatteriesandSecureEnergyTransitions.pdf"
+accessed = 2026-11-19
+sha256 = "04c824a8f0866c816fd8d7de01a2690e0737f4369244d2cb3572d5f424ba090e"
+licence = "CC BY 4.0"
+redistribute = true
+used_by = ["boa-cost-data-irena"]
+
+[[source.item]]
+ref = "p. 98"
+content = "Global average total upfront cost of a 4-hour utility-scale battery, STEPS: 290 (2022) and 175 (2030)"
+unit = "USD/kWh"
+currency_year = 2022
+price_basis = "real"
+tax = "not applicable"
+
+[[source]]
+id = "bea-gdp-deflator"
+status = "pinned"
+citation = "U.S. Bureau of Economic Analysis, Gross Domestic Product: Implicit Price Deflator (A191RD3A086NBEA), retrieved from ALFRED, Federal Reserve Bank of St. Louis, vintage 2026-10-29."
+publisher = "U.S. Bureau of Economic Analysis (BEA), through ALFRED (Federal Reserve Bank of St. Louis)"
+landing_page = "https://fred.stlouisfed.org/series/A191RD3A086NBEA"
+url = "https://alfred.stlouisfed.org/graph/alfredgraph.csv?id=A191RD3A086NBEA&vintage_date=2026-10-29"
+file = "A191RD3A086NBEA_20261029.csv"
+accessed = 2026-11-19
+sha256 = "7cf5d6f5d076f9f66f77a2c5498ca92a90ff8307b143052e414aa8ac6e55ed1f"
+licence = "Public domain (BEA data)"
+redistribute = true
+used_by = ["boa-cost-data-irena"]
+note = "A fixed ALFRED vintage keeps the file the same when BEA revises the series. fred.stlouisfed.org did not answer from this network; alfred.stlouisfed.org did."
+
+[[source.item]]
+ref = "A191RD3A086NBEA"
+content = "US GDP implicit price deflator, annual; the build uses 2022 and 2024"
+unit = "index (2017 = 100)"
+price_basis = "not applicable"
+tax = "not applicable"
+
+# --- Battery prices --------------------------------------------------------------------------
+
+[[source]]
+id = "ember-battery-2025"
+status = "pinned"
+citation = "Ember (2025), How cheap is battery storage?, December 2025."
+publisher = "Ember"
+landing_page = "https://ember-energy.org/latest-insights/how-cheap-is-battery-storage/"
+url = "https://ember-energy.org/app/uploads/2025/12/How-cheap-is-battery-storage.pdf"
+file = "How-cheap-is-battery-storage.pdf"
+accessed = 2026-11-19
+sha256 = "9c9b0d12a78c36d4f05bcb49d5c80be91d5411c059114809aa656fa33c2dcfeb"
+licence = "CC BY 4.0"
+redistribute = true
+used_by = ["boa-cost-data"]
+
+[[source.item]]
+ref = "p. 2"
+content = "All-in capital cost of a large (4 h or longer) utility-scale battery project, October 2025, markets outside China and the US: 125"
+unit = "USD/kWh"
+currency_year = 2025
+price_basis = "nominal"
+tax = "not applicable"
+
+# --- Cost of capital -------------------------------------------------------------------------
+
+[[source]]
+id = "damodaran-2025"
+status = "unresolved"
+citation = "Damodaran, A. (2025), country risk and cost of capital data, NYU Stern School of Business."
+publisher = "Aswath Damodaran, NYU Stern"
+landing_page = "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datacurrent.html"
+licence = "No licence stated; free to use with citation"
+redistribute = false
+used_by = ["boa-cost-data"]
+note = "The steel-iq master input names 'Damodaran (2025) cost of capital for the power sector' but not the file. The January 2025 files are replaced at the same URL each year (ctryprem.xlsx now holds January 2026 data). A dated mid-year file exists: https://pages.stern.nyu.edu/~adamodar/pc/datasets/ctrypremJuly25.xlsx (sha256 4372b04bcb8917f6f891879f6aa2f83094c449e31e0f1886a25d0ea35989a481, 2026-11-19). To pin: find the file the master input used, for example through the Wayback Machine."
+
+[[source.item]]
+ref = "power-sector cost of capital"
+content = "Cost of capital of the power sector, by country"
+unit = "fraction (0.05 = 5%)"
+price_basis = "nominal"
+tax = "after-tax"
+
+[[source]]
+id = "hatton-wacc-2025"
+status = "pinned"
+citation = "Hatton, L., Staffell, I., Jansen, M., Oluleye, G. and Hawkes, A. (2025), Historical and future projected costs of capital for ten energy technologies across 176 countries, Scientific Data 12:1912, doi:10.1038/s41597-025-06177-0. Data: doi:10.5281/zenodo.17076925, version 2."
+publisher = "Zenodo"
+landing_page = "https://doi.org/10.5281/zenodo.17076925"
+url = "https://zenodo.org/api/records/17076925/files/WACC_ESTIMATES_WIDE.csv/content"
+file = "WACC_ESTIMATES_WIDE.csv"
+accessed = 2026-11-19
+sha256 = "35c3a4589b036378ca738b363c72de66aa05c22db9411b8bbd481a922ab1ce4c"
+licence = "CC BY 4.0"
+redistribute = true
+used_by = ["reference"]
+note = "Candidate third WACC source. No BOA package uses it."
+
+[[source.item]]
+ref = "WACC_ESTIMATES_WIDE.csv"
+content = "Cost of capital by country, technology and year, 2015-2030"
+unit = "percent"
+price_basis = "nominal"
+tax = "after-tax"
+
+# --- Learning rates --------------------------------------------------------------------------
+
+[[source]]
+id = "rubin-learning-2015"
+status = "pinned"
+citation = "Rubin, E.S., Azevedo, I.M.L., Jaramillo, P. and Yeh, S. (2015), A review of learning rates for electricity supply technologies, Energy Policy 86:198-218, doi:10.1016/j.enpol.2015.06.011."
+publisher = "Carnegie Mellon University (author copy of the Elsevier article)"
+landing_page = "https://doi.org/10.1016/j.enpol.2015.06.011"
+url = "https://www.cmu.edu/epp/iecm/rubin/PDF%20files/2015/A%20review%20of%20learning%20rates%20for%20electricity%20supply%20technologies.pdf"
+file = "Rubin2015_learning_rates.pdf"
+accessed = 2026-11-19
+sha256 = "9ad5dd7e97ae92962ef6327bddee911942807c2d3b064577fa6541ddcaf9ceeb"
+licence = "Elsevier copyright"
+redistribute = false
+used_by = ["boa-cost-data-irena"]
+
+[[source.item]]
+ref = "Table 1"
+content = "One-factor learning rates: solar PV 23% (mean of 13 studies), onshore wind 12% (mean of 12 studies)"
+unit = "fraction per doubling of cumulative capacity"
+price_basis = "not applicable"
+tax = "not applicable"
+
+[[source]]
+id = "schmidt-storage-2018"
+status = "pinned"
+citation = "Schmidt, O., Hawkes, A., Gambhir, A. and Staffell, I. (2018), Update 2018 - The future cost of electrical energy storage based on experience rates, figshare dataset 7012202, version 1."
+publisher = "figshare"
+landing_page = "https://figshare.com/articles/dataset/Update_2018_-_The_future_cost_of_electrical_energy_storage_based_on_experience_rates/7012202"
+url = "https://ndownloader.figshare.com/files/12865736"
+file = "The_future_cost_of_electrical_energy_storage_based_on_experience_curvesdataset_UPDATE2018.xlsx"
+accessed = 2026-11-19
+sha256 = "248286abf419f2459dc5c78fc549193b6ebdfa495b9f3fa5ce40c095186fdd17"
+licence = "CC BY 4.0"
+redistribute = true
+used_by = ["boa-cost-data-irena"]
+
+[[source.item]]
+ref = "utility-scale Li-ion"
+content = "Experience rate of utility-scale lithium-ion storage: 16%"
+unit = "fraction per doubling of cumulative capacity"
+price_basis = "not applicable"
+tax = "not applicable"
+
+# --- Hand-made inputs of the default package -------------------------------------------------
+
+[[source]]
+id = "steel-iq-master-input-3-0-0"
+status = "pinned"
+citation = "Systemiq (2026), Steel-IQ master input workbook v3.0.0."
+publisher = "Systemiq (steelo-data bucket)"
+url = "https://steelo-data.s3.eu-north-1.amazonaws.com/master_input_v3.0.0.xlsx"
+file = "master_input_v3.0.0.xlsx"
+accessed = 2026-11-19
+sha256 = "92756494b8155ca8f3cdd7e3f9410080f567f73fc4f1dc849669b86d5ac06d05"
+licence = "Apache-2.0 (steel-iq repository)"
+redistribute = true
+used_by = ["boa-cost-data"]
+note = "The default package's CAPEX and cost of capital are made by hand in this workbook. Its Contents sheet names the original sources. On 2026-11-19 the CAPEX sheet of this file, rounded to 2 decimal places, was equal to boa-cost-data v0.1 in all 55 rows and 77 years."
+
+[[source.item]]
+ref = "Renewables capex projections"
+content = "CAPEX by region and year, 2024-2100: IRENA 2024 start values, learning curve on IEA WEO 2025 NZE capacity (rates: solar 20%, wind 5%, battery 6%)"
+unit = "USD/kW; battery USD/kWh"
+currency_year = 2024
+price_basis = "real"
+tax = "not applicable"
+
+[[source.item]]
+ref = "Renewables opex assumptions"
+content = "OPEX as a fraction of CAPEX per year, World rows only (solar 0.01, wind 0.02, battery 0.02); no source stated"
+unit = "fraction of capex per year"
+price_basis = "not applicable"
+tax = "not applicable"
+
+[[source.item]]
+ref = "Cost of capital"
+content = "Cost of capital by country (Renewables rows): Damodaran (2025) power sector plus IRENA (2023) additions; 3rd quartile of the region where Damodaran has no value"
+unit = "fraction (0.05 = 5%)"
+price_basis = "nominal"
+tax = "unknown"
+
+[[source.item]]
+ref = "Country mapping"
+content = "ISO-3 codes and their IRENA cost region"
+unit = "list of countries"
+price_basis = "not applicable"
+tax = "not applicable"
+
+[[source]]
+id = "jimenez-china-2025"
+status = "unresolved"
+citation = "Jimenez (2025), Mapping China's green hydrogen: Provincial LCOH, resource endowments, and policy pathways."
+publisher = "unknown"
+licence = "unknown"
+redistribute = false
+used_by = ["boa-cost-data"]
+note = "Named in the steel-iq master input as the source of the CAPEX discounts for five Chinese provinces (CN-GS, CN-QH 15%; CN-SD 20%; CN-NM, CN-XJ 25%). A web search on 2026-11-19 did not find the publication. The master input also cites it as Jimenez (2026)."
+
+[[source.item]]
+ref = "province CAPEX discount"
+content = "CAPEX discount of a Chinese province relative to the China row"
+unit = "fraction"
+price_basis = "not applicable"
+tax = "not applicable"
