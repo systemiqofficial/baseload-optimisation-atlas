@@ -2,19 +2,13 @@
 
 import hashlib
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 
 import pytest
 
 from boa.cli import fetch_sources
-from boa.config.cost_sources import (
-    RegistryError,
-    Source,
-    SourceItem,
-    get_source,
-    load_registry,
-    source_path,
-)
+from boa.config.cost_sources import RegistryError, Source, get_source, load_registry, source_path
 
 PAYLOAD = b"original file bytes"
 PAYLOAD_SHA = hashlib.sha256(PAYLOAD).hexdigest()
@@ -22,41 +16,24 @@ PAYLOAD_SHA = hashlib.sha256(PAYLOAD).hexdigest()
 VALID_ENTRY = f"""
 [[source]]
 id = "demo-source"
-status = "pinned"
 citation = "Demo (2025), A demo source."
-publisher = "Demo"
-licence = "CC BY 4.0"
-redistribute = true
-used_by = ["boa-cost-data-irena"]
-url = "https://example.org/demo.xlsx"
-file = "demo.xlsx"
-accessed = 2026-11-19
+url = "https://example.org/files/demo.xlsx"
 sha256 = "{PAYLOAD_SHA}"
-
-[[source.item]]
-ref = "Table 1"
-content = "CAPEX"
-unit = "USD/kW"
-currency_year = 2024
-price_basis = "real"
-tax = "not applicable"
+licence = "CC BY 4.0"
+accessed = 2026-11-19
+tables = ["Table 1: CAPEX 2024, USD(2024)/kW", "Fig 2: WACC, real"]
 """
 
 
 def _source(**changes) -> Source:
-    item = SourceItem(ref="Table 1", content="CAPEX", unit="USD/kW", price_basis="real", tax="not applicable")
     base = Source(
         id="demo-source",
-        status="pinned",
         citation="Demo (2025)",
-        publisher="Demo",
-        licence="CC BY 4.0",
-        redistribute=True,
-        used_by=("boa-cost-data-irena",),
-        url="https://example.org/demo.xlsx",
-        file="demo.xlsx",
+        url="https://example.org/files/demo.xlsx",
         sha256=PAYLOAD_SHA,
-        items=(item,),
+        licence="CC BY 4.0",
+        accessed=date(2026, 11, 19),
+        tables=("Table 1: CAPEX",),
     )
     return replace(base, **changes)
 
@@ -74,31 +51,11 @@ def _write_registry(tmp_path: Path, text: str) -> Path:
 # --- the tracked registry ---------------------------------------------------------------------
 
 
-def test_tracked_registry_loads_and_every_pinned_source_is_complete():
+def test_tracked_registry_loads():
     registry = load_registry()
-    pinned = [s for s in registry.values() if s.pinned]
-    assert pinned, "the registry pins no source"
-    for source in pinned:
-        assert source.url.startswith("https://"), source.id
-        assert len(source.sha256) == 64, source.id
-        assert source.file and source.accessed, source.id
-
-
-def test_tracked_registry_covers_every_source_the_irena_build_reads():
-    registry = load_registry()
-    for source_id, ref in [
-        ("irena-rpgc-2024-data", "Table 2.1"),
-        ("irena-rpgc-2024-data", "Table 3.1"),
-        ("irena-rpgc-2024-data", "Table S.1"),
-        ("irena-rpgc-2024-data", "Table A3"),
-        ("irena-rpgc-2024-data", "Table A4"),
-        ("irena-rpgc-2024-data", "Fig A1"),
-        ("iea-weo-2025", "Table A.3a"),
-        ("iea-weo-2025", "Table A.3b"),
-        ("iea-weo-2025", "Table A.3c"),
-        ("iea-batteries-2024", "p. 98"),
-    ]:
-        assert registry[source_id].label(ref) == f"{source_id}: {ref}"
+    assert registry
+    for source in registry.values():
+        assert source.file, source.id
 
 
 def test_unknown_source_id_names_the_known_ids():
@@ -106,8 +63,8 @@ def test_unknown_source_id_names_the_known_ids():
         get_source("no-such-source")
 
 
-def test_unknown_item_ref_is_an_error():
-    with pytest.raises(KeyError, match="no item"):
+def test_unknown_table_ref_is_an_error():
+    with pytest.raises(KeyError, match="no table"):
         load_registry()["irena-rpgc-2024-data"].label("Table 99")
 
 
@@ -116,24 +73,26 @@ def test_unknown_item_ref_is_an_error():
 
 def test_valid_entry_parses(tmp_path):
     source = load_registry(_write_registry(tmp_path, VALID_ENTRY))["demo-source"]
-    assert source.pinned and source.items[0].currency_year == 2024
+    assert source.file == "demo.xlsx"
+    assert source.refs == ("Table 1", "Fig 2")
+    assert source.label("Fig 2") == "demo-source: Fig 2"
 
 
 @pytest.mark.parametrize(
     "old, new, message",
     [
-        (f'sha256 = "{PAYLOAD_SHA}"\n', "", "missing 'sha256'"),
+        (f'sha256 = "{PAYLOAD_SHA}"\n', "", "missing sha256"),
         (f'sha256 = "{PAYLOAD_SHA}"', 'sha256 = "abc"', "64 lower-case hex"),
-        ('url = "https://example.org/demo.xlsx"\n', "", "missing 'url'"),
+        ('url = "https://example.org/files/demo.xlsx"\n', "", "missing url"),
         ('url = "https://', 'url = "http://', "https://"),
-        ("accessed = 2026-11-19\n", "", "'accessed' must be a date"),
-        ('price_basis = "real"', 'price_basis = "constant"', "price_basis must be one of"),
-        ('tax = "not applicable"', 'tax = "post-tax"', "tax must be one of"),
-        ('licence = "CC BY 4.0"\n', "", "missing 'licence'"),
-        ("redistribute = true\n", "", "'redistribute' must be true or false"),
-        ('used_by = ["boa-cost-data-irena"]', "used_by = []", "'used_by' must be"),
+        ('url = "https://example.org/files/demo.xlsx"', 'url = "https://example.org/files/"', "file name"),
+        ("accessed = 2026-11-19", 'accessed = "yesterday"', "accessed must be a date"),
+        ('licence = "CC BY 4.0"\n', "", "missing licence"),
         ('id = "demo-source"', 'id = "Demo Source"', "lower-case words"),
-        ('file = "demo.xlsx"', 'file = "sub/demo.xlsx"', "bare file name"),
+        ('tables = ["Table 1: CAPEX 2024, USD(2024)/kW", "Fig 2: WACC, real"]', "tables = []", "tables must be"),
+        ('"Fig 2: WACC, real"', '"Fig 2 WACC"', "tables must be"),
+        ('"Fig 2: WACC, real"', '"Table 1: again"', "duplicate table ref"),
+        ('licence = "CC BY 4.0"', 'licence = "CC BY 4.0"\nnote = "x"', "unknown key note"),
     ],
 )
 def test_invalid_entry_is_rejected(tmp_path, old, new, message):
@@ -142,25 +101,14 @@ def test_invalid_entry_is_rejected(tmp_path, old, new, message):
         load_registry(_write_registry(tmp_path, VALID_ENTRY.replace(old, new, 1)))
 
 
-def test_entry_without_items_is_rejected(tmp_path):
-    text = VALID_ENTRY.split("[[source.item]]")[0]
-    with pytest.raises(RegistryError, match=r"at least one \[\[source.item\]\]"):
-        load_registry(_write_registry(tmp_path, text))
-
-
 def test_duplicate_id_is_rejected(tmp_path):
     with pytest.raises(RegistryError, match="duplicate id"):
         load_registry(_write_registry(tmp_path, VALID_ENTRY + VALID_ENTRY))
 
 
-def test_unresolved_entry_needs_no_url_but_has_no_sha256(tmp_path):
-    text = VALID_ENTRY.replace('status = "pinned"', 'status = "unresolved"')
-    for key in ("url", "file", "accessed"):
-        text = "\n".join(line for line in text.splitlines() if not line.startswith(f"{key} ="))
-    with pytest.raises(RegistryError, match="unresolved source has no sha256"):
-        load_registry(_write_registry(tmp_path, text))
-    text = "\n".join(line for line in text.splitlines() if not line.startswith("sha256 ="))
-    assert not load_registry(_write_registry(tmp_path, text))["demo-source"].pinned
+def test_empty_registry_is_rejected(tmp_path):
+    with pytest.raises(RegistryError, match="no \\[\\[source\\]\\]"):
+        load_registry(_write_registry(tmp_path, "# nothing\n"))
 
 
 # --- fetch step ---------------------------------------------------------------------------------
@@ -211,12 +159,6 @@ def test_fetch_failed_download_leaves_no_file(tmp_path):
     with pytest.raises(OSError):
         fetch_sources.fetch_source(_source(), tmp_path, broken)
     assert list((tmp_path / "sources" / "demo-source").iterdir()) == []
-
-
-def test_fetch_skips_unresolved_source(tmp_path):
-    source = _source(status="unresolved", url="", file="", sha256="")
-    assert fetch_sources.fetch_source(source, tmp_path).startswith("skipped")
-    assert not (tmp_path / "sources").exists()
 
 
 def test_cli_unknown_id_exits_2(tmp_path, capsys):

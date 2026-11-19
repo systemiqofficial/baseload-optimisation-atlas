@@ -1,12 +1,12 @@
 """
-Download the original source files of the cost workbook and check their sha256.
+Download the original source files of the core cost workbooks and check their sha256.
 
-Each pinned source in ``boa/config/cost_sources.toml`` is downloaded from its publisher URL into
-``<data root>/sources/<id>/<file>``. A file that is already there with the pinned sha256 is not
-downloaded again. A download with a different sha256 is kept as ``<file>.mismatch`` for review,
-and the command exits with an error. Unresolved sources have no URL and are skipped.
+Each source in ``boa/config/cost_sources.toml`` is downloaded from its publisher URL into
+``<data root>/sources/<id>/<file>``, outside the repository. A file that is already there with the
+pinned sha256 is not downloaded again. A download with a different sha256 is kept as
+``<file>.mismatch`` for review, and the command exits with an error.
 
-    boa-sources-fetch                         # every pinned source
+    boa-sources-fetch                         # every source
     boa-sources-fetch irena-rpgc-2024-data    # one source
     boa-sources-fetch --list                  # show the registry and what is on disk
 """
@@ -58,8 +58,6 @@ def fetch_source(
     Raises ValueError when the downloaded file has a different sha256; the file is then kept
     as ``<file>.mismatch`` and the pinned path is left as it was.
     """
-    if not source.pinned:
-        return "skipped (unresolved, no URL)"
     target = source_path(root, source)
     if target.exists() and file_sha256(target) == source.sha256:
         return "present"
@@ -83,17 +81,14 @@ def fetch_source(
 
 def _list(registry: dict[str, Source], root: Path) -> None:
     for source in registry.values():
-        if source.pinned:
-            path = source_path(root, source)
-            state = "present" if path.exists() and file_sha256(path) == source.sha256 else "missing"
-        else:
-            state = "unresolved"
-        print(f"{source.id:32} {state:10} {source.licence:24} {', '.join(source.used_by)}")
+        path = source_path(root, source)
+        state = "present" if path.exists() and file_sha256(path) == source.sha256 else "missing"
+        print(f"{source.id:32} {state:8} {source.licence}")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("ids", nargs="*", help="Source ids to fetch (default: every pinned source)")
+    parser.add_argument("ids", nargs="*", help="Source ids to fetch (default: every source)")
     parser.add_argument("--root", type=Path, help="Data root (default: $BOA_DATA_ROOT, else ~/.boa)")
     parser.add_argument("--list", action="store_true", help="List the sources and their state on disk")
     args = parser.parse_args(argv)

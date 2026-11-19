@@ -38,8 +38,10 @@ def test_every_registry_item_the_build_names_exists():
         *((build_core.NATURAL_EARTH, ref) for ref in ("ISO_A3", "SUBREGION", "SOVEREIGNT")),
     ]:
         assert build_core.label(source_id, ref) == f"{source_id}: {ref}"
-    for source_id in build_core.INPUTS:
-        assert "boa-cost-data-core" in get_source(source_id).used_by
+
+
+def test_the_registry_holds_exactly_the_build_inputs():
+    assert tuple(load_registry()) == build_core.INPUTS
 
 
 def test_weo_region_follows_its_own_row():
@@ -172,8 +174,8 @@ def _labels(text: str, registry: dict) -> list[str]:
     for match in re.finditer(r"([a-z][a-z0-9]*(?:-[a-z0-9]+)+): ", text):
         source = registry[match.group(1)]
         rest = text[match.end() :]
-        refs = [item.ref for item in source.items if rest.startswith(item.ref)]
-        assert refs, f"{text!r}: no item of {source.id} at {rest!r}"
+        refs = [ref for ref in source.refs if rest.startswith(ref)]
+        assert refs, f"{text!r}: no table of {source.id} at {rest!r}"
         found.append(source.label(max(refs, key=len)))
     return found
 
