@@ -29,7 +29,7 @@ accessed = 2026-11-19
 sha256 = "693e09859a4e0ebdb52313e5d0988f184cab80893410c63c660dc1fa7fe7f270"
 licence = "IRENA terms: free use with attribution"
 redistribute = true
-used_by = ["boa-cost-data", "boa-cost-data-irena"]
+used_by = ["boa-cost-data", "boa-cost-data-irena", "boa-cost-data-core"]
 
 [[source.item]]
 ref = "Table 2.1"
@@ -105,7 +105,7 @@ accessed = 2026-11-19
 sha256 = "ffe8ce4bde29616f3edf9ef1a86dbb6ae2d5381a0ecb9bb1f71bb20204b6bada"
 licence = "IRENA terms: free use with attribution"
 redistribute = true
-used_by = ["boa-cost-data-irena"]
+used_by = ["boa-cost-data-irena", "boa-cost-data-core"]
 
 [[source.item]]
 ref = "Annex I"
@@ -157,8 +157,40 @@ accessed = 2026-11-19
 sha256 = "ebee58b6b93d6aed43db5247d54b03a7248510c2986bd24cfb4cca59d339b8f4"
 licence = "CC BY 4.0; Annex A: CC BY-NC-SA 4.0"
 redistribute = true
-used_by = ["boa-cost-data", "boa-cost-data-irena"]
-note = "Annex A is non-commercial and share-alike. A package with values adapted from it takes CC BY-NC-SA 4.0."
+used_by = ["boa-cost-data", "boa-cost-data-irena", "boa-cost-data-core"]
+note = "Annex A is non-commercial and share-alike. A package with values adapted from it takes CC BY-NC-SA 4.0. Annex B is CC BY 4.0. p. 453 states that all Annex B costs are in year-2024 US dollars."
+
+[[source.item]]
+ref = "Table B.4a"
+content = "Technology costs in selected regions (United States, European Union, China, India), Current Policies Scenario (CPS): capital costs 2024, 2035, 2050, p. 454"
+unit = "USD/kW"
+currency_year = 2024
+price_basis = "real"
+tax = "not applicable"
+
+[[source.item]]
+ref = "Table B.4b"
+content = "Technology costs in selected regions (United States, European Union, China, India), Stated Policies Scenario (STEPS): capital costs 2024, 2035, 2050, p. 455"
+unit = "USD/kW"
+currency_year = 2024
+price_basis = "real"
+tax = "not applicable"
+
+[[source.item]]
+ref = "Table B.4c"
+content = "Technology costs in selected regions (United States, European Union, China, India), Net Zero Emissions by 2050 Scenario (NZE): capital costs 2024, 2035, 2050, p. 456"
+unit = "USD/kW"
+currency_year = 2024
+price_basis = "real"
+tax = "not applicable"
+
+[[source.item]]
+ref = "Table B.5"
+content = "Costs for selected technologies by scenario: utility-scale stationary batteries 2024, 2035, 2050, global, p. 457"
+unit = "USD/kWh"
+currency_year = 2024
+price_basis = "real"
+tax = "not applicable"
 
 [[source.item]]
 ref = "Table A.3a"
@@ -348,7 +380,7 @@ accessed = 2026-11-19
 sha256 = "92756494b8155ca8f3cdd7e3f9410080f567f73fc4f1dc849669b86d5ac06d05"
 licence = "Apache-2.0 (steel-iq repository)"
 redistribute = true
-used_by = ["boa-cost-data"]
+used_by = ["boa-cost-data", "boa-cost-data-core"]
 note = "The default package's CAPEX and cost of capital are made by hand in this workbook. Its Contents sheet names the original sources. On 2026-11-19 the CAPEX sheet of this file, rounded to 2 decimal places, was equal to boa-cost-data v0.1 in all 55 rows and 77 years."
 
 [[source.item]]
