@@ -208,7 +208,8 @@ def read_country_list(path: Path) -> pd.DataFrame:
     """
     Countries: one row for each ISO-3 code of the Natural Earth 1:50m map subunits, by the rule of the BOA
     ISO-3 grid (ISO_A3, else ADM0_A3, remapped by NE_TO_BOA). A code takes its names, SUBREGION and
-    SOVEREIGNT from its own subunits (ISO_A3 equal to the code) if it has any.
+    SOVEREIGNT from its own subunits (ISO_A3 equal to the code) if it has any. A code with no own
+    subunits takes its country name from ADMIN, not from one of its subunits.
     """
     ne = gpd.read_file(path, ignore_geometry=True)
     iso3 = ne["ISO_A3"].astype(str)
@@ -220,12 +221,15 @@ def read_country_list(path: Path) -> pd.DataFrame:
         own = group[group["own"]]
         home = own if not own.empty else group
         names = {str(v) for field in NE_NAME_FIELDS for v in home[field].dropna() if str(v).strip()}
-        names |= set(group.loc[group["ADM0_A3"].astype(str).replace(NE_TO_BOA) == code, "ADMIN"].dropna())
+        admin = group.loc[group["ADM0_A3"].astype(str).replace(NE_TO_BOA) == code, "ADMIN"].dropna()
+        names |= set(admin)
         first = home.iloc[0]
+        # Without own subunits, NAME_LONG is the name of a part (USA "Alaska", GBR "Wales").
+        country = first["NAME_LONG"] if not own.empty or admin.empty else admin.iloc[0]
         rows.append(
             {
                 "code": code,
-                "country": first["NAME_LONG"],
+                "country": country,
                 "names": sorted(names),
                 "subregion": first["SUBREGION"],
                 "region_un": first["REGION_UN"],
