@@ -4,7 +4,7 @@ Build the boa-cost-data-core package: one BOA cost workbook per IEA WEO 2025 sce
 Every value comes from a pinned file in src/boa/config/cost_sources.toml, and every row names its
 source as "<id>: <item ref>". Fetch the files first:
 
-    boa-sources-fetch irena-rpgc-2024-data irena-rpgc-2024-report iea-weo-2025 steel-iq-master-input-3-0-0
+    boa-sources-fetch irena-rpgc-2024-data irena-rpgc-2024-report iea-weo-2025 natural-earth-50m-map-subunits
     python scripts/cost/build_core.py --out-dir <folder>
 
 Method:
@@ -20,8 +20,10 @@ Method:
   O&M, so the battery row is a placeholder (--battery-opex) and its source says so.
 - Cost of capital: IRENA Fig A1, the mean of onshore wind and solar PV. A country with no own Fig A1
   value (Fig A1 shows the Annex I default) takes the median of the own values in its IRENA cost region.
-- Countries: the ISO-3 codes of the steel-iq master input Country mapping, put into IRENA cost regions
-  by IRENA Annex III.
+- Countries: the ISO-3 codes of the Natural Earth 1:50m map subunits, with the same rule and remap
+  (NE_TO_BOA) that BOA uses for its ISO-3 grid. A country in IRENA Annex III takes its Annex III region.
+  Any other code takes its region from the Natural Earth UN subregion (SUBREGION_REGIONS), except that a
+  territory of China takes the China row, and a code in "Seven seas (open ocean)" uses REGION_UN.
 """
 
 import argparse
@@ -35,12 +37,14 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+import geopandas as gpd
 import openpyxl
 import pandas as pd
 
 from boa.cli.fetch_sources import file_sha256
 from boa.config.cost_sources import Source, get_source, source_path
 from boa.config.paths import default_root
+from boa.geo.iso3_grid_builder import NE_TO_BOA
 
 PACKAGE = "boa-cost-data-core"
 YEARS = (2024, 2035, 2050)
@@ -50,8 +54,8 @@ SCENARIOS = ("CPS", "STEPS", "NZE")
 IRENA_DATA = "irena-rpgc-2024-data"
 IRENA_REPORT = "irena-rpgc-2024-report"
 WEO = "iea-weo-2025"
-COUNTRY_LIST = "steel-iq-master-input-3-0-0"
-INPUTS = (IRENA_DATA, IRENA_REPORT, WEO, COUNTRY_LIST)
+NATURAL_EARTH = "natural-earth-50m-map-subunits"
+INPUTS = (IRENA_DATA, IRENA_REPORT, WEO, NATURAL_EARTH)
 
 # IEA WEO 2025 Annex B, capital costs in year-2024 USD/kW for 2024, 2035, 2050 (Tables B.4a-c, pp. 454-456).
 WEO_TABLE = {"CPS": "Table B.4a", "STEPS": "Table B.4b", "NZE": "Table B.4c"}
@@ -156,7 +160,8 @@ ANNEX_III = {
 SINGLE_COUNTRY_ROWS = {"CHN": "China", "IND": "India", "BRA": "Brazil", "USA": "United States"}
 SPLIT_REGIONS = {"Asia": "Other Asia", "North America": "Other North America", "South America": "Other South America"}
 
-# IRENA spells some countries differently from the country list; keys and values are normalised names.
+# IRENA and Natural Earth spell some countries differently. norm() applies this map to both sides, so
+# keys and values are normalised names.
 NAME_ALIASES = {
     "viet nam": "vietnam",
     "democratic people's republic of korea": "north korea",
@@ -181,31 +186,43 @@ NAME_ALIASES = {
     "venezuela bolivarian republic of": "venezuela",
 }
 
-# Territories that Annex III does not list take the IRENA cost region of their country-list region.
-CROSSWALK = {
+# Natural Earth name fields that the IRENA names are matched against. ADMIN (the admin-0 country name)
+# counts only where ADM0_A3 is the code: French Guiana has ADMIN "France" but ADM0_A3 "FRA".
+NE_NAME_FIELDS = ("NAME", "NAME_LONG", "FORMAL_EN", "NAME_ALT", "NAME_SORT", "GEOUNIT", "SUBUNIT")
+
+# The IRENA cost region of a code that Annex III does not list, by its Natural Earth (UN M49) SUBREGION.
+SUBREGION_REGIONS = {
+    "Caribbean": "Central America and the Caribbean",
     "Central America": "Central America and the Caribbean",
-    "East Africa": "Africa",
-    "North Africa": "Africa",
-    "Southern Africa": "Africa",
-    "West Africa": "Africa",
-    "China": "China",
-    "EU + Schengen": "Europe",
-    "Other Europe": "Europe",
-    "India": "Other Asia",
-    "Middle East": MIDDLE_EAST,
-    "North America": "Other North America",
-    "Oceania": "Oceania",
-    "Russia + CIS": "Eurasia",
-    "South + East Asia": "Other Asia",
     "South America": "Other South America",
+    "Northern America": "Other North America",
+    "Northern Europe": "Europe",
+    "Southern Europe": "Europe",
+    "Western Europe": "Europe",
+    "Eastern Europe": "Europe",
+    "Eastern Africa": "Africa",
+    "Middle Africa": "Africa",
+    "Northern Africa": "Africa",
+    "Southern Africa": "Africa",
+    "Western Africa": "Africa",
+    "Western Asia": MIDDLE_EAST,
+    "Eastern Asia": "Other Asia",
+    "South-Eastern Asia": "Other Asia",
+    "Southern Asia": "Other Asia",
+    "Central Asia": "Other Asia",
+    "Australia and New Zealand": "Oceania",
+    "Melanesia": "Oceania",
+    "Micronesia": "Oceania",
+    "Polynesia": "Oceania",
 }
-# The country-list region of these territories is wrong, so they take their geographic IRENA cost region.
-TERRITORY_REGIONS = {
-    "GLP": "Central America and the Caribbean",  # Guadeloupe
-    "MYT": "Africa",  # Mayotte
-    "GRL": "Other North America",  # Greenland
-    "HKG": "China",  # Hong Kong
+# "Seven seas (open ocean)" has no geographic subregion; such a code uses its REGION_UN.
+OPEN_OCEAN = "Seven seas (open ocean)"
+REGION_UN_REGIONS = {
+    "Africa": "Africa",  # French Southern Lands, Heard Island, Diego Garcia
+    "Americas": "Other South America",  # South Georgia and South Sandwich Islands, like the Falklands
 }
+# A code with this SUBREGION or REGION_UN has no IRENA cost region; the workbook has no row for it.
+NO_REGION = "Antarctica"
 
 # Fig A1 shows the Annex I default (5% OECD and China, 7.5% elsewhere) for a country without its own value.
 ANNEX_I_DEFAULTS = (0.05, 0.075)
@@ -274,35 +291,65 @@ def _row(table: list[list], label_text: str) -> list:
 
 def read_country_list(path: Path) -> pd.DataFrame:
     """
-    The steel-iq master input Country mapping, with the column names the build uses.
+    One row per ISO-3 code of the Natural Earth map subunits, with its names, SUBREGION and SOVEREIGNT.
 
-    Rows with no region (Antarctica and uninhabited islands) are dropped, as in boa-cost-data v0.1.
+    The code is ISO_A3, or ADM0_A3 where ISO_A3 is -99, remapped by NE_TO_BOA: the rule of the BOA ISO-3
+    grid. A code takes its attributes from its own subunits (ISO_A3 equal to the code) if it has any.
     """
-    df = pd.read_excel(path, sheet_name="Country mapping")
-    df = df.rename(
-        columns={
-            "Country": "country",
-            "ISO 3-letter code": "code",
-            "irena_name": "irena name",
-            "irena_region": "irena region",
-        }
-    )
-    return df.dropna(subset=["code", "irena region"])[["country", "code", "irena name", "irena region"]]
+    ne = gpd.read_file(path, ignore_geometry=True)
+    iso3 = ne["ISO_A3"].astype(str)
+    ne["code"] = iso3.where(iso3 != "-99", ne["ADM0_A3"].astype(str)).replace(NE_TO_BOA)
+    ne["own"] = ne["ISO_A3"].astype(str) == ne["code"]
+    ne = ne[ne["code"].str.len() == 3]
+    rows = []
+    for code, group in ne.groupby("code", sort=True):
+        own = group[group["own"]]
+        home = own if not own.empty else group
+        names = {str(v) for field in NE_NAME_FIELDS for v in home[field].dropna() if str(v).strip()}
+        names |= set(group.loc[group["ADM0_A3"].astype(str).replace(NE_TO_BOA) == code, "ADMIN"].dropna())
+        first = home.iloc[0]
+        rows.append(
+            {
+                "code": code,
+                "country": first["NAME_LONG"],
+                "names": sorted(names),
+                "subregion": first["SUBREGION"],
+                "region_un": first["REGION_UN"],
+                "sovereign": first["SOVEREIGNT"],
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 # --- countries ----------------------------------------------------------------------------------
 
 
+def name_index(country_list: pd.DataFrame) -> dict[str, str]:
+    """Normalised name -> ISO-3 code, for every name that belongs to one code only."""
+    codes_of: dict[str, set[str]] = {}
+    for code, names in zip(country_list["code"], country_list["names"]):
+        for name in names:
+            codes_of.setdefault(norm(name), set()).add(code)
+    return {name: next(iter(codes)) for name, codes in codes_of.items() if len(codes) == 1}
+
+
+def subregion_region(rec: dict) -> tuple[str, str]:
+    """The IRENA cost region of a code that Annex III does not list, and the rule that gave it."""
+    ne = f"{label(NATURAL_EARTH, 'SUBREGION')} {rec['subregion']!r}"
+    if rec["sovereign"] == "China":
+        return "China", f"{label(NATURAL_EARTH, 'SOVEREIGNT')} 'China'"
+    if rec["subregion"] == OPEN_OCEAN:
+        return REGION_UN_REGIONS[rec["region_un"]], f"{ne}, REGION_UN {rec['region_un']!r}"
+    return SUBREGION_REGIONS[rec["subregion"]], ne
+
+
 def build_mapping(country_list: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, str]]:
     """
-    Put every country of the list into an IRENA cost region (Annex III, else the list's own region).
+    Put every code into an IRENA cost region: Annex III, else its Natural Earth subregion.
 
     Returns the mapping and the normalised-name -> ISO-3 index, which the WACC lookup uses again.
     """
-    index: dict[str, str] = {}
-    for col in ("country", "irena name"):
-        for code, name in zip(country_list["code"], country_list[col]):
-            index.setdefault(norm(name), code)
+    index = name_index(country_list)
     region_of: dict[str, str] = {}
     unmatched = []
     for annex_region, names in ANNEX_III.items():
@@ -313,27 +360,19 @@ def build_mapping(country_list: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, s
                 continue
             region_of[code] = SINGLE_COUNTRY_ROWS.get(code, SPLIT_REGIONS.get(annex_region, annex_region))
     if unmatched:
-        raise ValueError(f"Annex III names with no country-list match: {unmatched}")
+        raise ValueError(f"Annex III names with no single Natural Earth match: {unmatched}")
     annex = label(IRENA_REPORT, "Annex III")
     rows = []
     for rec in country_list.to_dict("records"):
-        code = rec["code"]
-        if code in region_of:
-            region, src = region_of[code], annex
-        elif code in TERRITORY_REGIONS:
-            region, src = TERRITORY_REGIONS[code], f"not in {annex}; geographic region"
+        if NO_REGION in (rec["subregion"], rec["region_un"]):
+            print(f"{rec['code']} ({rec['country']}): Antarctic, no cost row")
+            continue
+        if rec["code"] in region_of:
+            region, src = region_of[rec["code"]], annex
         else:
-            region = CROSSWALK[rec["irena region"]]
-            src = f"not in {annex}; region {rec['irena region']!r} of {label(COUNTRY_LIST, 'Country mapping')}"
-        rows.append(
-            {
-                "country": _fix_text(rec["country"]),
-                "code": code,
-                "irena name": _fix_text(rec["irena name"]),
-                "irena region": region,
-                "source": src,
-            }
-        )
+            region, rule = subregion_region(rec)
+            src = f"not in {annex}; {rule}"
+        rows.append({"country": rec["country"], "code": rec["code"], "irena region": region, "source": src})
     return pd.DataFrame(rows), index
 
 
@@ -540,7 +579,9 @@ def package_json(version: str, workbooks: dict[str, Path], battery_opex: float) 
             "opex": f"IRENA Tables A3, A4 O&M over the region's 2024 CAPEX; battery {battery_opex:g} placeholder",
             "cost_of_capital": "IRENA Fig A1 mean of onshore wind and solar PV; a country without an own value "
             "takes the median of the own values in its IRENA cost region",
-            "regions": "IRENA Annex III; territories outside Annex III take their country-list or geographic region",
+            "countries": "ISO-3 codes of Natural Earth 1:50m map subunits (the BOA ISO-3 grid rule)",
+            "regions": "IRENA Annex III; other codes by Natural Earth SUBREGION (UN M49); territories of China "
+            "take China; 'Seven seas (open ocean)' by REGION_UN",
         },
         "workbooks": {
             scenario.lower(): {
@@ -557,7 +598,7 @@ def build(root: Path, out_dir: Path, version: str, battery_opex: float) -> dict[
     """Write the three workbooks, the package JSON and the zip into ``out_dir``; return the workbooks."""
     paths = {source_id: input_path(root, get_source(source_id)) for source_id in INPUTS}
     book = openpyxl.load_workbook(paths[IRENA_DATA], read_only=True, data_only=True)
-    mapping, index = build_mapping(read_country_list(paths[COUNTRY_LIST]))
+    mapping, index = build_mapping(read_country_list(paths[NATURAL_EARTH]))
     wacc = build_wacc(book, mapping, index)
     opex = build_opex(book, battery_opex)
     out_dir.mkdir(parents=True, exist_ok=True)

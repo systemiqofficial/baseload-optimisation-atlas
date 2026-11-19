@@ -370,6 +370,42 @@ tax = "not applicable"
 # --- Hand-made inputs of the default package -------------------------------------------------
 
 [[source]]
+id = "natural-earth-50m-map-subunits"
+status = "pinned"
+citation = "Natural Earth (2022), 1:50m Cultural Vectors, Admin 0 - Details: map subunits, version 5.1.1."
+publisher = "Natural Earth (naturalearthdata.com)"
+landing_page = "https://www.naturalearthdata.com/downloads/50m-cultural-vectors/50m-admin-0-details/"
+url = "https://naciscdn.org/naturalearth/50m/cultural/ne_50m_admin_0_map_subunits.zip"
+file = "ne_50m_admin_0_map_subunits.zip"
+accessed = 2026-11-19
+sha256 = "156c8645eea09b8c6e487d7e490c29b06f5307ea7c0a3dd8abd032e3f1b36767"
+licence = "Public domain"
+redistribute = true
+used_by = ["boa-cost-data-core"]
+note = "The same file as ne_50m_admin_0_map_subunits/ in boa-core-data v0.1 (all members byte-identical). BOA builds its ISO-3 grid from it. The URL has no version, so a new Natural Earth release changes the sha256."
+
+[[source.item]]
+ref = "ISO_A3"
+content = "ISO-3 code of each map subunit (ADM0_A3 where ISO_A3 is -99), the codes of the BOA ISO-3 grid"
+unit = "ISO 3166-1 alpha-3 code"
+price_basis = "not applicable"
+tax = "not applicable"
+
+[[source.item]]
+ref = "SUBREGION"
+content = "UN M49 subregion of each map subunit (REGION_UN for 'Seven seas (open ocean)')"
+unit = "region name"
+price_basis = "not applicable"
+tax = "not applicable"
+
+[[source.item]]
+ref = "SOVEREIGNT"
+content = "Sovereign state of each map subunit"
+unit = "country name"
+price_basis = "not applicable"
+tax = "not applicable"
+
+[[source]]
 id = "steel-iq-master-input-3-0-0"
 status = "pinned"
 citation = "Systemiq (2026), Steel-IQ master input workbook v3.0.0."
@@ -380,7 +416,7 @@ accessed = 2026-11-19
 sha256 = "92756494b8155ca8f3cdd7e3f9410080f567f73fc4f1dc849669b86d5ac06d05"
 licence = "Apache-2.0 (steel-iq repository)"
 redistribute = true
-used_by = ["boa-cost-data", "boa-cost-data-core"]
+used_by = ["boa-cost-data"]
 note = "The default package's CAPEX and cost of capital are made by hand in this workbook. Its Contents sheet names the original sources. On 2026-11-19 the CAPEX sheet of this file, rounded to 2 decimal places, was equal to boa-cost-data v0.1 in all 55 rows and 77 years."
 
 [[source.item]]

@@ -35,7 +35,7 @@ def test_every_registry_item_the_build_names_exists():
         *((build_core.IRENA_DATA, ref) for ref in ("Table 2.1", "Table 3.1", "Table S.1", "Table A3", "Table A4")),
         (build_core.IRENA_DATA, "Fig A1"),
         (build_core.IRENA_REPORT, "Annex III"),
-        (build_core.COUNTRY_LIST, "Country mapping"),
+        *((build_core.NATURAL_EARTH, ref) for ref in ("ISO_A3", "SUBREGION", "SOVEREIGNT")),
     ]:
         assert build_core.label(source_id, ref) == f"{source_id}: {ref}"
     for source_id in build_core.INPUTS:
@@ -58,6 +58,43 @@ def test_other_region_follows_the_mean_change_of_the_four_rows():
 
 def test_europe_follows_the_eu_row():
     assert build_core.WEO_REGION_OF["Europe"] == "European Union"
+
+
+def _territory(subregion: str, region_un: str = "", sovereign: str = "Someland") -> dict:
+    return {"subregion": subregion, "region_un": region_un, "sovereign": sovereign}
+
+
+@pytest.mark.parametrize(
+    "rec, region",
+    [
+        (_territory("South America"), "Other South America"),  # French Guiana
+        (_territory("Northern America"), "Other North America"),  # Bermuda, Greenland
+        (_territory("Caribbean"), "Central America and the Caribbean"),
+        (_territory("Western Asia"), "Middle East"),  # Palestine
+        (_territory("Eastern Asia", sovereign="Taiwan"), "Other Asia"),
+        (_territory("Eastern Asia", sovereign="China"), "China"),  # Hong Kong
+        (_territory("Seven seas (open ocean)", "Africa"), "Africa"),
+        (_territory("Seven seas (open ocean)", "Americas"), "Other South America"),
+    ],
+)
+def test_code_outside_annex_iii_takes_the_region_of_its_natural_earth_subregion(rec, region):
+    assert build_core.subregion_region(rec)[0] == region
+
+
+def test_every_subregion_rule_names_an_irena_cost_region():
+    rules = [*build_core.SUBREGION_REGIONS.values(), *build_core.REGION_UN_REGIONS.values()]
+    assert set(rules) <= set(build_core.REGIONS)
+
+
+def test_unknown_subregion_is_an_error():
+    with pytest.raises(KeyError):
+        build_core.subregion_region(_territory("Atlantis"))
+
+
+def test_a_name_of_two_codes_is_not_used_for_matching():
+    country_list = pd.DataFrame({"code": ["AAA", "BBB"], "names": [["Aland", "Shared"], ["Borland", "Shared"]]})
+    index = build_core.name_index(country_list)
+    assert index == {"aland": "AAA", "borland": "BBB"}
 
 
 def _fig_a1_book(rows: list[tuple]) -> openpyxl.Workbook:
