@@ -503,7 +503,11 @@ def fig_a1(book: openpyxl.Workbook) -> dict[str, tuple[float, float]]:
 
 
 def is_default(wind: float, solar: float) -> bool:
-    """True if Fig A1 shows the Table A1 default, not a country's own value."""
+    """
+    True if Fig A1 shows the Table A1 default, not a country's own value.
+
+    A default raised by the Box A.2 minimum WACC floor is specific to its country, so it counts as an own value.
+    """
     return wind == solar and any(abs(wind - d) < 1e-12 for d in TABLE_A1_DEFAULTS)
 
 
