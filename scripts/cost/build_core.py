@@ -11,8 +11,8 @@ The build uses three kinds of input, and each kind has its own place:
 - transcribed/*.csv: values typed from the PDF sources, in the layout of the source table. Compare them
   with the page that the header names.
 - rules.toml: our own decisions, such as which WEO row a region follows.
-- The IRENA data file and the Natural Earth file, read by this script. Each workbook lists the values it
-  read in its "Inputs" sheet.
+- The IRENA data file and the Natural Earth file, read by this script. The "Inputs" sheet lists the IRENA
+  values; the "Country mapping" sheet names the Natural Earth subregion of each code.
 
 The derivation rules are the first paragraphs of the functions in METHOD. Each workbook has them in its
 "Method" sheet, and each derived sheet shows the intermediate values next to the result.
