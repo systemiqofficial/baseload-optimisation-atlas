@@ -44,6 +44,29 @@ def test_the_registry_holds_exactly_the_build_inputs():
     assert tuple(load_registry()) == build_core.INPUTS
 
 
+def test_rules_and_transcribed_tables_name_only_known_regions():
+    build_core.check_rules()
+
+
+def test_a_rule_with_an_unknown_region_is_an_error(monkeypatch):
+    monkeypatch.setattr(build_core, "OECD_REGIONS", {"Europe", "Atlantis"})
+    with pytest.raises(ValueError, match=r"\[oecd\].*Atlantis"):
+        build_core.check_rules()
+
+
+def test_transcribed_tables_have_the_layout_the_build_expects():
+    assert set(build_core.WEO_TABLE) == set(build_core.SCENARIOS)
+    assert all(len(v) == len(build_core.YEARS) for v in build_core.WEO_BATTERY.values())
+    assert sum(len(names) for names in build_core.ANNEX_III.values()) == 192
+    assert build_core.TABLE_A1_DEFAULTS == (0.05, 0.075)
+
+
+def test_every_method_item_has_a_topic_and_a_rule():
+    topics = [build_core.rule_text(item)[0] for item in build_core.METHOD]
+    assert len(set(topics)) == len(topics)
+    assert all(rule for _, rule in map(build_core.rule_text, build_core.METHOD))
+
+
 def test_weo_region_follows_its_own_row():
     change, path = build_core.weo_change("STEPS", "solar", "United States")
     assert change == pytest.approx((1.0, 660 / 1060, 530 / 1060))
@@ -188,7 +211,7 @@ def test_build_writes_workbooks_that_boa_reads_and_every_row_names_a_registry_it
     assert set(workbooks) == set(build_core.SCENARIOS)
     registry = load_registry()
     for path in workbooks.values():
-        for sheet in ("RES CAPEX projections", "RES OPEX", "Cost of capital", "Country mapping"):
+        for sheet in ("RES CAPEX projections", "RES OPEX", "Cost of capital", "Country mapping", "Inputs"):
             df = pd.read_excel(path, sheet_name=sheet)
             for text in df["source"]:
                 if text.startswith("none:"):
@@ -196,6 +219,14 @@ def test_build_writes_workbooks_that_boa_reads_and_every_row_names_a_registry_it
                 assert _labels(text, registry), (sheet, text)
     capex = pd.read_excel(workbooks["STEPS"], sheet_name="RES CAPEX projections")
     assert [c for c in capex.columns if isinstance(c, int)] == list(build_core.YEARS)
+    # The intermediate columns give the derived values back.
+    res = capex[capex["tech"] != "Battery"]
+    for year in build_core.YEARS[1:]:
+        assert (res[2024] * res[f"change {year}"] - res[year]).abs().max() < 0.01
+    opex = pd.read_excel(workbooks["STEPS"], sheet_name="RES OPEX").dropna(subset=["O&M USD/kW/year"])
+    assert (opex["O&M USD/kW/year"] / opex["CAPEX 2024 USD/kW"] - opex["opex"]).abs().max() < 1e-5
+    wacc = pd.read_excel(workbooks["STEPS"], sheet_name="Cost of capital").dropna(subset=["Fig A1 solar PV"])
+    assert ((wacc["Fig A1 onshore wind"] + wacc["Fig A1 solar PV"]) / 2 - wacc["cost of capital"]).abs().max() < 1e-5
     ds, _ = process_global_baseload_simulation_costs(2030, workbooks["STEPS"], tmp_path / "cache")
     assert float(ds["Capex battery"].sel(iso3="DEU").isel(year=0)) == pytest.approx((150 - 50 * 6 / 11) * 1000)
     assert ds["Cost of capital"].notnull().all()

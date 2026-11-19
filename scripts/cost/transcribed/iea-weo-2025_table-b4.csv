@@ -1,0 +1,27 @@
+# IEA WEO 2025, Annex B, Tables B.4a (CPS, p. 454), B.4b (STEPS, p. 455), B.4c (NZE, p. 456).
+# Capital costs, USD(2024)/kW. Rows: Solar PV and Wind onshore of the 4 regions in each table.
+table,scenario,region,tech,2024,2035,2050
+Table B.4a,CPS,United States,Solar PV,1060,680,570
+Table B.4a,CPS,United States,Wind onshore,1570,1510,1470
+Table B.4a,CPS,European Union,Solar PV,760,480,410
+Table B.4a,CPS,European Union,Wind onshore,1620,1540,1510
+Table B.4a,CPS,China,Solar PV,590,360,290
+Table B.4a,CPS,China,Wind onshore,860,810,790
+Table B.4a,CPS,India,Solar PV,530,320,260
+Table B.4a,CPS,India,Wind onshore,1110,1050,1020
+Table B.4b,STEPS,United States,Solar PV,1060,660,530
+Table B.4b,STEPS,United States,Wind onshore,1570,1510,1460
+Table B.4b,STEPS,European Union,Solar PV,760,470,390
+Table B.4b,STEPS,European Union,Wind onshore,1620,1540,1510
+Table B.4b,STEPS,China,Solar PV,590,350,280
+Table B.4b,STEPS,China,Wind onshore,860,800,790
+Table B.4b,STEPS,India,Solar PV,530,310,250
+Table B.4b,STEPS,India,Wind onshore,1110,1040,1010
+Table B.4c,NZE,United States,Solar PV,1060,590,480
+Table B.4c,NZE,United States,Wind onshore,1570,1450,1400
+Table B.4c,NZE,European Union,Solar PV,760,440,370
+Table B.4c,NZE,European Union,Wind onshore,1620,1510,1460
+Table B.4c,NZE,China,Solar PV,590,320,260
+Table B.4c,NZE,China,Wind onshore,860,780,750
+Table B.4c,NZE,India,Solar PV,530,290,220
+Table B.4c,NZE,India,Wind onshore,1110,1020,970

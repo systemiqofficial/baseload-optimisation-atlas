@@ -1,0 +1,5 @@
+# IRENA (2025), Renewable power generation costs in 2024, Annex I, Table A1 (p. 202).
+# Default real WACC in 2020 and later for countries outside the WACC benchmark tool.
+group,wacc
+OECD and China,0.05
+Rest of the world,0.075

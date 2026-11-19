@@ -7,23 +7,15 @@ source as "<id>: <item ref>". Fetch the files first:
     boa-sources-fetch irena-rpgc-2024-data irena-rpgc-2024-report iea-weo-2025 natural-earth-50m-map-subunits
     python scripts/cost/build_core.py --out-dir <folder>
 
-Method:
-- CAPEX 2024: IRENA Tables 3.1 (solar PV) and 2.1 (onshore wind) per IRENA cost region. The Middle East
-  has no IRENA row and takes the global weighted average (Table S.1).
-- CAPEX 2035 and 2050: the 2024 value times the WEO 2025 Table B.4 change from 2024 of the same scenario.
-  United States, Europe, China and India follow their own WEO row (Europe follows the European Union).
-  All other regions follow the mean change of these four rows.
-- Battery CAPEX: WEO 2025 Table B.5 (global) in every region.
-- The workbook has the year columns 2024, 2035 and 2050 only. BOA interpolates linearly between them
-  and holds the 2050 value for later years.
-- OPEX: IRENA O&M (Tables A3, A4) divided by the region's 2024 CAPEX. No core source gives battery
-  O&M, so the battery row is a placeholder (--battery-opex) and its source says so.
-- Cost of capital: IRENA Fig A1, the mean of onshore wind and solar PV. A country with no own Fig A1
-  value (Fig A1 shows the report Table A1 default) takes the median of the own values in its IRENA cost region.
-- Countries: the ISO-3 codes of the Natural Earth 1:50m map subunits, with the same rule and remap
-  (NE_TO_BOA) that BOA uses for its ISO-3 grid. A country in IRENA Annex III takes its Annex III region.
-  Any other code takes its region from the Natural Earth UN subregion (SUBREGION_REGIONS), except that a
-  territory of China takes the China row, and a code in "Seven seas (open ocean)" uses REGION_UN.
+The build uses three kinds of input, and each kind has its own place:
+- transcribed/*.csv: values typed from the PDF sources, in the layout of the source table. Compare them
+  with the page that the header names.
+- rules.toml: our own decisions, such as which WEO row a region follows.
+- The IRENA data file and the Natural Earth file, read by this script. Each workbook lists the values it
+  read in its "Inputs" sheet.
+
+The derivation rules are the first paragraphs of the functions in METHOD. Each workbook has them in its
+"Method" sheet, and each derived sheet shows the intermediate values next to the result.
 """
 
 import argparse
@@ -32,8 +24,10 @@ import json
 import re
 import statistics
 import sys
+import tomllib
 import unicodedata
 import zipfile
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -57,37 +51,9 @@ WEO = "iea-weo-2025"
 NATURAL_EARTH = "natural-earth-50m-map-subunits"
 INPUTS = (IRENA_DATA, IRENA_REPORT, WEO, NATURAL_EARTH)
 
-# IEA WEO 2025 Annex B, capital costs in year-2024 USD/kW for 2024, 2035, 2050 (Tables B.4a-c, pp. 454-456).
-WEO_TABLE = {"CPS": "Table B.4a", "STEPS": "Table B.4b", "NZE": "Table B.4c"}
-WEO_CAPEX = {
-    "CPS": {
-        "United States": {"solar": (1060, 680, 570), "wind": (1570, 1510, 1470)},
-        "European Union": {"solar": (760, 480, 410), "wind": (1620, 1540, 1510)},
-        "China": {"solar": (590, 360, 290), "wind": (860, 810, 790)},
-        "India": {"solar": (530, 320, 260), "wind": (1110, 1050, 1020)},
-    },
-    "STEPS": {
-        "United States": {"solar": (1060, 660, 530), "wind": (1570, 1510, 1460)},
-        "European Union": {"solar": (760, 470, 390), "wind": (1620, 1540, 1510)},
-        "China": {"solar": (590, 350, 280), "wind": (860, 800, 790)},
-        "India": {"solar": (530, 310, 250), "wind": (1110, 1040, 1010)},
-    },
-    "NZE": {
-        "United States": {"solar": (1060, 590, 480), "wind": (1570, 1450, 1400)},
-        "European Union": {"solar": (760, 440, 370), "wind": (1620, 1510, 1460)},
-        "China": {"solar": (590, 320, 260), "wind": (860, 780, 750)},
-        "India": {"solar": (530, 290, 220), "wind": (1110, 1020, 970)},
-    },
-}
-# IEA WEO 2025 Table B.5 (p. 457): utility-scale stationary batteries, year-2024 USD/kWh, global.
-WEO_BATTERY = {"CPS": (150, 100, 90), "STEPS": (150, 100, 90), "NZE": (150, 100, 80)}
-# The IRENA cost region that follows each WEO row. All other regions follow the mean of the four rows.
-WEO_REGION_OF = {
-    "United States": "United States",
-    "Europe": "European Union",
-    "China": "China",
-    "India": "India",
-}
+HERE = Path(__file__).resolve().parent
+TRANSCRIBED = HERE / "transcribed"
+RULES_PATH = HERE / "rules.toml"
 
 # IRENA cost-table rows (Tables 2.1, 3.1). The four single-country rows take their countries out of their region.
 COST_ROWS = (
@@ -106,126 +72,75 @@ COST_ROWS = (
 )
 MIDDLE_EAST = "Middle East"  # in Annex III, but IRENA publishes no cost row for it
 REGIONS = (*COST_ROWS, MIDDLE_EAST)
-OECD_REGIONS = {"Europe", "Other North America", "Oceania", "United States"}
 TECHS = {
     "solar": ("Solar PV", "USD/kW", "Table 3.1"),
     "wind": ("Onshore wind", "USD/kW", "Table 2.1"),
     "battery": ("Battery", "USD/kWh", None),
 }
-
-# IRENA (2025) report, Annex III "Regional groupings" (p. 215). Asia, North America and South America are
-# split into the single-country cost rows and "Other ..." below.
-ANNEX_III = {
-    "Asia": (
-        "Afghanistan, Bangladesh, Bhutan, Brunei Darussalam, Cambodia, China, Democratic People's Republic of Korea, "
-        "India, Indonesia, Japan, Kazakhstan, Kyrgyzstan, Lao People's Democratic Republic, Malaysia, Maldives, "
-        "Mongolia, Myanmar, Nepal, Pakistan, Philippines, Republic of Korea, Singapore, Sri Lanka, Tajikistan, "
-        "Thailand, Timor-Leste, Turkmenistan, Uzbekistan, Viet Nam"
-    ),
-    "Africa": (
-        "Algeria, Angola, Benin, Botswana, Burkina Faso, Burundi, Cabo Verde, Cameroon, Central African Republic, "
-        "Chad, Comoros, Congo, Cote d'Ivoire, Democratic Republic of the Congo, Djibouti, Egypt, Equatorial Guinea, "
-        "Eritrea, Ethiopia, Eswatini, Gabon, Gambia, Ghana, Guinea, Guinea-Bissau, Kenya, Lesotho, Liberia, Libya, "
-        "Madagascar, Malawi, Mali, Mauritania, Mauritius, Morocco, Mozambique, Namibia, Niger, Nigeria, Rwanda, "
-        "Sao Tome and Principe, Senegal, Seychelles, Sierra Leone, Somalia, South Africa, South Sudan, Sudan, Togo, "
-        "Tunisia, Uganda, United Republic of Tanzania, Zambia, Zimbabwe"
-    ),
-    "Central America and the Caribbean": (
-        "Antigua and Barbuda, Bahamas, Barbados, Belize, Costa Rica, Cuba, Dominica, Dominican Republic, El Salvador, "
-        "Grenada, Guatemala, Haiti, Honduras, Jamaica, Nicaragua, Panama, Saint Kitts and Nevis, Saint Lucia, "
-        "Saint Vincent and the Grenadines, Trinidad and Tobago"
-    ),
-    "Eurasia": "Armenia, Azerbaijan, Georgia, Russian Federation, Turkiye",
-    "Europe": (
-        "Albania, Andorra, Austria, Belarus, Belgium, Bosnia and Herzegovina, Bulgaria, Croatia, Cyprus, "
-        "Czech Republic, Denmark, Estonia, Finland, France, Germany, Greece, Hungary, Iceland, Ireland, Italy, "
-        "Latvia, Liechtenstein, Lithuania, Luxembourg, Malta, Monaco, Montenegro, Netherlands, Norway, Poland, "
-        "Portugal, Republic of Moldova, Romania, San Marino, Serbia, Slovakia, Slovenia, Spain, Sweden, "
-        "Switzerland, Ukraine, United Kingdom"
-    ),
-    "Middle East": (
-        "Bahrain, Islamic Republic of Iran, Iraq, Israel, Jordan, Kuwait, Lebanon, Oman, Qatar, Saudi Arabia, "
-        "Syrian Arab Republic, United Arab Emirates, Yemen"
-    ),
-    "North America": "Canada, Mexico, United States",
-    "South America": (
-        "Argentina, Plurinational State of Bolivia, Brazil, Chile, Colombia, Ecuador, Guyana, Paraguay, Peru, "
-        "Suriname, Uruguay, Bolivarian Republic of Venezuela"
-    ),
-    "Oceania": (
-        "Australia, Fiji, Kiribati, Marshall Islands, Federated States of Micronesia, Nauru, New Zealand, Palau, "
-        "Papua New Guinea, Samoa, Solomon Islands, Tonga, Tuvalu, Vanuatu"
-    ),
-}
-SINGLE_COUNTRY_ROWS = {"CHN": "China", "IND": "India", "BRA": "Brazil", "USA": "United States"}
-SPLIT_REGIONS = {"Asia": "Other Asia", "North America": "Other North America", "South America": "Other South America"}
-
-# IRENA and Natural Earth spell some countries differently. norm() applies this map to both sides, so
-# keys and values are normalised names.
-NAME_ALIASES = {
-    "viet nam": "vietnam",
-    "democratic people's republic of korea": "north korea",
-    "republic of korea": "south korea",
-    "lao people's democratic republic": "laos",
-    "russian federation": "russia",
-    "united republic of tanzania": "tanzania",
-    "congo": "republic of the congo",
-    "bolivarian republic of venezuela": "venezuela",
-    "plurinational state of bolivia": "bolivia",
-    "islamic republic of iran": "iran",
-    "syrian arab republic": "syria",
-    "republic of moldova": "moldova",
-    "federated states of micronesia": "micronesia",
-    "turkiye": "turkey",
-    "cabo verde": "cape verde",
-    "czech republic": "czechia",
-    "united states": "united states of america",
-    "congo rep": "republic of the congo",
-    "bolivia plurinational state of": "bolivia",
-    "iran islamic republic of": "iran",
-    "venezuela bolivarian republic of": "venezuela",
-}
-
 # Natural Earth name fields that the IRENA names are matched against. ADMIN (the admin-0 country name)
 # counts only where ADM0_A3 is the code: French Guiana has ADMIN "France" but ADM0_A3 "FRA".
 NE_NAME_FIELDS = ("NAME", "NAME_LONG", "FORMAL_EN", "NAME_ALT", "NAME_SORT", "GEOUNIT", "SUBUNIT")
-
-# The IRENA cost region of a code that Annex III does not list, by its Natural Earth (UN M49) SUBREGION.
-SUBREGION_REGIONS = {
-    "Caribbean": "Central America and the Caribbean",
-    "Central America": "Central America and the Caribbean",
-    "South America": "Other South America",
-    "Northern America": "Other North America",
-    "Northern Europe": "Europe",
-    "Southern Europe": "Europe",
-    "Western Europe": "Europe",
-    "Eastern Europe": "Europe",
-    "Eastern Africa": "Africa",
-    "Middle Africa": "Africa",
-    "Northern Africa": "Africa",
-    "Southern Africa": "Africa",
-    "Western Africa": "Africa",
-    "Western Asia": MIDDLE_EAST,
-    "Eastern Asia": "Other Asia",
-    "South-Eastern Asia": "Other Asia",
-    "Southern Asia": "Other Asia",
-    "Central Asia": "Other Asia",
-    "Australia and New Zealand": "Oceania",
-    "Melanesia": "Oceania",
-    "Micronesia": "Oceania",
-    "Polynesia": "Oceania",
-}
-# "Seven seas (open ocean)" has no geographic subregion; such a code uses its REGION_UN.
 OPEN_OCEAN = "Seven seas (open ocean)"
-REGION_UN_REGIONS = {
-    "Africa": "Africa",  # French Southern Lands, Heard Island, Diego Garcia
-    "Americas": "Other South America",  # South Georgia and South Sandwich Islands, like the Falklands
-}
-# A code with this SUBREGION or REGION_UN has no IRENA cost region; the workbook has no row for it.
-NO_REGION = "Antarctica"
 
-# Fig A1 shows the report Table A1 default (5% OECD and China, 7.5% elsewhere) for a country without its own value.
-TABLE_A1_DEFAULTS = (0.05, 0.075)
+
+# --- transcribed tables and rules -----------------------------------------------------------------
+
+
+def _transcribed(name: str) -> pd.DataFrame:
+    return pd.read_csv(TRANSCRIBED / name, comment="#", dtype=str, keep_default_na=False)
+
+
+def _years(row: pd.Series) -> tuple[int, ...]:
+    return tuple(int(row[str(year)]) for year in YEARS)
+
+
+_b4 = _transcribed("iea-weo-2025_table-b4.csv")
+_WEO_TECH = {"Solar PV": "solar", "Wind onshore": "wind"}
+WEO_TABLE = dict(zip(_b4["scenario"], _b4["table"]))
+WEO_CAPEX: dict[str, dict[str, dict[str, tuple[int, ...]]]] = {}
+for _, _r in _b4.iterrows():
+    WEO_CAPEX.setdefault(_r["scenario"], {}).setdefault(_r["region"], {})[_WEO_TECH[_r["tech"]]] = _years(_r)
+WEO_BATTERY = {r["scenario"]: _years(r) for _, r in _transcribed("iea-weo-2025_table-b5.csv").iterrows()}
+ANNEX_III: dict[str, tuple[str, ...]] = {}
+for _, _r in _transcribed("irena-rpgc-2024-report_annex-iii.csv").iterrows():
+    ANNEX_III[_r["annex region"]] = (*ANNEX_III.get(_r["annex region"], ()), _r["country"])
+TABLE_A1_DEFAULTS = tuple(float(v) for v in _transcribed("irena-rpgc-2024-report_table-a1.csv")["wacc"])
+
+with RULES_PATH.open("rb") as _f:
+    RULES = tomllib.load(_f)
+WEO_REGION_OF: dict[str, str] = RULES["weo_row_of_region"]
+OECD_REGIONS = set(RULES["oecd"]["regions"])
+SINGLE_COUNTRY_ROWS: dict[str, str] = RULES["single_country_rows"]
+SPLIT_REGIONS: dict[str, str] = RULES["split_regions"]
+NAME_ALIASES: dict[str, str] = RULES["name_aliases"]
+SUBREGION_REGIONS: dict[str, str] = RULES["subregion_regions"]
+REGION_UN_REGIONS: dict[str, str] = RULES["region_un_regions"]
+NO_REGION: str = RULES["no_region"]["name"]
+
+
+def check_rules() -> None:
+    """Raise ValueError if rules.toml or a transcribed table names a region or row that the build does not know."""
+    errors = []
+    region_rules = {
+        "weo_row_of_region": set(WEO_REGION_OF),
+        "oecd": OECD_REGIONS,
+        "single_country_rows": set(SINGLE_COUNTRY_ROWS.values()),
+        "split_regions": set(SPLIT_REGIONS.values()),
+        "subregion_regions": set(SUBREGION_REGIONS.values()),
+        "region_un_regions": set(REGION_UN_REGIONS.values()),
+    }
+    for table, names in region_rules.items():
+        if unknown := sorted(names - set(REGIONS)):
+            errors.append(f"rules.toml [{table}]: not an IRENA cost region: {unknown}")
+    for scenario in SCENARIOS:
+        if set(WEO_CAPEX.get(scenario, {})) != set(WEO_REGION_OF.values()):
+            errors.append(f"Table B.4 {scenario}: the rows are not the rows of [weo_row_of_region]")
+    if set(WEO_BATTERY) != set(SCENARIOS):
+        errors.append("Table B.5: not one row per scenario")
+    if unknown := sorted(set(ANNEX_III) - set(REGIONS) - set(SPLIT_REGIONS)):
+        errors.append(f"Annex III: regions that are not cost regions and not split: {unknown}")
+    if errors:
+        raise ValueError("\n".join(errors))
 
 
 # --- inputs -------------------------------------------------------------------------------------
@@ -272,7 +187,7 @@ def _num(cell: object) -> float:
     """A number from an IRENA cell, which can be text with thin or non-breaking spaces ('1 093')."""
     if isinstance(cell, (int, float)):
         return float(cell)
-    return float(re.sub(r"[\s  ]", "", str(cell)))
+    return float(re.sub(r"[\s  ]", "", str(cell)))
 
 
 def _table(book: openpyxl.Workbook, sheet: str) -> list[list]:
@@ -291,10 +206,9 @@ def _row(table: list[list], label_text: str) -> list:
 
 def read_country_list(path: Path) -> pd.DataFrame:
     """
-    One row per ISO-3 code of the Natural Earth map subunits, with its names, SUBREGION and SOVEREIGNT.
-
-    The code is ISO_A3, or ADM0_A3 where ISO_A3 is -99, remapped by NE_TO_BOA: the rule of the BOA ISO-3
-    grid. A code takes its attributes from its own subunits (ISO_A3 equal to the code) if it has any.
+    Countries: one row for each ISO-3 code of the Natural Earth 1:50m map subunits, by the rule of the BOA
+    ISO-3 grid (ISO_A3, else ADM0_A3, remapped by NE_TO_BOA). A code takes its names, SUBREGION and
+    SOVEREIGNT from its own subunits (ISO_A3 equal to the code) if it has any.
     """
     ne = gpd.read_file(path, ignore_geometry=True)
     iso3 = ne["ISO_A3"].astype(str)
@@ -345,7 +259,10 @@ def subregion_region(rec: dict) -> tuple[str, str]:
 
 def build_mapping(country_list: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, str]]:
     """
-    Put every code into an IRENA cost region: Annex III, else its Natural Earth subregion.
+    Regions: a country in IRENA Annex III takes its Annex III region, or its single-country row (China,
+    India, Brazil, United States), or the "Other ..." row of a split region. Any other code takes its
+    region from its Natural Earth SUBREGION; a territory of China takes China, and a code in "Seven seas
+    (open ocean)" uses its REGION_UN. Antarctica has no cost row.
 
     Returns the mapping and the normalised-name -> ISO-3 index, which the WACC lookup uses again.
     """
@@ -353,7 +270,7 @@ def build_mapping(country_list: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, s
     region_of: dict[str, str] = {}
     unmatched = []
     for annex_region, names in ANNEX_III.items():
-        for name in names.split(", "):
+        for name in names:
             code = index.get(norm(name))
             if code is None:
                 unmatched.append(name)
@@ -380,7 +297,10 @@ def build_mapping(country_list: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, s
 
 
 def irena_capex(book: openpyxl.Workbook) -> dict[str, dict[str, float]]:
-    """2024 weighted-average total installed cost (USD/kW) per tech and region; Middle East = global (Table S.1)."""
+    """
+    CAPEX 2024: IRENA Tables 3.1 (solar PV) and 2.1 (onshore wind), the 2024 weighted average of each
+    cost row. The Middle East has no IRENA cost row and takes the global weighted average (Table S.1).
+    """
     glob = _table(book, "Table S.1")
     out = {}
     for tech, sheet, glob_label in (("solar", "Table 3.1", "Solar PV"), ("wind", "Table 2.1", "Onshore wind")):
@@ -392,7 +312,13 @@ def irena_capex(book: openpyxl.Workbook) -> dict[str, dict[str, float]]:
 
 
 def weo_change(scenario: str, tech: str, region: str) -> tuple[tuple[float, ...], str]:
-    """CAPEX relative to 2024 for YEARS from WEO Table B.4, and the path's description."""
+    """
+    CAPEX 2035 and 2050: the 2024 value times the change from 2024 in WEO 2025 Table B.4 of the same
+    scenario. United States, Europe (EU row), China and India follow their own row; every other region
+    follows the mean change of the four rows.
+
+    Returns the change for YEARS and the path's description.
+    """
     rows = WEO_CAPEX[scenario]
     if (weo_region := WEO_REGION_OF.get(region)) is not None:
         values = rows[weo_region][tech]
@@ -401,25 +327,33 @@ def weo_change(scenario: str, tech: str, region: str) -> tuple[tuple[float, ...]
     return tuple(statistics.fmean(c[i] for c in changes) for i in range(len(YEARS))), "mean change of its 4 regions"
 
 
+def battery_capex(scenario: str) -> tuple[int, ...]:
+    """Battery CAPEX: WEO 2025 Table B.5 (global) of the scenario, in every region."""
+    return WEO_BATTERY[scenario]
+
+
 def build_capex(book: openpyxl.Workbook, scenario: str) -> pd.DataFrame:
-    """CAPEX rows for YEARS: IRENA 2024 level times the WEO 2025 change; battery from WEO Table B.5."""
+    """CAPEX rows for YEARS, with the WEO change factors that give 2035 and 2050 from 2024."""
     base = irena_capex(book)
     weo = label(WEO, WEO_TABLE[scenario])
     rows = []
     for tech, (tech_label, unit, irena_table) in TECHS.items():
         for region in REGIONS:
+            row = {"irena region": region, "tech": tech_label, "unit": f"2024 {unit}"}
             if tech == "battery":
-                values = WEO_BATTERY[scenario]
-                src = f"{label(WEO, 'Table B.5')} (global)"
+                values = battery_capex(scenario)
+                row |= {year: float(value) for year, value in zip(YEARS, values)}
+                row["source"] = f"{label(WEO, 'Table B.5')} (global)"
             else:
                 change, path = weo_change(scenario, tech, region)
                 values = tuple(base[tech][region] * c for c in change)
                 level = label(IRENA_DATA, "Table S.1" if region == MIDDLE_EAST else irena_table)
-                src = f"2024: {level}; 2035, 2050: x {weo} {path}"
-            row = {"irena region": region, "tech": tech_label, "unit": f"2024 {unit}", "source": src}
-            row.update({year: round(value, 2) for year, value in zip(YEARS, values)})
+                row |= {year: round(value, 2) for year, value in zip(YEARS, values)}
+                row |= {f"change {year}": round(c, 6) for year, c in zip(YEARS[1:], change[1:])}
+                row["source"] = f"2024: {level}; 2035, 2050: x {weo} {path}"
             rows.append(row)
-    return pd.DataFrame(rows)
+    columns = ["irena region", "tech", "unit", *YEARS, *(f"change {y}" for y in YEARS[1:]), "source"]
+    return pd.DataFrame(rows, columns=columns)
 
 
 # --- OPEX ---------------------------------------------------------------------------------------
@@ -438,26 +372,49 @@ def irena_om(book: openpyxl.Workbook) -> dict[str, float]:
     return out | {"solar_oecd": _num(solar_oecd), "solar_non_oecd": _num(solar_non_oecd)}
 
 
+# Where each irena_om key comes from: (table, row in the table).
+OM_ROWS = {
+    "wind_Brazil": ("Table A3", "Brazil"),
+    "wind_China": ("Table A3", "China"),
+    "wind_India": ("Table A3", "India"),
+    "wind_United States": ("Table A3", "United States"),
+    "wind_oecd": ("Table A3", "Other OECD"),
+    "wind_non_oecd": ("Table A3", "Other non-OECD"),
+    "solar_oecd": ("Table A4", "2024 OECD"),
+    "solar_non_oecd": ("Table A4", "2024 non-OECD"),
+}
+
+
 def build_opex(book: openpyxl.Workbook, battery_opex: float) -> pd.DataFrame:
-    """OPEX as a fraction of CAPEX per year: IRENA's O&M (USD/kW/year) over the region's 2024 CAPEX."""
+    """
+    OPEX: IRENA O&M (Table A3 onshore wind, Table A4 solar PV, USD/kW/year) divided by the region's 2024
+    CAPEX. OECD regions take the OECD O&M and the others the non-OECD O&M; Brazil, China, India and the
+    United States take their own wind O&M. No core source gives battery O&M: the battery row is a placeholder.
+    """
     om = irena_om(book)
     base = irena_capex(book)
-    world = [
-        # BOA needs a World row per technology for a country with no regional row. Every mapped country
-        # has a regional row, so these are fallbacks only: non-OECD O&M over the global CAPEX.
-        {
-            "region": "World",
+
+    def row(region: str, tech: str, key: str, table: str, level: str, capex_ref: str, note: str = "") -> dict:
+        capex = base[level][region]
+        return {
+            "region": region,
             "tech": tech,
             "unit": "fraction of capex per year",
-            "opex": round(om[key] / base[level][MIDDLE_EAST], 5),
-            "source": f"{label(IRENA_DATA, table)} non-OECD {om[key]:g} USD/kW/year / {label(IRENA_DATA, 'Table S.1')}",
+            "opex": round(om[key] / capex, 5),
+            "O&M USD/kW/year": om[key],
+            "CAPEX 2024 USD/kW": capex,
+            "source": f"{label(IRENA_DATA, table)}{note} {om[key]:g} USD/kW/year / {label(IRENA_DATA, capex_ref)}",
         }
-        for tech, key, table, level in (
-            ("Solar PV", "solar_non_oecd", "Table A4", "solar"),
-            ("Onshore wind", "wind_non_oecd", "Table A3", "wind"),
-        )
+
+    # BOA needs a World row per technology for a country with no regional row. Every mapped country
+    # has a regional row, so these are fallbacks only: non-OECD O&M over the global CAPEX.
+    rows = [
+        row(MIDDLE_EAST, "Solar PV", "solar_non_oecd", "Table A4", "solar", "Table S.1", " non-OECD"),
+        row(MIDDLE_EAST, "Onshore wind", "wind_non_oecd", "Table A3", "wind", "Table S.1", " non-OECD"),
     ]
-    rows = world + [
+    for r in rows:
+        r["region"] = "World"
+    rows.append(
         {
             "region": "World",
             "tech": "Battery",
@@ -465,41 +422,35 @@ def build_opex(book: openpyxl.Workbook, battery_opex: float) -> pd.DataFrame:
             "opex": battery_opex,
             "source": "none: placeholder, no core source gives battery O&M",
         }
-    ]
+    )
     for region in REGIONS:
-        oecd = region in OECD_REGIONS
+        oecd = "oecd" if region in OECD_REGIONS else "non_oecd"
+        wind_key = f"wind_{region}" if f"wind_{region}" in om else f"wind_{oecd}"
         for tech, key, table, level in (
-            ("Solar PV", "solar_oecd" if oecd else "solar_non_oecd", "Table A4", "solar"),
-            (
-                "Onshore wind",
-                f"wind_{region}" if f"wind_{region}" in om else f"wind_{'oecd' if oecd else 'non_oecd'}",
-                "Table A3",
-                "wind",
-            ),
+            ("Solar PV", f"solar_{oecd}", "Table A4", "solar"),
+            ("Onshore wind", wind_key, "Table A3", "wind"),
         ):
             capex_ref = "Table S.1" if region == MIDDLE_EAST else TECHS[level][2]
-            rows.append(
-                {
-                    "region": region,
-                    "tech": tech,
-                    "unit": "fraction of capex per year",
-                    "opex": round(om[key] / base[level][region], 5),
-                    "source": f"{label(IRENA_DATA, table)} {om[key]:g} USD/kW/year / {label(IRENA_DATA, capex_ref)}",
-                }
-            )
-    return pd.DataFrame(rows)
+            rows.append(row(region, tech, key, table, level, capex_ref))
+    columns = ["region", "tech", "unit", "opex", "O&M USD/kW/year", "CAPEX 2024 USD/kW", "source"]
+    return pd.DataFrame(rows, columns=columns)
 
 
 # --- cost of capital ----------------------------------------------------------------------------
 
 
+def fig_a1_rows(book: openpyxl.Workbook) -> list[tuple[str, float, float]]:
+    """(country as IRENA names it, onshore wind, solar PV) real after-tax WACC, in sheet order."""
+    return [
+        (str(row[0]), float(row[1]), float(row[2]))
+        for row in _table(book, "Fig A1")
+        if len(row) >= 3 and isinstance(row[1], (int, float)) and isinstance(row[2], (int, float))
+    ]
+
+
 def fig_a1(book: openpyxl.Workbook) -> dict[str, tuple[float, float]]:
     """(onshore wind, solar PV) real after-tax WACC per normalised country name."""
-    out = {}
-    for row in _table(book, "Fig A1"):
-        if len(row) >= 3 and isinstance(row[1], (int, float)) and isinstance(row[2], (int, float)):
-            out[norm(row[0])] = (float(row[1]), float(row[2]))
-    return out
+    return {norm(name): (wind, solar) for name, wind, solar in fig_a1_rows(book)}
 
 
 def is_default(wind: float, solar: float) -> bool:
@@ -512,44 +463,120 @@ def is_default(wind: float, solar: float) -> bool:
 
 
 def build_wacc(book: openpyxl.Workbook, mapping: pd.DataFrame, index: dict[str, str]) -> pd.DataFrame:
-    """One Renewables WACC per country: own Fig A1 value, else the median of own values in its cost region."""
-    own: dict[str, float] = {}
+    """
+    Cost of capital: IRENA Fig A1, the mean of the country's onshore wind and solar PV values. A country
+    with no own value (Fig A1 shows the Table A1 default, or has no row for it) takes the median of the own
+    values in its IRENA cost region. A default raised by the Box A.2 minimum WACC floor counts as an own value.
+    """
+    own: dict[str, tuple[float, float]] = {}
     for name, (wind, solar) in fig_a1(book).items():
         if name in index and not is_default(wind, solar):
-            own[index[name]] = (wind + solar) / 2
+            own[index[name]] = (wind, solar)
     region_of = dict(zip(mapping["code"], mapping["irena region"]))
     by_region: dict[str, list[float]] = {}
-    for code, value in own.items():
-        by_region.setdefault(region_of[code], []).append(value)
+    for code, (wind, solar) in own.items():
+        by_region.setdefault(region_of[code], []).append((wind + solar) / 2)
     if empty := sorted(set(REGIONS) - set(by_region)):
         raise ValueError(f"No own Fig A1 value in the cost regions {empty}")
     fig = label(IRENA_DATA, "Fig A1")
     rows = []
     for rec in mapping.to_dict("records"):
+        row = {"country": rec["country"], "code": rec["code"], "tech": "Renewables"}
         if rec["code"] in own:
-            value, src = own[rec["code"]], f"{fig}, mean of onshore wind and solar PV"
+            wind, solar = own[rec["code"]]
+            row |= {"cost of capital": round((wind + solar) / 2, 5), "Fig A1 onshore wind": wind}
+            row |= {"Fig A1 solar PV": solar, "source": f"{fig}, mean of onshore wind and solar PV"}
         else:
             values = by_region[rec["irena region"]]
-            value = statistics.median(values)
-            src = f"{fig}, median of the {len(values)} own values in {rec['irena region']} ({label(IRENA_REPORT, 'Annex III')})"
-        rows.append(
-            {
-                "country": rec["country"],
-                "code": rec["code"],
-                "tech": "Renewables",
-                "cost of capital": round(value, 5),
-                "source": src,
-            }
-        )
-    return pd.DataFrame(rows)
+            row |= {"cost of capital": round(statistics.median(values), 5), "own values in region": len(values)}
+            annex = label(IRENA_REPORT, "Annex III")
+            row["source"] = f"{fig}, median of the {len(values)} own values in {rec['irena region']} ({annex})"
+        rows.append(row)
+    columns = [
+        "country",
+        "code",
+        "tech",
+        "cost of capital",
+        "Fig A1 onshore wind",
+        "Fig A1 solar PV",
+        "own values in region",
+        "source",
+    ]
+    return pd.DataFrame(rows, columns=columns)
 
 
 # --- output -------------------------------------------------------------------------------------
 
+YEARS_RULE = (
+    "Years: the workbooks have the year columns 2024, 2035 and 2050 only. BOA interpolates linearly "
+    "between them and holds the 2050 value for later years."
+)
+# The derivation, in the order of the Method sheet. A function's rule is the first paragraph of its docstring.
+METHOD: tuple[str | Callable, ...] = (
+    YEARS_RULE,
+    irena_capex,
+    weo_change,
+    battery_capex,
+    build_opex,
+    build_wacc,
+    read_country_list,
+    build_mapping,
+)
+
+
+def rule_text(item: str | Callable) -> tuple[str, str]:
+    """(topic, rule) of one METHOD item: the text before and after the first colon of its rule paragraph."""
+    text = item if isinstance(item, str) else " ".join(item.__doc__.strip().split("\n\n")[0].split())
+    topic, rule = text.split(": ", 1)
+    return topic, rule[:1].upper() + rule[1:]
+
+
+def method_sheet() -> pd.DataFrame:
+    return pd.DataFrame([rule_text(item) for item in METHOD], columns=["topic", "rule"])
+
+
+def inputs_sheet(book: openpyxl.Workbook, scenario: str, mapping: pd.DataFrame, index: dict[str, str]) -> pd.DataFrame:
+    """Every source value the workbook uses, as the source gives it: compare these with the source files."""
+    rows = []
+
+    def add(source: str, item: str, tech: str, value: float, unit: str, year: object = "", note: str = "") -> None:
+        rows.append({"source": source, "item": item, "tech": tech, "year": year, "value": value, "unit": unit})
+        rows[-1]["note"] = note
+
+    capex = irena_capex(book)
+    for tech in ("solar", "wind"):
+        tech_label, unit, table = TECHS[tech]
+        for region in COST_ROWS:
+            add(label(IRENA_DATA, table), region, tech_label, capex[tech][region], unit, BASE_YEAR)
+        add(label(IRENA_DATA, "Table S.1"), "Global", tech_label, capex[tech][MIDDLE_EAST], unit, BASE_YEAR)
+    for key, value in irena_om(book).items():
+        table, item = OM_ROWS[key]
+        tech = "Onshore wind" if key.startswith("wind") else "Solar PV"
+        add(label(IRENA_DATA, table), item, tech, value, "USD/kW/year")
+    weo_table = WEO_TABLE[scenario]
+    for region, techs in WEO_CAPEX[scenario].items():
+        for tech, values in techs.items():
+            for year, value in zip(YEARS, values):
+                add(label(WEO, weo_table), region, TECHS[tech][0], value, "USD(2024)/kW", year, "transcribed")
+    for year, value in zip(YEARS, WEO_BATTERY[scenario]):
+        add(label(WEO, "Table B.5"), f"Global, {scenario}", "Battery", value, "USD(2024)/kWh", year, "transcribed")
+    for group, value in zip(("OECD and China", "Rest of the world"), TABLE_A1_DEFAULTS):
+        add(label(IRENA_REPORT, "Table A1"), group, "Renewables", value, "real WACC", "", "transcribed")
+    for name, wind, solar in fig_a1_rows(book):
+        code = index.get(norm(name))
+        if code is None:
+            note = "no ISO-3 code of the country list"
+        elif is_default(wind, solar):
+            note = f"{code}, Table A1 default, not used"
+        else:
+            note = code
+        add(label(IRENA_DATA, "Fig A1"), name, "Onshore wind", wind, "real WACC", BASE_YEAR, note)
+        add(label(IRENA_DATA, "Fig A1"), name, "Solar PV", solar, "real WACC", BASE_YEAR, note)
+    return pd.DataFrame(rows)
+
 
 def sources_sheet(scenario: str) -> pd.DataFrame:
     items = [("Package", PACKAGE), ("Scenario", f"IEA WEO 2025 {scenario}"), ("Currency", "2024 USD, real")]
-    items += [("Years", "2024, 2035, 2050; BOA interpolates linearly between them and holds 2050 after it")]
     for source_id in INPUTS:
         source = get_source(source_id)
         items.append((source_id, f"{source.citation} {source.url} (sha256 {source.sha256}; {source.licence})"))
@@ -575,18 +602,7 @@ def package_json(version: str, workbooks: dict[str, Path], battery_opex: float) 
             source_id: {"url": get_source(source_id).url, "sha256": get_source(source_id).sha256}
             for source_id in INPUTS
         },
-        "method": {
-            "years": "2024, 2035, 2050; BOA interpolates linearly between them",
-            "capex": "IRENA Tables 3.1, 2.1 (Middle East: S.1) x IEA WEO 2025 Tables B.4a-c change from 2024; "
-            "United States, Europe (EU row), China, India own row, other regions the mean change of the four",
-            "battery_capex": "IEA WEO 2025 Table B.5, global, every region",
-            "opex": f"IRENA Tables A3, A4 O&M over the region's 2024 CAPEX; battery {battery_opex:g} placeholder",
-            "cost_of_capital": "IRENA Fig A1 mean of onshore wind and solar PV; a country without an own value "
-            "takes the median of the own values in its IRENA cost region",
-            "countries": "ISO-3 codes of Natural Earth 1:50m map subunits (the BOA ISO-3 grid rule)",
-            "regions": "IRENA Annex III; other codes by Natural Earth SUBREGION (UN M49); territories of China "
-            "take China; 'Seven seas (open ocean)' by REGION_UN",
-        },
+        "method": dict(rule_text(item) for item in METHOD) | {"Battery OPEX": f"{battery_opex:g} placeholder"},
         "workbooks": {
             scenario.lower(): {
                 "name": path.name,
@@ -600,6 +616,7 @@ def package_json(version: str, workbooks: dict[str, Path], battery_opex: float) 
 
 def build(root: Path, out_dir: Path, version: str, battery_opex: float) -> dict[str, Path]:
     """Write the three workbooks, the package JSON and the zip into ``out_dir``; return the workbooks."""
+    check_rules()
     paths = {source_id: input_path(root, get_source(source_id)) for source_id in INPUTS}
     book = openpyxl.load_workbook(paths[IRENA_DATA], read_only=True, data_only=True)
     mapping, index = build_mapping(read_country_list(paths[NATURAL_EARTH]))
@@ -614,6 +631,8 @@ def build(root: Path, out_dir: Path, version: str, battery_opex: float) -> dict[
             "RES OPEX": opex,
             "Cost of capital": wacc,
             "Country mapping": mapping,
+            "Inputs": inputs_sheet(book, scenario, mapping, index),
+            "Method": method_sheet(),
             "Sources": sources_sheet(scenario),
         }
         write_workbook(path, sheets)

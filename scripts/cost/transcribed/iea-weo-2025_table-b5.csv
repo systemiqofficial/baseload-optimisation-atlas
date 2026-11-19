@@ -1,0 +1,6 @@
+# IEA WEO 2025, Annex B, Table B.5 (p. 457).
+# Utility-scale stationary batteries, global, USD(2024)/kWh.
+table,scenario,2024,2035,2050
+Table B.5,CPS,150,100,90
+Table B.5,STEPS,150,100,90
+Table B.5,NZE,150,100,80
