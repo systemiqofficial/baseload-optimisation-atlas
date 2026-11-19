@@ -180,3 +180,34 @@ the file path, plus the package's URL, version and sha256 when it is the package
 The package's `boa-cost-data.json` (sheet dates, units, rounding and notes) stays with the
 package in `data/boa-cost-data/`; it names the workbook `boa-cost-data-v<version>.xlsx`, and
 its `workbook.sha256` matches a scenario's `boa_cost_data.xlsx` prepared from it.
+
+## Building the core cost set
+
+The core cost set is built from pinned public sources (see [Cost data](cost-data.md)):
+
+```bash
+boa-sources-fetch                                   # download the sources into <data root>/sources/
+python scripts/cost/build_core.py --out-dir build/cost-core
+boa-data-prepare --input-file build/cost-core/boa-cost-data-core-steps-v0.1.xlsx --scenario core-steps
+```
+
+`boa-sources-fetch --list` shows which sources are on disk. The build stops if a file is missing
+or its sha256 differs from the pin.
+
+The build reads three kinds of input from `scripts/cost/`:
+
+| Input | Holds | Check it against |
+|---|---|---|
+| `transcribed/*.csv` | Values typed from the PDF sources, in the layout of the source table | The page in the file header |
+| `rules.toml` | Our decisions: which WEO row a region follows, OECD regions, name aliases, the subregion table | — |
+| The IRENA data file and the Natural Earth file | Read by the script | The **Inputs** sheet of each workbook |
+
+### Updating a source
+
+1. In `boa/config/cost_sources.toml`, change the `url`, `sha256` and `accessed` of the source,
+   and its `tables` lines if the table numbers change.
+2. Run `boa-sources-fetch <id>`.
+3. For a PDF source, update its file in `transcribed/` from the new pages.
+4. Run the build and the tests (`pytest tests/test_cost_build_core.py`). The tests compare the
+   WEO values with the PDF (when `pypdf` is installed), and check that each `source` cell names a registry table.
+5. Compare the **Inputs** sheet of the new workbooks with the source files.
