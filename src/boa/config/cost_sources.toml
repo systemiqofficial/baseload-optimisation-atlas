@@ -28,7 +28,8 @@ sha256 = "ffe8ce4bde29616f3edf9ef1a86dbb6ae2d5381a0ecb9bb1f71bb20204b6bada"
 licence = "IRENA terms of use: free use with attribution"
 accessed = 2026-11-19
 tables = [
-  "Annex I: default WACC where Fig A1 has no own value (5% OECD and China, 7.5% elsewhere)",
+  "Table A1: default real WACC for countries outside the WACC benchmark tool (5% OECD and China, 7.5% elsewhere), p. 202",
+  "Box A.2: minimum WACC floor on the Table A1 defaults, p. 203",
   "Annex III: regional groupings of countries, p. 215",
 ]
 

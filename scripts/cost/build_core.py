@@ -19,7 +19,7 @@ Method:
 - OPEX: IRENA O&M (Tables A3, A4) divided by the region's 2024 CAPEX. No core source gives battery
   O&M, so the battery row is a placeholder (--battery-opex) and its source says so.
 - Cost of capital: IRENA Fig A1, the mean of onshore wind and solar PV. A country with no own Fig A1
-  value (Fig A1 shows the Annex I default) takes the median of the own values in its IRENA cost region.
+  value (Fig A1 shows the report Table A1 default) takes the median of the own values in its IRENA cost region.
 - Countries: the ISO-3 codes of the Natural Earth 1:50m map subunits, with the same rule and remap
   (NE_TO_BOA) that BOA uses for its ISO-3 grid. A country in IRENA Annex III takes its Annex III region.
   Any other code takes its region from the Natural Earth UN subregion (SUBREGION_REGIONS), except that a
@@ -224,8 +224,8 @@ REGION_UN_REGIONS = {
 # A code with this SUBREGION or REGION_UN has no IRENA cost region; the workbook has no row for it.
 NO_REGION = "Antarctica"
 
-# Fig A1 shows the Annex I default (5% OECD and China, 7.5% elsewhere) for a country without its own value.
-ANNEX_I_DEFAULTS = (0.05, 0.075)
+# Fig A1 shows the report Table A1 default (5% OECD and China, 7.5% elsewhere) for a country without its own value.
+TABLE_A1_DEFAULTS = (0.05, 0.075)
 
 
 # --- inputs -------------------------------------------------------------------------------------
@@ -503,8 +503,8 @@ def fig_a1(book: openpyxl.Workbook) -> dict[str, tuple[float, float]]:
 
 
 def is_default(wind: float, solar: float) -> bool:
-    """True if Fig A1 shows the Annex I default, not a country's own value."""
-    return wind == solar and any(abs(wind - d) < 1e-12 for d in ANNEX_I_DEFAULTS)
+    """True if Fig A1 shows the Table A1 default, not a country's own value."""
+    return wind == solar and any(abs(wind - d) < 1e-12 for d in TABLE_A1_DEFAULTS)
 
 
 def build_wacc(book: openpyxl.Workbook, mapping: pd.DataFrame, index: dict[str, str]) -> pd.DataFrame:

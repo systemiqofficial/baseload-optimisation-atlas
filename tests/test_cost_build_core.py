@@ -115,7 +115,7 @@ def test_wacc_own_value_is_the_mean_and_a_default_takes_the_regional_median():
             ("Aland", 0.04, 0.06),
             ("Borland", 0.08, 0.08),
             ("Corland", 0.10, 0.12),
-            ("Dorland", 0.075, 0.075),  # Annex I default, not an own value
+            ("Dorland", 0.075, 0.075),  # Table A1 default, not an own value
         ]
     )
     regions = {"Aland": "Europe", "Borland": "Europe", "Corland": "Europe", "Dorland": "Europe", "Eland": "Europe"}
