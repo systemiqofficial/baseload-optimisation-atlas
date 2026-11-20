@@ -19,7 +19,7 @@ from boa.model.capacity_maps import (
     plot_availability_share,
     plot_cost_and_quantity_maps,
 )
-from boa.model.supply_curves import pixel_regions, plot_supply_curves
+from boa.model.supply_curves import pixel_regions, plot_region_map, plot_supply_curves
 
 
 def plot_time_series(profile: dict[str, np.ndarray], output_path: Optional[Path] = None) -> None:
@@ -285,6 +285,9 @@ def _plot_capacity_maps(
         plot_supply_curves(
             optimal_sol, plots_path / f"supply_curve_{region}_{year}_cov{coverage:g}.png", regions=regions
         )
+        region_map_path = plots_path / f"supply_regions_{region}.png"
+        if not region_map_path.exists():
+            plot_region_map(regions, region_map_path, boundaries=boundaries, title=f"{region}: supply-curve regions")
     share_path = plots_path / f"availability_share_{region}.png"
     if share_path.exists():
         return

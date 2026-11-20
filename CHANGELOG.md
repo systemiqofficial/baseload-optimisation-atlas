@@ -17,7 +17,9 @@ Changes to BOA by version, newest first. Each version is a git tag, for example 
   available share of the land for solar PV and wind for each region. They use Crameri's Scientific
   Colour Maps, through the new dependency `cmcrameri`.
 - **Supply curves** with `--plots`: the LCOE over the annual energy of the capacity potential, one
-  ordered by cost and coloured by region, one ordered by region.
+  ordered by cost and coloured by region, one ordered by region. They use 14 regions made from the
+  UN subregions, with China and Russia apart, and leave out the most expensive 2 % of the energy
+  of each region. A map shows the regions in the colours of the curves.
 - **Variable attributes**: each variable of a per-year file has `long_name` and `units`. The map
   and supply-curve functions take their labels from them, so they also plot other gridded cost
   files, for example an LCOH.
