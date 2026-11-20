@@ -40,7 +40,7 @@ if the per-year files disagree on either.
 |---|---|---|
 | `schema_version` | `1` | Version of this layout. A reader should refuse a version it does not know |
 | `lcoe_basis` | `"per_mwh_delivered"` | `lcoe` divides the system's cost by the energy it actually delivers to the baseload demand, not by all the energy it generates |
-| `capacity_ceiling_applied` | `0` or `1` | `1` when each pixel's solar and wind capacity was limited by the land available to it. Today always `0`: the optimum is unconstrained |
+| `capacity_ceiling_applied` | `0` or `1` | `1` when each pixel's solar and wind capacity was limited by the land available to it. BOA writes `0`: the LCOE is the unconstrained optimum. The capacity potential is in the per-year files only |
 
 **The scenario**, copied from the per-year files, which must all agree: `investment_horizon_years`,
 `load_density_mw_km2`, `coverage_fraction`, `search_params_hash`, `era5_weather_year`,

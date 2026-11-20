@@ -2,6 +2,26 @@
 
 Changes to BOA by version, newest first. Each version is a git tag, for example `v1.10.0`.
 
+## Unreleased
+
+### Added
+
+- **Capacity potential**: each per-year file has `max_baseload_mw`, the largest baseload demand
+  that the land of the pixel can supply with its optimal design at that LCOE, and
+  `max_annual_energy_twh`, `ceiling_binding`, `solar_ceiling_mw` and `wind_ceiling_mw`. The query
+  reads the maximum-capacity store of each region and stops when it is missing. The LCOE and the
+  design do not change, and `capacity_ceiling_applied` stays 0.
+- **`boa-sources-fetch --tag`**: fetches only the sources with one tag (`costs` or
+  `capacity-ceiling`).
+
+### Changed
+
+- **Capacity-ceiling parameters** come from Deng et al. (2015): 50 MW/km² for solar PV, 7 MW/km²
+  for wind, and the land-cover fractions of the High case for industrialised countries. Rebuild
+  the maximum-capacity stores (`boa-cds-prepare --force`), because their signature changes.
+- **Source registry**: `src/boa/config/cost_sources.toml` is now `src/boa/config/sources.toml`,
+  and each source has a required `tags` list.
+
 ## 1.10.0
 
 ### Added

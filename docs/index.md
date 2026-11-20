@@ -34,9 +34,9 @@ MW of demand), wind factor (MW of wind per MW of demand) and battery factor (hou
 Values above the end of a colour scale have the last colour. Grey pixels have no result: they are
 sea, outside the regions of the model, or (48 pixels) without a usable optimum. The run is
 `wy2025_default_boa110_49e8`: [weather set](glossary.md#weather-set) `cds-2025` (weather year 2025), cost set `default`,
-coverage target 0.9, load density 1 MW/km², run hash `49e8`. **BOA does not apply the capacity
-ceiling to this result** (see [Known limitations](known-limitations.md#the-capacity-ceiling-is-not-applied)),
-so the design in a pixel can need more land than the pixel has. The script is
+coverage target 0.9, load density 1 MW/km², run hash `49e8`. **The design is the unconstrained
+optimum** (see [Known limitations](known-limitations.md#capacity-ceiling-and-potential)): the land of
+a pixel limits only how much demand this design can supply, not the design. The script is
 `docs_figures/index_figures.py`.
 
 Generated using Copernicus Climate Change Service information 2026. Neither the European
@@ -56,7 +56,8 @@ The maps show these features of the 226 160 pixels that have a result:
 The [Known limitations](known-limitations.md) page lists all limits. Three limits change how you
 must read the maps:
 
-- BOA does not apply the capacity ceiling. The LCOE is the cost of the unconstrained optimum.
+- The LCOE is the cost of the unconstrained optimum. The capacity ceiling limits only the capacity
+  potential: the largest demand that the land of the pixel can supply with this design.
 - A run uses one weather year. The result has no year-to-year variation of the weather.
 - BOA models no grid, no transmission and no other source of electricity. The hours that are not
   covered have no cost. The LCOE is the cost for each MWh that the system delivers, not the cost to

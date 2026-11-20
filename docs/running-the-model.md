@@ -171,10 +171,14 @@ the GLOBAL file. It appears with or without `--plots`. The `point` command alway
 
 ## Capacity ceiling
 
-BOA does not apply the capacity ceiling. Each query reports the unconstrained optimum for the
-coverage target, for each load density, and writes a warning to the log. Each per-year file records
-`capacity_ceiling_applied = 0`: BOA did not apply the capacity ceiling. See
-[The capacity ceiling is not applied](known-limitations.md#the-capacity-ceiling-is-not-applied).
+Each query reports the unconstrained optimum for the coverage target, and records
+`capacity_ceiling_applied = 0`. It also reads the maximum-capacity store of each region and writes
+the capacity potential of the design: `max_baseload_mw`, the largest demand that the land of the
+pixel can supply at this LCOE. A missing maximum-capacity store stops the query.
+
+The potential uses the land-availability fractions only when the maximum-capacity stores were built
+with `boa-cds-prepare --layers lulc,cds_exclusion`. See
+[Capacity ceiling and potential](known-limitations.md#capacity-ceiling-and-potential).
 
 ## Reproduce a result
 
@@ -237,10 +241,10 @@ contain the attribute. The layout of the promoted file is a contract: see
 `boa-promote-lcoe --run <label>` fails when the label matches more than one directory
 `<label>_<hash>`. In that case, pass the full directory name. The default label is `default`.
 
-BOA does not apply the capacity ceiling, and the promoted file carries `capacity_ceiling_applied =
-0`. Promotion requires the attribute `capacity_ceiling_applied` in the per-year files, but it does
-not check its value. See
-[The capacity ceiling is not applied](known-limitations.md#the-capacity-ceiling-is-not-applied).
+The promoted file carries `capacity_ceiling_applied = 0`: the LCOE is the unconstrained optimum.
+It does not contain the capacity potential. Promotion requires the attribute
+`capacity_ceiling_applied` in the per-year files, but it does not check its value. See
+[Capacity ceiling and potential](known-limitations.md#capacity-ceiling-and-potential).
 A promoted file also depends on the frontier caches that the per-year files were priced from (see
 [Reuse of the frontier cache](known-limitations.md#reuse-of-the-frontier-cache)).
 
@@ -305,6 +309,10 @@ the dimensions `lat` and `lon`.
 | `load_mw` | float32 | MW | The demand of the pixel: the load density multiplied by the area of the pixel. The installed solar capacity in MW is `solar_factor × load_mw`. The battery capacity in MWh is `battery_factor × load_mw`. |
 | `cost_key` | string | — | The cost key that priced the pixel, for example `DEU` or `CHN:CN-GS`. |
 | `status` | int8 | code | Why the pixel has, or has not, a result. The next paragraph gives the values. |
+| `solar_ceiling_mw`, `wind_ceiling_mw` | float32 | MW | The capacity ceiling of the pixel: the largest solar and wind capacity that its land can hold. Set for every modelled pixel. |
+| `max_baseload_mw` | float32 | MW | The capacity potential: the largest demand that the land of the pixel can supply with this design, `min(solar_ceiling_mw / solar_factor, wind_ceiling_mw / wind_factor)`. It does not depend on the load density. |
+| `max_annual_energy_twh` | float32 | TWh per year | The energy that the capacity potential delivers in a year of 8760 hours: `max_baseload_mw × 8760 × served_fraction`. |
+| `ceiling_binding` | int8 | code | The technology whose ceiling sets `max_baseload_mw`: 1 solar, 2 wind, 0 no design. |
 
 The unit of all money values is USD. BOA does not convert currency and does not adjust for
 inflation. It uses the values of the cost workbook as they are.
@@ -312,7 +320,8 @@ inflation. It uses the values of the cost workbook as they are.
 The installation costs are the costs in the investment year only. They do not contain OPEX.
 
 **Status.** `status` is 1 when the search found a result. For every other value, the variables of
-the design, the LCOE, the installation costs, `coverage` and `served_fraction` are NaN. The values of `cost_key`,
+the design, the LCOE, the installation costs, `coverage`, `served_fraction`, `max_baseload_mw`
+and `max_annual_energy_twh` are NaN, and `ceiling_binding` is 0. The values of `cost_key`,
 `cost_of_capital` and `load_mw` depend on the status. The code table is in
 [Known limitations](known-limitations.md#status-codes). The status is the same for every
 investment year of a run.
@@ -332,10 +341,10 @@ exist. The rules are:
 
 - When the per-year file of a region is missing, BOA writes a warning, writes no GLOBAL file, and
   continues. The command can still end with the message that all simulations completed.
-- When the files disagree on `search_params_hash`, BOA stops with a `ValueError`. Query the stale
-  regions again.
+- When the files disagree on `search_params_hash` or on `capacity_ceiling_signature`, BOA stops
+  with a `ValueError`. Query the stale regions again.
 - Where regions overlap, the first non-NaN value of each variable wins, with the regions in the
-  order of the region list. For `status`, the first non-zero value wins. For `cost_key`, the first
+  order of the region list. For `status` and `ceiling_binding`, the first non-zero value wins. For `cost_key`, the first
   non-empty value wins. Each variable is chosen on its own, so the values of one pixel can come
   from different regions.
 - The attributes of the GLOBAL file are the attributes of the first region, with `region` set to
@@ -354,5 +363,9 @@ The attributes of a file record the scenario and the provenance:
 | `search_params_hash` | A hash of the search settings. The frontier cache path contains it. |
 | `frontier_cache_path` | The frontier cache that the file was priced from: the path of the cache of the region, relative to the cache directory. In the GLOBAL file, it is the cache of the first region only. The path separator depends on the operating system. |
 | `frontier_cache_built_at` | The build time (UTC) of the frontier cache that the file was priced from. In the GLOBAL file, it has one entry `REGION=<time>` for each region, separated by `;`. |
-| `capacity_ceiling_applied` | `0`: BOA did not apply the capacity ceiling. |
+| `capacity_ceiling_applied` | `0`: the capacity ceiling does not limit the design or the LCOE. |
+| `capacity_potential_method` | The formula of `max_baseload_mw`. |
+| `capacity_ceiling_signature` | The `availability_signature` of the maximum-capacity stores: a hash of the land-availability layers and the densities. |
+| `capacity_ceiling_layers` | The land-availability layers of the maximum-capacity stores, for example `lulc,cds_exclusion`. Empty for stores without layers. |
+| `capacity_ceiling_density_mw_per_km2` | The solar and wind densities of the maximum-capacity stores, in MW/km². |
 | `created_at`, `source` | When BOA wrote the file (UTC), and a fixed description. |

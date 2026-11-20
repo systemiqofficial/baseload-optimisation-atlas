@@ -23,9 +23,15 @@ The energy capacity of the battery divided by the demand, in hours of demand. Se
 
 ## Capacity ceiling
 
-The largest solar and wind capacity that the available land of a pixel can hold. BOA does not apply
-it when it selects a design. See
-[Known limitations](known-limitations.md#the-capacity-ceiling-is-not-applied).
+The largest solar and wind capacity that the available land of a pixel can hold. BOA does not use
+it when it selects a design. It uses it for the [capacity potential](#capacity-potential). See
+[Known limitations](known-limitations.md#capacity-ceiling-and-potential).
+
+## Capacity potential
+
+The largest baseload demand, in MW, that the land of a pixel can supply with the optimal design at
+its LCOE (`max_baseload_mw`). The [capacity ceiling](#capacity-ceiling) of solar or of wind limits
+it. See [Known limitations](known-limitations.md#capacity-ceiling-and-potential).
 
 ## Capacity factor
 

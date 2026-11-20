@@ -204,12 +204,13 @@ When the demand doubles, each cost and the delivered energy double. The ratio, t
 the same, apart from rounding in the last digits of the floating-point numbers. The load density
 changes only the absolute values in the output: the demand in MW and the installation costs.
 
-This is true because BOA does not limit the solar and wind capacity of a pixel by the land that
-is available. We call that limit the **capacity ceiling**. BOA can calculate the capacity
-ceiling, but it does not apply it when it selects a design. Each output file records this as
-`capacity_ceiling_applied = 0`. A capacity ceiling in MW is the same for each load density, but
-the demand of the pixel increases with the load density. Thus, with a capacity ceiling, the
-result would depend on the load density. See [Known limitations](known-limitations.md).
+This is true because BOA does not limit the design by the land that is available. We call the
+largest solar and wind capacity that the land of a pixel can hold the **capacity ceiling**. BOA
+uses it after it selects the design: the **capacity potential** is the largest demand, in MW, that
+the land can supply with this design (`max_baseload_mw`). Each output file records
+`capacity_ceiling_applied = 0`, because the LCOE is the unconstrained optimum. The potential does
+not depend on the load density. See
+[Known limitations](known-limitations.md#capacity-ceiling-and-potential).
 
 ## Build once, price many
 

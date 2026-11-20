@@ -58,8 +58,9 @@ reads the weather of the region of the location. It builds the frontier of this 
 [build_pixel_frontier][boa.model.bisection.build_pixel_frontier]. It uses the cost coefficients of
 this pixel as the anchor. Then it runs the query with
 [argmin_lcoe][boa.model.bisection.argmin_lcoe]. It does not write a frontier cache. The run reads
-the maximum-capacity store of the region and logs the limits. It does not apply them (see
-[Known limitations](known-limitations.md)). The run always makes the plots of the point.
+the maximum-capacity store of the region and reports the capacity potential of the design (see
+[Known limitations](known-limitations.md#capacity-ceiling-and-potential)). The run always makes the
+plots of the point.
 
 ## Module map
 
@@ -96,7 +97,7 @@ The package `boa` has these parts. Names are paths from `boa`.
 |---|---|
 | [boa.cds.spec][boa.cds.spec], [boa.cds.download][boa.cds.download] | The names of the Copernicus Climate Data Store (CDS) datasets, and the download of the raw files. |
 | [boa.cds.convert][boa.cds.convert] | Converts the raw files to the regional Zarr stores of the profiles. |
-| [boa.cds.max_capacity][boa.cds.max_capacity], [boa.cds.availability][boa.cds.availability] | Build the regional stores of the capacity ceiling from the pixel area and the optional land-availability layers. The query does not apply the ceiling (see [Known limitations](known-limitations.md)). The function `pixel_area` also gives the area of a pixel to `boa.model.global_extension` and `boa.model.single_point_run`. |
+| [boa.cds.max_capacity][boa.cds.max_capacity], [boa.cds.availability][boa.cds.availability] | Build the regional stores of the capacity ceiling from the pixel area and the optional land-availability layers. The query uses the ceiling for the capacity potential, not for the design (see [Known limitations](known-limitations.md#capacity-ceiling-and-potential)). The function `pixel_area` also gives the area of a pixel to `boa.model.global_extension` and `boa.model.single_point_run`. |
 | [boa.cds.install][boa.cds.install] | Moves finished stores to the folder that the model reads. |
 | [boa.store_schema][boa.store_schema] | The chunking, the format and the file names of the stores. The writers in `boa.cds` and the reader `boa.inputs.profiles` share it. |
 | `boa.conversions` | Changes a grid resolution to the text in the store file names (for example, 0.25 becomes `025`). |
