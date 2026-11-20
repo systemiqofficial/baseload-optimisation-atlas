@@ -76,8 +76,11 @@ def year_files(path_config: PathConfig, weather_year: int, load_density: float, 
     return dict(sorted(files.items()))
 
 
-def _encode_cost_keys(cost_key: np.ndarray) -> tuple[np.ndarray, str]:
-    """Map the per-pixel cost-key strings onto int16 ids plus a comma-joined legend."""
+def encode_cost_keys(cost_key: np.ndarray) -> tuple[np.ndarray, str]:
+    """Map the per-pixel cost-key strings onto int16 ids plus a comma-joined legend.
+
+    Shared by every file in the promoted layout (``boa.downstream.lcoh_file`` too), so their
+    ``cost_key_id``/``cost_key_legend`` pairs read the same way."""
     legend_values, inverse = np.unique(cost_key.ravel(), return_inverse=True)
     legend = [str(k) for k in legend_values]
     if any("," in key for key in legend):
@@ -172,7 +175,7 @@ def promote_lcoe(path_config: PathConfig, weather_year: int, load_density: float
                 )
             lcoe[i] = ds["lcoe"].values.astype(np.float32)
 
-    cost_key_id, legend = _encode_cost_keys(cost_key)
+    cost_key_id, legend = encode_cost_keys(cost_key)
     attrs["cost_key_legend"] = legend
     # Semicolons, not commas: one status label contains a comma.
     attrs["status_legend"] = ";".join(f"{code}={label}" for code, label in STATUS_CODES.items())
