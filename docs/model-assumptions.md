@@ -117,6 +117,20 @@ Global Environmental Change 31: 239–252,
 registry `src/boa/config/sources.toml` pins the file with the id `deng-2015-realistic-wind-solar`
 and the tag `capacity-ceiling`. `boa-sources-fetch --tag capacity-ceiling` downloads it.
 
+The land-cover map and the exclusion masks are data sets of the Copernicus Climate Data Store
+(CDS). The registry lists them with `access = "cds-api"`: the entry gives the data set page, the
+data set name of the CDS API request, the DOI, the version and the licence. `boa-cds-download`
+gets them with a CDS account. `boa-sources-fetch` skips them.
+
+| Id | Source | Access point | Used for |
+|---|---|---|---|
+| `deng-2015-realistic-wind-solar` | Deng et al. (2015) | File download | Densities, land-availability fractions |
+| `c3s-satellite-land-cover` | ESA-CCI land cover, version 2.1.1, year 2022, [doi:10.24381/cds.006f2c9a](https://doi.org/10.24381/cds.006f2c9a) | [CDS data set `satellite-land-cover`](https://cds.climate.copernicus.eu/datasets/satellite-land-cover) | Layer `lulc`: land-cover class of each 300 m pixel |
+| `c3s-energy-global-reanalysis` | C3S global climate and energy indicators, version 1.00, [doi:10.24381/3bb607bd](https://doi.org/10.24381/3bb607bd) | [CDS data set `sis-energy-global-reanalysis`](https://cds.climate.copernicus.eu/datasets/sis-energy-global-reanalysis), variables `solar_pv_exclusion_mask` and `wind_power_exclusion_mask` | Layer `cds_exclusion`: excluded pixels for solar PV and for wind |
+
+The land-cover data set page lists three licences (ESA CCI, CC-BY and VITO) and does not say
+which applies to version 2.1.1. The energy data set has the CC-BY licence.
+
 The pixel area (`pixel_area` in `boa.cds.max_capacity`) is not the exact area of the grid cell on
 a sphere. It is the square of the side length of 0.25° of arc on a sphere with a radius of
 6371.0 km, multiplied by cos(latitude). The radius is the constant `EARTH_RADIUS_KM` (mean

@@ -57,7 +57,56 @@ def test_tracked_registry_loads():
     registry = load_registry()
     assert registry
     for source in registry.values():
-        assert source.file, source.id
+        assert bool(source.file) == source.downloadable, source.id
+
+
+def test_tracked_registry_names_the_cds_inputs_of_the_capacity_ceiling():
+    ceiling = sources_with_tag("capacity-ceiling")
+    datasets = {s.dataset for s in ceiling.values() if s.access == "cds-api"}
+    assert datasets == {"satellite-land-cover", "sis-energy-global-reanalysis"}
+
+
+CDS_ENTRY = """
+[[source]]
+id = "demo-cds"
+citation = "Demo CDS data set."
+url = "https://cds.climate.copernicus.eu/datasets/demo"
+access = "cds-api"
+dataset = "demo"
+licence = "CC-BY licence"
+accessed = 2026-11-20
+tags = ["capacity-ceiling"]
+tables = ["mask: a mask"]
+"""
+
+
+def test_cds_entry_parses_without_a_file_or_sha256(tmp_path):
+    source = load_registry(_write_registry(tmp_path, CDS_ENTRY))["demo-cds"]
+    assert not source.downloadable
+    assert source.file == ""
+    assert source.dataset == "demo"
+
+
+@pytest.mark.parametrize(
+    "old, new, message",
+    [
+        ('dataset = "demo"\n', "", "needs the CDS dataset name"),
+        ('dataset = "demo"', f'dataset = "demo"\nsha256 = "{PAYLOAD_SHA}"', "sha256 is only for access download"),
+        ('access = "cds-api"', 'access = "ftp"', "access must be one of download, cds-api"),
+    ],
+)
+def test_invalid_cds_entry_is_rejected(tmp_path, old, new, message):
+    assert old in CDS_ENTRY
+    with pytest.raises(RegistryError, match=message):
+        load_registry(_write_registry(tmp_path, CDS_ENTRY.replace(old, new, 1)))
+
+
+def test_cli_skips_a_cds_source(tmp_path, monkeypatch, capsys):
+    registry = load_registry(_write_registry(tmp_path, CDS_ENTRY))
+    monkeypatch.setattr(fetch_sources, "load_registry", lambda: registry)
+    assert fetch_sources.main(["--root", str(tmp_path)]) == 0
+    assert "skipped, CDS data set 'demo'" in capsys.readouterr().out
+    assert not (tmp_path / "sources").exists()
 
 
 def test_sources_with_tag_filters_and_rejects_an_unknown_tag(tmp_path):
@@ -107,6 +156,7 @@ def test_valid_entry_parses(tmp_path):
         ('tags = ["costs"]', "tags = []", "tags must be"),
         ('tags = ["costs"]', 'tags = ["costs", "costs"]', "tags must be"),
         ('tags = ["costs"]', 'tags = ["cost"]', "unknown tag cost"),
+        ('tags = ["costs"]', 'tags = ["costs"]\ndataset = "x"', "dataset is only for access cds-api"),
     ],
 )
 def test_invalid_entry_is_rejected(tmp_path, old, new, message):

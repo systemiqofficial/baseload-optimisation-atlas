@@ -1,6 +1,11 @@
-# Original files that BOA takes input values from.
+# Originals that BOA takes input values from.
 #
-# boa-sources-fetch downloads each file into <data root>/sources/<id>/ and checks its sha256.
+# access = "download" (the default): one file at url, pinned by sha256. boa-sources-fetch downloads
+#   it into <data root>/sources/<id>/ and checks its sha256.
+# access = "cds-api": a data set of the Copernicus Climate Data Store. url is the data set page and
+#   dataset the name in the CDS API request. boa-cds-download gets it (it needs a CDS account and
+#   the accepted data set licence); boa-sources-fetch skips it.
+#
 # A value names its source as "<id>: <ref>", where <ref> is the text before the colon in one of
 # the "tables" lines. "tags" says which inputs use the source:
 #   costs             the boa-cost-data-core workbooks (scripts/cost/build_core.py)
@@ -80,4 +85,31 @@ tables = [
   "Footnote 2: typical power densities of solar farms, 25-50 MW/km2, p. 243",
   "Section 2.2.2: wind power density D = 7 MW/km2, p. 244",
   "Section 2.1.1: land excluded for all technologies (urban, ice, water, coast, cliffs, dune, rock) and forest excluded for solar, pp. 240-241",
+]
+
+[[source]]
+id = "c3s-satellite-land-cover"
+citation = "Copernicus Climate Change Service (2019), Land cover classification gridded maps from 1992 to present derived from satellite observations, Copernicus Climate Change Service (C3S) Climate Data Store (CDS), doi:10.24381/cds.006f2c9a. ESA-CCI land cover, version 2.1.1, year 2022."
+url = "https://cds.climate.copernicus.eu/datasets/satellite-land-cover"
+access = "cds-api"
+dataset = "satellite-land-cover"
+licence = "The data set page lists the ESA CCI licence, the CC-BY licence and the VITO licence; it does not say which applies to version 2.1.1"
+accessed = 2026-11-20
+tags = ["capacity-ceiling"]
+tables = [
+  "lccs_class: land-cover class of each 300 m pixel, version 2.1.1, year 2022 (the lulc availability layer, boa.cds.spec.LULC_YEAR and LULC_VERSION)",
+]
+
+[[source]]
+id = "c3s-energy-global-reanalysis"
+citation = "Copernicus Climate Change Service (2026), Global climate and energy indicators from 1950 to present derived from reanalysis, Copernicus Climate Change Service (C3S) Climate Data Store (CDS), doi:10.24381/3bb607bd. Version 1.00."
+url = "https://cds.climate.copernicus.eu/datasets/sis-energy-global-reanalysis"
+access = "cds-api"
+dataset = "sis-energy-global-reanalysis"
+licence = "CC-BY licence"
+accessed = 2026-11-20
+tags = ["capacity-ceiling"]
+tables = [
+  "solar_pv_exclusion_mask: binary exclusion mask for solar PV, 0.25 degree, file ANCI_SPVM-mask_C3S2LOT1_025d_v1.00.nc, variable PVmask (the cds_exclusion availability layer)",
+  "wind_power_exclusion_mask: binary exclusion mask for onshore wind, 0.25 degree, file ANCI_WPM-mask_C3S2LOT1_025d_v1.00.nc, variable wp_mask (the cds_exclusion availability layer)",
 ]

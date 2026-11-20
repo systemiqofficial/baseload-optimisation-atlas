@@ -1,9 +1,17 @@
 """
-The registry of original files that BOA takes input values from: ``sources.toml`` next to this module.
+The registry of originals that BOA takes input values from: ``sources.toml`` next to this module.
 
-Each ``[[source]]`` names one file as its publisher makes it available for download: ``url``, ``sha256``,
-licence, access date, ``tags`` for the inputs that use it (from ``TAGS``) and the tables BOA takes
-values from. ``boa-sources-fetch`` downloads the files into ``<data root>/sources/<id>/``. A value names
+Each ``[[source]]`` names one original as its publisher makes it available: ``url``, licence, access
+date, ``tags`` for the inputs that use it (from ``TAGS``) and the tables BOA takes values from.
+``access`` (from ``ACCESS``, default ``"download"``) says how BOA gets it:
+
+- ``"download"``: one file at ``url``, pinned by ``sha256``. ``boa-sources-fetch`` downloads it into
+  ``<data root>/sources/<id>/``.
+- ``"cds-api"``: a data set of the Copernicus Climate Data Store. ``url`` is the data set page and
+  ``dataset`` the data set name of the CDS API request. ``boa-cds-download`` gets it, not
+  ``boa-sources-fetch``, so there is no ``sha256``.
+
+A value names
 its source as ``<id>: <ref>``, for example ``irena-rpgc-2024-data: Table 2.1``; ``<ref>`` is the text
 before the colon of a ``tables`` line.
 """
@@ -16,7 +24,11 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 REGISTRY_PATH = Path(__file__).with_name("sources.toml")
-FIELDS = ("id", "citation", "url", "sha256", "licence", "accessed", "tags", "tables")
+FIELDS = ("id", "citation", "url", "licence", "accessed", "tags", "tables")
+# Fields that only some entries have: sha256 for access "download", dataset for access "cds-api".
+OPTIONAL_FIELDS = ("access", "sha256", "dataset")
+# How BOA gets the original. Only a "download" source is a file that boa-sources-fetch downloads.
+ACCESS = ("download", "cds-api")
 # What a source is used for. A closed set, so a misspelt tag fails instead of hiding a source.
 TAGS = ("costs", "capacity-ceiling")
 _ID = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -29,20 +41,29 @@ class RegistryError(ValueError):
 
 @dataclass(frozen=True)
 class Source:
-    """One original file, as its publisher makes it available for download."""
+    """One original, as its publisher makes it available: a file to download or a CDS data set."""
 
     id: str
     citation: str
     url: str
-    sha256: str
     licence: str
     accessed: dt.date
     tags: tuple[str, ...]
     tables: tuple[str, ...]
+    access: str = "download"
+    sha256: str = ""
+    dataset: str = ""
+
+    @property
+    def downloadable(self) -> bool:
+        """True for a file that boa-sources-fetch downloads."""
+        return self.access == "download"
 
     @property
     def file(self) -> str:
-        """The file name: the last part of the URL path."""
+        """The file name: the last part of the URL path. Empty for a source that is not a file."""
+        if not self.downloadable:
+            return ""
         return PurePosixPath(urlparse(self.url).path).name
 
     @property
@@ -60,14 +81,27 @@ def _parse_source(entry: dict, index: int) -> Source:
     where = f"source {entry.get('id', f'#{index + 1}')!r}"
     if missing := [key for key in FIELDS if key not in entry]:
         raise RegistryError(f"{where}: missing {', '.join(missing)}")
-    if unknown := sorted(set(entry) - set(FIELDS)):
+    if unknown := sorted(set(entry) - set(FIELDS) - set(OPTIONAL_FIELDS)):
         raise RegistryError(f"{where}: unknown key {', '.join(unknown)}")
     if not _ID.match(str(entry["id"])):
         raise RegistryError(f"{where}: id must be lower-case words joined by '-'")
     if not str(entry["url"]).startswith("https://"):
         raise RegistryError(f"{where}: url must start with https://")
-    if not _SHA256.match(str(entry["sha256"])):
-        raise RegistryError(f"{where}: sha256 must be 64 lower-case hex digits")
+    access = entry.get("access", "download")
+    if access not in ACCESS:
+        raise RegistryError(f"{where}: access must be one of {', '.join(ACCESS)}")
+    if access == "download":
+        if "sha256" not in entry:
+            raise RegistryError(f"{where}: missing sha256")
+        if not _SHA256.match(str(entry["sha256"])):
+            raise RegistryError(f"{where}: sha256 must be 64 lower-case hex digits")
+        if "dataset" in entry:
+            raise RegistryError(f"{where}: dataset is only for access cds-api")
+    else:
+        if "sha256" in entry:
+            raise RegistryError(f"{where}: sha256 is only for access download")
+        if not str(entry.get("dataset", "")).strip():
+            raise RegistryError(f"{where}: access cds-api needs the CDS dataset name")
     if not isinstance(entry["accessed"], dt.date):
         raise RegistryError(f"{where}: accessed must be a date (YYYY-MM-DD)")
     tags = entry["tags"]
@@ -81,7 +115,7 @@ def _parse_source(entry: dict, index: int) -> Source:
     source = Source(**{**entry, "tags": tuple(tags), "tables": tuple(tables)})
     if len(set(source.refs)) != len(source.refs):
         raise RegistryError(f"{where}: duplicate table ref")
-    if "." not in source.file:
+    if source.downloadable and "." not in source.file:
         raise RegistryError(f"{where}: url must end in a file name")
     return source
 
