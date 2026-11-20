@@ -192,7 +192,7 @@ show the capacity ceiling:
   area. BOA writes this map once for each region, because it does not change with the year.
 
 The plots have a size and letter size for slides. The maps have a colour bar below each map and
-no latitude or longitude axes. A global map always shows latitudes from −60° to 75°. The functions
+no latitude or longitude axes. A global map always shows latitudes from −60° to 72°, the extent of the regions. The functions
 write the file type that the suffix of the output path gives, for example `.png` at 250 dpi or
 `.svg`.
 

@@ -28,6 +28,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from matplotlib import patheffects
+from matplotlib.artist import Artist
 from matplotlib.collections import PolyCollection
 from matplotlib.colors import BoundaryNorm, ListedColormap
 from matplotlib.lines import Line2D
@@ -114,6 +115,11 @@ COUNTRY_TO_REGION = {
     "ATA": "Oceania & other",
 }
 DEFAULT_CUT_SHARE = 0.02
+
+# The region legend of the supply curves: one column up to this many regions, else two, with
+# labels wrapped at this many characters so that two columns fit under the region map.
+LEGEND_ROWS_MAX = 8
+LEGEND_LABEL_WIDTH = 16
 
 # Larger units for a total that would otherwise need many digits: unit -> (larger unit, factor).
 _LARGER_UNITS = {
@@ -389,30 +395,28 @@ def plot_supply_curves(
         _draw_regions(ax_map, regions)
         _frame(ax_map, regions, None, "Regions")
         ax_notes.set_axis_off()
-        ax_notes.legend(handles=[median_handle], loc="upper left", frameon=False, borderaxespad=0.0)
-        ax_notes.text(
-            0.0,
-            0.78,
-            "\n\n".join(textwrap.fill(line, 34) for line in caption),
-            transform=ax_notes.transAxes,
-            ha="left",
-            va="top",
-            fontsize=10,
-            color=CAPTION_COLOUR,
+        # Below the map: the regions in block order, in two columns when one would be too long,
+        # and the median line last.
+        handles: list[Artist] = [Patch(facecolor=colours[r], label=textwrap.fill(r, LEGEND_LABEL_WIDTH)) for r in order]
+        handles.append(
+            Line2D([], [], label=textwrap.fill(str(median_handle.get_label()), LEGEND_LABEL_WIDTH), **median_style)
         )
-        fig.legend(
-            handles=[Patch(facecolor=colours[r], label=r) for r in order],
-            loc="outside lower center",
-            ncols=max((len(order) + 1) // 2, 1),
+        ax_notes.legend(
+            handles=handles,
+            loc="upper left",
+            ncols=1 if len(handles) <= LEGEND_ROWS_MAX else 2,
             frameon=False,
+            borderaxespad=0.0,
             fontsize=10,
-            handlelength=1.2,
-            columnspacing=1.2,
+            handlelength=1.0,
+            handletextpad=0.5,
+            columnspacing=0.8,
             title="Regions in block order",
             title_fontsize=11,
+            alignment="left",
         )
     else:
-        fig.legend(handles=[median_handle], loc="outside lower center", frameon=False)
-        fig.text(0.0, -0.01, "\n".join(caption), ha="left", va="top", fontsize=10, color=CAPTION_COLOUR)
+        fig.legend(handles=[median_handle], loc="outside lower right", frameon=False, fontsize=10)
+    fig.text(0.0, -0.01, "\n".join(caption), ha="left", va="top", fontsize=10, color=CAPTION_COLOUR)
     fig.suptitle(title if title is not None else describe_dataset(ds))
     return save_figure(fig, out_path)

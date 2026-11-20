@@ -27,6 +27,9 @@ Changes to BOA by version, newest first. Each version is a git tag, for example 
 
 ### Changed
 
+- **Region `GREENLAND`**: a new region box between `CANADA` and `EUROPE`, so all of Greenland
+  below 72° N has results. A run made before needs `boa-cds-prepare` and a build of this region
+  before it can combine a GLOBAL file again.
 - **Capacity-ceiling parameters** come from Deng et al. (2015): 50 MW/km² for solar PV, 7 MW/km²
   for wind, and the land-cover fractions of the High case for industrialised countries. Rebuild
   the maximum-capacity stores (`boa-cds-prepare --force`), because their signature changes.

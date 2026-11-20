@@ -43,7 +43,7 @@ TECH_TITLES = {"pv": "Solar PV", "wind": "Wind"}
 # A map that spans more than this many degrees of longitude is global, and gets `GLOBAL_EXTENT`
 # (lon min, lon max, lat min, lat max), so the maps of all global files have the same frame.
 _GLOBAL_LON_SPAN = 300.0
-GLOBAL_EXTENT = (-180.0, 180.0, -60.0, 75.0)
+GLOBAL_EXTENT = (-180.0, 180.0, -60.0, 72.0)
 
 # Letter sizes and a clean look for slides: labels of 13 pt, ticks of 11 pt.
 SLIDE_STYLE: dict[RcKeyType, Any] = {

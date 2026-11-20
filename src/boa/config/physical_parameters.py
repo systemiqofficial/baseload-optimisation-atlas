@@ -95,7 +95,9 @@ ERA5_DATA_YEAR = 2024
 # one grid cell (ERA5_DATA_RESOLUTION) rather than touching exactly, so no land cell is
 # double-built/double-queried. HAWAII, GALAPAGOS, MASCARENE and KERGUELEN are small dedicated
 # boxes for inhabited islands that fall in the longitude gap between two continental boxes --
-# cheaper than stretching a continental box across an ocean to reach them. The four largest
+# cheaper than stretching a continental box across an ocean to reach them. GREENLAND fills the
+# longitude gap between CANADA and EUROPE, so all of Greenland below 72 N is modelled (its far west
+# and east coasts stay in those two boxes). The four largest
 # boxes are each split into a point-balanced west/east pair on a real geographic line, since
 # build-cache only persists a region once every one of its points has finished (no incremental
 # write within a region) -- a smaller box bounds how much work a mid-build crash can lose.
@@ -104,6 +106,7 @@ REGION_COORDS = {
     "SUB_SAHARAN_AFRICA": [3.0, 7.0, -37.0, 52.0],
     "ALASKA": [72.0, -170.0, 42.0, -110.25],
     "CANADA": [72.0, -110.0, 42.0, -50.0],
+    "GREENLAND": [72.0, -49.75, 59.5, -25.25],
     "NORTH_AMERICA": [41.75, -128.0, 8.0, -50.0],
     "SOUTH_AMERICA": [7.75, -85.0, -58.0, -33.0],
     "NORTH_AFRICA": [34.75, -20.0, 3.25, 19.75],

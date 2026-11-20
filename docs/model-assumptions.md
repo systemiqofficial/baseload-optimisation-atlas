@@ -191,6 +191,7 @@ team chose.
 |---|---|---|---|---|
 | `ALASKA` | 72.0 | −170.0 | 42.0 | −110.25 |
 | `CANADA` | 72.0 | −110.0 | 42.0 | −50.0 |
+| `GREENLAND` | 72.0 | −49.75 | 59.5 | −25.25 |
 | `NORTH_AMERICA` | 41.75 | −128.0 | 8.0 | −50.0 |
 | `SOUTH_AMERICA` | 7.75 | −85.0 | −58.0 | −33.0 |
 | `EUROPE` | 72.0 | −25.0 | 35.0 | 62.0 |
@@ -210,6 +211,8 @@ team chose.
 - The regions do not cover Antarctica (south of 60° S) or the high Arctic (north of 72° N). The
   southernmost region box reaches 58° S.
 - Adjacent boxes are one grid cell (0.25 degrees) apart, so that no land cell is in two boxes.
+- `GREENLAND` covers the longitude gap between `CANADA` and `EUROPE`. The far west and east
+  coasts of Greenland are in these two boxes.
 - `HAWAII`, `GALAPAGOS`, `MASCARENE` and `KERGUELEN` are small boxes for islands that are in a
   longitude gap between two continental boxes.
 - Some of the larger boxes are split into a west box and an east box. A region is stored only

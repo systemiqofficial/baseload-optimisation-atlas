@@ -119,7 +119,7 @@ When a store is missing, the command stops and prints the preparation command to
 boa-run --weather-input cds-2025 --run quickstart --coverage 0.9 --start-year 2030 --end-year 2030
 ```
 
-BOA builds the frontier cache of each of the 17 regions, and then writes the result for 2030. The
+BOA builds the frontier cache of each of the 18 regions, and then writes the result for 2030. The
 build of the frontier caches takes most of the time. The README gives about 75 minutes for each
 coverage target for a run from 2025 to 2060. This page gives no time for the run of this step.
 
@@ -137,7 +137,7 @@ are in this folder:
 ```text
 <root>/runs/quickstart_49e8/outputs/wy2025/01MWkm2/cov0p9/nc/
 ├── ALASKA/optimal_sol_wy2025_01MWkm2_cov0p9_ALASKA_2030.nc
-├── ...                                                        (17 regions)
+├── ...                                                        (18 regions)
 ├── EUROPE/optimal_sol_wy2025_01MWkm2_cov0p9_EUROPE_2030.nc
 ├── ...
 └── GLOBAL/optimal_sol_wy2025_01MWkm2_cov0p9_GLOBAL_2030.nc
