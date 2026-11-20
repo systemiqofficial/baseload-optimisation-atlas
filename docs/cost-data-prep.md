@@ -67,8 +67,8 @@ inputs/cds-<year>/cache_frontiers/    frontier cache, built by boa-run; keyed on
                                        availability layer set built on that weather
 costs/<scenario>/
 ├── boa_cost_data.xlsx    the cost workbook, copied unchanged
-├── source.json           scenario, prepared_at, source workbook (+ package version, URL,
-│                         sha256 when downloaded) and the workbook's sha256
+├── source.json           scenario, prepared_at, source workbook, the workbook's sha256,
+│                         and source_package when the workbook belongs to a cost package
 └── cache_costs/          cost_of_renewables_<year>_investment_year.nc, one per year
 ```
 
@@ -179,7 +179,12 @@ workbook produces; refactors, log messages and new checks don't need it.
 4. Run with it: `boa-run ... --cost-input my_scenario`.
 
 Only the workbook is copied into the scenario. Its `source.json` records where it came from:
-the file path, plus the package's URL, version and sha256 when it is the package workbook.
+the file path and the workbook's sha256. When the workbook belongs to a cost package, it also
+records `source_package`: the package name, version, workbook name and workbook sha256 (and the
+URL and zip sha256 of the pinned package). An `--input-file` workbook belongs to a package when a
+package JSON in the same folder lists its sha256, for example `boa-cost-data-core.json` next to
+the core workbooks. A second prepare of an unchanged workbook updates `source.json` if the
+origin differs.
 The package's `boa-cost-data.json` (sheet dates, units, rounding and notes) stays with the
 package in `data/boa-cost-data/`; it names the workbook `boa-cost-data-v<version>.xlsx`, and
 its `workbook.sha256` matches a scenario's `boa_cost_data.xlsx` prepared from it.
