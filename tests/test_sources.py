@@ -66,6 +66,10 @@ def test_tracked_registry_names_the_cds_inputs_of_the_capacity_ceiling():
     assert datasets == {"satellite-land-cover", "sis-energy-global-reanalysis"}
 
 
+def test_tracked_registry_names_the_files_of_the_lcoh_step():
+    assert set(sources_with_tag("hydrogen")) == {"iea-weo-2025", "iea-ghr-2025-annex", "irena-green-h2-2020"}
+
+
 CDS_ENTRY = """
 [[source]]
 id = "demo-cds"

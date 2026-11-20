@@ -11,6 +11,8 @@
 #   costs             the boa-cost-data-core workbooks (scripts/cost/build_core.py)
 #   capacity-ceiling  the capacity-ceiling densities and land-cover factors
 #                     (boa.config.physical_parameters)
+#   hydrogen          the electrolyser parameters of the optional LCOH step
+#                     (boa/downstream/electrolysis.csv)
 
 [[source]]
 id = "irena-rpgc-2024-data"
@@ -50,12 +52,12 @@ url = "https://www.iea.org/files/9753df19-0a71-422a-b725-012c555763b3/WorldEnerg
 sha256 = "ebee58b6b93d6aed43db5247d54b03a7248510c2986bd24cfb4cca59d339b8f4"
 licence = "CC BY 4.0 (Annex A: CC BY-NC-SA 4.0, not used)"
 accessed = 2026-11-19
-tags = ["costs"]
+tags = ["costs", "hydrogen"]
 tables = [
   "Table B.4a: CPS capital costs 2024, 2035, 2050 (US, EU, China, India), USD(2024)/kW, p. 454",
   "Table B.4b: STEPS capital costs 2024, 2035, 2050 (US, EU, China, India), USD(2024)/kW, p. 455",
   "Table B.4c: NZE capital costs 2024, 2035, 2050 (US, EU, China, India), USD(2024)/kW, p. 456",
-  "Table B.5: utility-scale stationary batteries 2024, 2035, 2050, global, USD(2024)/kWh, p. 457",
+  "Table B.5: utility-scale stationary batteries (USD(2024)/kWh) and hydrogen electrolysers, lower and upper range (USD(2024)/kW, installed), 2024, 2035, 2050, global, p. 457",
 ]
 
 [[source]]
@@ -112,4 +114,29 @@ tags = ["capacity-ceiling"]
 tables = [
   "solar_pv_exclusion_mask: binary exclusion mask for solar PV, 0.25 degree, file ANCI_SPVM-mask_C3S2LOT1_025d_v1.00.nc, variable PVmask (the cds_exclusion availability layer)",
   "wind_power_exclusion_mask: binary exclusion mask for onshore wind, 0.25 degree, file ANCI_WPM-mask_C3S2LOT1_025d_v1.00.nc, variable wp_mask (the cds_exclusion availability layer)",
+]
+
+[[source]]
+id = "iea-ghr-2025-annex"
+citation = "IEA (2025), Global Hydrogen Review 2025: Assumptions annex, International Energy Agency, Paris."
+url = "https://iea.blob.core.windows.net/assets/15673ab3-a86a-4434-bff4-490bb42d3563/GlobalHydrogenReview2025AssumptionsAnnex.pdf"
+sha256 = "c6dd3a5caf43c6b02945296c57039d023abb53b981e992b93db00305cdd54fb2"
+licence = "CC BY 4.0"
+accessed = 2026-11-20
+tags = ["hydrogen"]
+tables = [
+  "Production pathways: water electrolysis CAPEX, efficiency (LHV), annual OPEX and stack lifetime, 2024 and STEPS 2030, global average and China, p. 6",
+]
+
+[[source]]
+id = "irena-green-h2-2020"
+citation = "IRENA (2020), Green hydrogen cost reduction: Scaling up electrolysers to meet the 1.5°C climate goal, International Renewable Energy Agency, Abu Dhabi."
+url = "https://www.irena.org/-/media/Files/IRENA/Agency/Publication/2020/Dec/IRENA_Green_hydrogen_cost_2020.pdf"
+sha256 = "cc0017018b5d199b3c0bc464a6b812f877b65b415c654050d6cbe8fa9a710a75"
+licence = "IRENA terms of use: free use with attribution"
+accessed = 2026-11-20
+tags = ["hydrogen"]
+tables = [
+  "p. 8: stack share of total electrolyser cost, about 45 % at low manufacturing rates, down to 30 % at GW scale",
+  "Fig. ES1: electrolyser lifetime from 10 to 20 years and WACC from 10 % to 6 % ('similar to renewable electricity today'), today to future, p. 10",
 ]

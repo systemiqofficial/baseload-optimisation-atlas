@@ -30,7 +30,7 @@ OPTIONAL_FIELDS = ("access", "sha256", "dataset")
 # How BOA gets the original. Only a "download" source is a file that boa-sources-fetch downloads.
 ACCESS = ("download", "cds-api")
 # What a source is used for. A closed set, so a misspelt tag fails instead of hiding a source.
-TAGS = ("costs", "capacity-ceiling")
+TAGS = ("costs", "capacity-ceiling", "hydrogen")
 _ID = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
