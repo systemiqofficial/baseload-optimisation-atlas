@@ -10,8 +10,8 @@ Writes, into ``PathConfig.downstream_dir``:
 - ``optimal_lcoh_*.nc``: the layout of the promoted LCOE file (one ``(year, lat, lon)`` grid per
   variable, ``cost_key_id`` and ``status`` once, the run's attributes), with ``lcoh`` as the main
   variable (file attribute ``primary_variable``) and its components;
-- ``<same stem>_parameters.csv``: the parameter values each investment year and group used, with
-  their source labels.
+- ``<same stem>_parameters.csv``: the parameter values each investment year used, with their
+  source labels.
 """
 
 from __future__ import annotations
@@ -29,13 +29,12 @@ from boa.config import run_manifest
 from boa.config.constants import STATUS_CODES
 from boa.config.paths import PathConfig
 from boa.downstream.hydrogen import (
-    GROUPS,
+    CAPEX_BOUNDS,
     PARAMETERS,
     PARAMETERS_PATH,
     SCENARIOS,
     Electrolyser,
     ParameterTable,
-    group_of,
     lcoh,
 )
 from boa.model.lcoe_promotion import CARRIED_ATTRS, encode_cost_keys, year_files
@@ -67,7 +66,9 @@ def _cost_set_scenario(cost_set: str) -> str | None:
     return found[0] if len(found) == 1 else None
 
 
-def _attrs(path_config: PathConfig, reference: xr.Dataset, years: list[int], scenario: str, table_path: Path) -> dict:
+def _attrs(
+    path_config: PathConfig, reference: xr.Dataset, years: list[int], scenario: str, capex_bound: str, table_path: Path
+) -> dict:
     manifest = run_manifest.load(path_config) or {}
     provenance = manifest.get("provenance", {})
     attrs = {name: reference.attrs[name] for name in CARRIED_ATTRS if name in reference.attrs}
@@ -80,6 +81,7 @@ def _attrs(path_config: PathConfig, reference: xr.Dataset, years: list[int], sce
             "lcoh_basis": "per_kg_h2_lhv",
             "electrolyser_sizing": "1 kW of electrolyser per kW of baseload; full-load hours = 8760 x served_fraction",
             "electrolyser_scenario": scenario,
+            "electrolyser_capex_bound": capex_bound,
             "parameters_sha256": _sha256(table_path),
             "run": path_config.run,
             "input_set": provenance.get("input_set", path_config.input_set),
@@ -93,18 +95,17 @@ def _attrs(path_config: PathConfig, reference: xr.Dataset, years: list[int], sce
     return attrs
 
 
-def _write_parameters(path: Path, table: ParameterTable, scenario: str, years: list[int]) -> None:
-    """One row per (year, group, parameter) the run used: the value, unit and the sources behind it."""
+def _write_parameters(path: Path, table: ParameterTable, scenario: str, capex_bound: str, years: list[int]) -> None:
+    """One row per (year, parameter) the run used: the value, unit and the sources behind it."""
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["year", "group", "parameter", "value", "unit", "sources"])
+        writer.writerow(["year", "parameter", "value", "unit", "sources"])
         for year in years:
-            for group in GROUPS:
-                for parameter in PARAMETERS:
-                    rows = table.rows_for(parameter, group, scenario)
-                    sources = ";".join(dict.fromkeys(r.source for r in rows))
-                    value = table.value(parameter, group, scenario, year)
-                    writer.writerow([year, group, parameter, f"{value:g}", rows[0].unit, sources])
+            for parameter in PARAMETERS:
+                rows = table.rows_for(parameter, scenario, capex_bound)
+                sources = ";".join(dict.fromkeys(r.source for r in rows))
+                value = table.value(parameter, scenario, year, capex_bound)
+                writer.writerow([year, parameter, f"{value:g}", rows[0].unit, sources])
 
 
 def build_lcoh(
@@ -113,11 +114,14 @@ def build_lcoh(
     load_density: float,
     coverage: float,
     scenario: str = "STEPS",
+    capex_bound: str = "mid",
     table_path: Path = PARAMETERS_PATH,
 ) -> Path:
     """Price hydrogen for every pixel and investment year of one run scenario; return the LCOH file path."""
     if scenario not in SCENARIOS:
         raise ValueError(f"scenario must be one of {SCENARIOS}, got {scenario!r}")
+    if capex_bound not in CAPEX_BOUNDS:
+        raise ValueError(f"capex_bound must be one of {CAPEX_BOUNDS}, got {capex_bound!r}")
     table = ParameterTable.read(table_path)
     files = year_files(path_config, weather_year, load_density, coverage)
     if not files:
@@ -131,14 +135,14 @@ def build_lcoh(
         lat, lon = reference["lat"].values, reference["lon"].values
         cost_key = np.asarray(reference["cost_key"].values)
         status = np.asarray(reference["status"].values).astype(np.int8)
-        attrs = _attrs(path_config, reference, years, scenario, table_path)
+        attrs = _attrs(path_config, reference, years, scenario, capex_bound, table_path)
 
     implied = _cost_set_scenario(str(attrs["cost_set"]))
     if implied and implied != scenario:
         log.warning(f"Cost set '{attrs['cost_set']}' names {implied}, but the electrolyser scenario is {scenario}.")
 
-    is_china = np.vectorize(lambda k: bool(k) and group_of(str(k)) == "china", otypes=[bool])(cost_key)
     out = {name: np.full((len(years), lat.size, lon.size), np.nan, dtype=np.float32) for name in OUTPUT_VARIABLES}
+    priced = (status == STATUS_OPTIMUM) & (cost_key != "")
 
     for i, year in enumerate(years):
         with xr.open_dataset(files[year]) as ds:
@@ -149,17 +153,16 @@ def build_lcoh(
             lcoe = ds["lcoe"].values.astype(float)
             served = ds["served_fraction"].values.astype(float)
             wacc = ds["cost_of_capital"].values.astype(float)
-        priced = (status == STATUS_OPTIMUM) & (cost_key != "")
-        for group, mask in (("china", priced & is_china), ("other", priced & ~is_china)):
-            if not mask.any():
-                continue
-            result = lcoh(lcoe[mask], served[mask], wacc[mask], Electrolyser.from_table(table, group, scenario, year))
-            out["lcoh"][i][mask] = result.total
-            out["lcoh_electricity"][i][mask] = result.electricity
-            out["lcoh_capital"][i][mask] = result.capital
-            out["lcoh_fom"][i][mask] = result.fom
-            out["lcoh_stack"][i][mask] = result.stack
-            out["electrolyser_wacc"][i][mask] = result.wacc
+        if not priced.any():
+            continue
+        p = Electrolyser.from_table(table, scenario, year, capex_bound)
+        result = lcoh(lcoe[priced], served[priced], wacc[priced], p)
+        out["lcoh"][i][priced] = result.total
+        out["lcoh_electricity"][i][priced] = result.electricity
+        out["lcoh_capital"][i][priced] = result.capital
+        out["lcoh_fom"][i][priced] = result.fom
+        out["lcoh_stack"][i][priced] = result.stack
+        out["electrolyser_wacc"][i][priced] = result.wacc
 
     cost_key_id, legend = encode_cost_keys(cost_key)
     attrs["cost_key_legend"] = legend
@@ -184,9 +187,9 @@ def build_lcoh(
     encoding["cost_key_id"] = {"dtype": "int16", "zlib": True, "complevel": 4}
     encoding["status"] = {"dtype": "int8", "zlib": True, "complevel": 4}
 
-    path = path_config.lcoh_path(weather_year, load_density, coverage, scenario, years[0], years[-1])
+    path = path_config.lcoh_path(weather_year, load_density, coverage, scenario, capex_bound, years[0], years[-1])
     path.parent.mkdir(parents=True, exist_ok=True)
     dataset.to_netcdf(path, mode="w", format="NETCDF4", encoding=encoding)
-    _write_parameters(path.with_name(path.stem + "_parameters.csv"), table, scenario, years)
+    _write_parameters(path.with_name(path.stem + "_parameters.csv"), table, scenario, capex_bound, years)
     log.info(f"Wrote {path}")
     return path

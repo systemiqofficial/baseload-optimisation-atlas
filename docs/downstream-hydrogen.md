@@ -79,29 +79,27 @@ source as `<id>: <table>` or as `assumption`.
 - The efficiency, O&M, stack, plant life and premium values are the same in all three CAPEX
   scenarios.
 
-**Groups.** China, its provinces, Hong Kong and Macao use the China values. All other countries use
-the "other" values. This is an assumption. The WEO lower range (600 USD/kW in 2024) is at the low
-end of the China range in the IEA Global Hydrogen Review 2025 (600–1200 USD/kW). The WEO upper range
-(2600 USD/kW) is at the high end of its global average (2000–2600 USD/kW).
+**One electrolyser for all pixels.** All countries use the same parameter values. This is an
+assumption. The sources give no regional values that are sufficiently robust for each country.
+
+**CAPEX bound.** WEO Table B.5 gives a lower and an upper CAPEX value. By default (`mid`), the step
+uses the mean of the two values. With `--capex-bound lower` or `--capex-bound upper`, it uses one of
+the two values. The bound changes only the CAPEX.
 
 The CAPEX scenarios are those of the IEA World Energy Outlook 2025 (WEO): CPS (Current Policies),
 STEPS (Stated Policies) and NZE (Net Zero Emissions by 2050).
 
-| Parameter | Group | Value | Source |
-|---|---|---|---|
-| CAPEX, CPS (USD(2024)/kW) | China | 600 (2024), 440 (2035), 390 (2050) | `iea-weo-2025`: Table B.5, lower range |
-| | other | 2600 (2024), 1680 (2035), 1460 (2050) | `iea-weo-2025`: Table B.5, upper range |
-| CAPEX, STEPS (USD(2024)/kW) | China | 600 (2024), 420 (2035), 390 (2050) | `iea-weo-2025`: Table B.5, lower range |
-| | other | 2600 (2024), 1650 (2035), 1450 (2050) | `iea-weo-2025`: Table B.5, upper range |
-| CAPEX, NZE (USD(2024)/kW) | China | 600 (2024), 330 (2035), 310 (2050) | `iea-weo-2025`: Table B.5, lower range |
-| | other | 2600 (2024), 1310 (2035), 1180 (2050) | `iea-weo-2025`: Table B.5, upper range |
-| Efficiency η (LHV) | China | 58 % (2024), 62 % (2030 and later) | `iea-ghr-2025-annex`: Production pathways, columns 2024 and STEPS 2030 |
-| | other | 63 % (2024), 64 % (2030 and later) | `iea-ghr-2025-annex`: Production pathways, columns 2024 and STEPS 2030 |
-| Fixed O&M *f* | all | 3.0 % of CAPEX per year | `iea-ghr-2025-annex`: Production pathways |
-| Stack life *L* | all | 50 000 operating hours | `iea-ghr-2025-annex`: Production pathways |
-| Stack share *s* | all | 30 % of CAPEX | `irena-green-h2-2020`: p. 8, the share at GW-scale manufacturing |
-| Plant life *N* | all | 20 years | `irena-green-h2-2020`: Fig. ES1, the future case |
-| Premium *p* | all | 3.0 percentage points (real) in 2025, linear to 0 in 2050 | 2025: assumption; 2050: `irena-green-h2-2020`: Fig. ES1 |
+| Parameter | Value | Source |
+|---|---|---|
+| CAPEX, CPS (USD(2024)/kW) | mid: 1600 (2024), 1060 (2035), 925 (2050). Lower: 600, 440, 390. Upper: 2600, 1680, 1460 | `iea-weo-2025`: Table B.5, lower and upper range |
+| CAPEX, STEPS (USD(2024)/kW) | mid: 1600 (2024), 1035 (2035), 920 (2050). Lower: 600, 420, 390. Upper: 2600, 1650, 1450 | `iea-weo-2025`: Table B.5, lower and upper range |
+| CAPEX, NZE (USD(2024)/kW) | mid: 1600 (2024), 820 (2035), 745 (2050). Lower: 600, 330, 310. Upper: 2600, 1310, 1180 | `iea-weo-2025`: Table B.5, lower and upper range |
+| Efficiency η (LHV) | 63 % (2024), 64 % (2030 and later) | `iea-ghr-2025-annex`: Production pathways, global average, columns 2024 and STEPS 2030 |
+| Fixed O&M *f* | 3.0 % of CAPEX per year | `iea-ghr-2025-annex`: Production pathways |
+| Stack life *L* | 50 000 operating hours | `iea-ghr-2025-annex`: Production pathways |
+| Stack share *s* | 30 % of CAPEX | `irena-green-h2-2020`: p. 8, the share at GW-scale manufacturing |
+| Plant life *N* | 20 years | `irena-green-h2-2020`: Fig. ES1, the future case |
+| Premium *p* | 3.0 percentage points (real) in 2025, linear to 0 in 2050 | 2025: assumption; 2050: `irena-green-h2-2020`: Fig. ES1 |
 
 **Premium in 2025.** The value of 3 points is an assumption. Egli et al. (2025), *Nature Energy* 10,
 SI Table 5, give 3.25 points. Lee and Saygin (2023), OECD ENV/WKP(2023)19, p. 39, give 1 to 5
@@ -132,6 +130,7 @@ each file and checks its sha256 (see
 |---|---|---|
 | `--run` | The run label, as given to `boa-run` | Necessary |
 | `--scenario` | The WEO scenario of the CAPEX: `CPS`, `STEPS` or `NZE` | `STEPS` |
+| `--capex-bound` | The CAPEX of the WEO range: `mid`, `lower` or `upper` | `mid` |
 | `--coverage` | One or more coverage targets of the run | All coverage targets of the run |
 | `--verbose` | More log output | Off |
 
@@ -146,13 +145,14 @@ The step writes one file for each weather year, load density and coverage target
 folder is `<data root>/downstream/<run folder>/`. The run folder is the run label with its hash, as
 in `runs/`. The file name is:
 
-`optimal_lcoh_wy<weather year>_<rho>MWkm2_cov<c>_<scenario>_<first year>_<last year>.nc`
+`optimal_lcoh_wy<weather year>_<rho>MWkm2_cov<c>_<scenario>_<bound>_<first year>_<last year>.nc`
 
 - `<rho>` is the load density with no decimal point and at least two integer digits.
 - `<c>` is the coverage target with `p` in place of the decimal point.
 - `<scenario>` is in lower case.
+- `<bound>` is the CAPEX bound: `mid`, `lower` or `upper`.
 
-Example: `optimal_lcoh_wy2025_01MWkm2_cov0p9_steps_2025_2060.nc`.
+Example: `optimal_lcoh_wy2025_01MWkm2_cov0p9_steps_mid_2025_2060.nc`.
 
 The file has the layout of the [promoted LCOE file](promoted-lcoe-file.md). Each variable below is
 float32 on `(year, lat, lon)`. `cost_key_id` (int16) and `status` (int8) are on `(lat, lon)`.
@@ -183,6 +183,7 @@ float32 on `(year, lat, lon)`. `cost_key_id` (int16) and `status` (int8) are on 
 | `lcoh_basis` | `per_kg_h2_lhv` |
 | `electrolyser_sizing` | The sizing and full-load hour rule |
 | `electrolyser_scenario` | The CAPEX scenario: `CPS`, `STEPS` or `NZE` |
+| `electrolyser_capex_bound` | The CAPEX bound: `mid`, `lower` or `upper` |
 | `parameters_sha256` | The sha256 of the parameter file |
 | `run`, `input_set`, `cost_set`, `input_data_sha256`, `boa_version` | The run, its weather set, cost set, cost workbook hash and BOA version |
 | `years` | The investment years in the file |
@@ -191,7 +192,7 @@ float32 on `(year, lat, lon)`. `cost_key_id` (int16) and `status` (int8) are on 
 | `investment_horizon_years`, `load_density_mw_km2`, `coverage_fraction`, `search_params_hash`, `era5_weather_year`, `era5_resolution_deg`, `capacity_ceiling_applied` | Copied from the GLOBAL per-year files of the run |
 
 A file `<same name>_parameters.csv` is in the same folder. It gives the value, unit and sources of
-each parameter, for each investment year and group.
+each parameter, for each investment year.
 
 ## Limits
 
@@ -210,6 +211,10 @@ These limits apply to the LCOH in addition to the limits of the LCOE (see
 - **Efficiency after 2030.** The efficiency is the 2030 value, because no source gives a later value.
 - **Stack share.** IRENA (2020) gives the share of the system cost (stack and balance of plant). The
   step applies it to the installed CAPEX, which also contains engineering and construction.
+- **One electrolyser for all countries.** The CAPEX and the efficiency do not change with the
+  country. Installed costs in China are much lower than in other regions (IEA Global Hydrogen
+  Review 2025: 600–1200 USD/kW in China, 2000–2600 USD/kW as the global average in 2024). The LCOH
+  is therefore too high in China and possibly too low in Europe and North America.
 - **One premium for all countries.** The premium does not change with the country risk.
 - **Electrolyser type.** The values are for water electrolysis in general, not for PEM or alkaline
   electrolysers.

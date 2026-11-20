@@ -1,26 +1,24 @@
-parameter,group,scenario,year,value,unit,source,note
-capex,china,CPS,2024,600,USD(2024)/kW,iea-weo-2025: Table B.5,lower range; installed incl. EPC
-capex,china,CPS,2035,440,USD(2024)/kW,iea-weo-2025: Table B.5,lower range
-capex,china,CPS,2050,390,USD(2024)/kW,iea-weo-2025: Table B.5,lower range
-capex,china,STEPS,2024,600,USD(2024)/kW,iea-weo-2025: Table B.5,lower range; installed incl. EPC
-capex,china,STEPS,2035,420,USD(2024)/kW,iea-weo-2025: Table B.5,lower range
-capex,china,STEPS,2050,390,USD(2024)/kW,iea-weo-2025: Table B.5,lower range
-capex,china,NZE,2024,600,USD(2024)/kW,iea-weo-2025: Table B.5,lower range; installed incl. EPC
-capex,china,NZE,2035,330,USD(2024)/kW,iea-weo-2025: Table B.5,lower range
-capex,china,NZE,2050,310,USD(2024)/kW,iea-weo-2025: Table B.5,lower range
-capex,other,CPS,2024,2600,USD(2024)/kW,iea-weo-2025: Table B.5,upper range; installed incl. EPC
-capex,other,CPS,2035,1680,USD(2024)/kW,iea-weo-2025: Table B.5,upper range
-capex,other,CPS,2050,1460,USD(2024)/kW,iea-weo-2025: Table B.5,upper range
-capex,other,STEPS,2024,2600,USD(2024)/kW,iea-weo-2025: Table B.5,upper range; installed incl. EPC
-capex,other,STEPS,2035,1650,USD(2024)/kW,iea-weo-2025: Table B.5,upper range
-capex,other,STEPS,2050,1450,USD(2024)/kW,iea-weo-2025: Table B.5,upper range
-capex,other,NZE,2024,2600,USD(2024)/kW,iea-weo-2025: Table B.5,upper range; installed incl. EPC
-capex,other,NZE,2035,1310,USD(2024)/kW,iea-weo-2025: Table B.5,upper range
-capex,other,NZE,2050,1180,USD(2024)/kW,iea-weo-2025: Table B.5,upper range
-efficiency_lhv,china,all,2024,0.58,fraction,iea-ghr-2025-annex: Production pathways,2024 column
-efficiency_lhv,china,all,2030,0.62,fraction,iea-ghr-2025-annex: Production pathways,STEPS 2030 column; held after 2030
-efficiency_lhv,other,all,2024,0.63,fraction,iea-ghr-2025-annex: Production pathways,2024 column (global average)
-efficiency_lhv,other,all,2030,0.64,fraction,iea-ghr-2025-annex: Production pathways,STEPS 2030 column (global average); held after 2030
+parameter,bound,scenario,year,value,unit,source,note
+capex,lower,CPS,2024,600,USD(2024)/kW,iea-weo-2025: Table B.5,lower range; installed incl. EPC
+capex,lower,CPS,2035,440,USD(2024)/kW,iea-weo-2025: Table B.5,lower range
+capex,lower,CPS,2050,390,USD(2024)/kW,iea-weo-2025: Table B.5,lower range
+capex,lower,STEPS,2024,600,USD(2024)/kW,iea-weo-2025: Table B.5,lower range; installed incl. EPC
+capex,lower,STEPS,2035,420,USD(2024)/kW,iea-weo-2025: Table B.5,lower range
+capex,lower,STEPS,2050,390,USD(2024)/kW,iea-weo-2025: Table B.5,lower range
+capex,lower,NZE,2024,600,USD(2024)/kW,iea-weo-2025: Table B.5,lower range; installed incl. EPC
+capex,lower,NZE,2035,330,USD(2024)/kW,iea-weo-2025: Table B.5,lower range
+capex,lower,NZE,2050,310,USD(2024)/kW,iea-weo-2025: Table B.5,lower range
+capex,upper,CPS,2024,2600,USD(2024)/kW,iea-weo-2025: Table B.5,upper range; installed incl. EPC
+capex,upper,CPS,2035,1680,USD(2024)/kW,iea-weo-2025: Table B.5,upper range
+capex,upper,CPS,2050,1460,USD(2024)/kW,iea-weo-2025: Table B.5,upper range
+capex,upper,STEPS,2024,2600,USD(2024)/kW,iea-weo-2025: Table B.5,upper range; installed incl. EPC
+capex,upper,STEPS,2035,1650,USD(2024)/kW,iea-weo-2025: Table B.5,upper range
+capex,upper,STEPS,2050,1450,USD(2024)/kW,iea-weo-2025: Table B.5,upper range
+capex,upper,NZE,2024,2600,USD(2024)/kW,iea-weo-2025: Table B.5,upper range; installed incl. EPC
+capex,upper,NZE,2035,1310,USD(2024)/kW,iea-weo-2025: Table B.5,upper range
+capex,upper,NZE,2050,1180,USD(2024)/kW,iea-weo-2025: Table B.5,upper range
+efficiency_lhv,all,all,2024,0.63,fraction,iea-ghr-2025-annex: Production pathways,2024 column (global average)
+efficiency_lhv,all,all,2030,0.64,fraction,iea-ghr-2025-annex: Production pathways,STEPS 2030 column (global average); held after 2030
 fom_fraction,all,all,2024,0.03,fraction of CAPEX per year,iea-ghr-2025-annex: Production pathways,annual OPEX; 3.0 % in 2024 and 2030
 stack_life_hours,all,all,2024,50000,operating hours,iea-ghr-2025-annex: Production pathways,IEA economic optimum; up to 95 000 h possible
 stack_share,all,all,2024,0.30,fraction of CAPEX,irena-green-h2-2020: p. 8,stack share of total electrolyser cost at GW-scale manufacturing; applied to the installed CAPEX of the replacement year

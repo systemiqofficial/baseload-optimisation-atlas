@@ -17,7 +17,9 @@ in USD per kg of hydrogen:
 
 ``CRF`` is the annuity of BOA's own LCOE (``boa.downstream.finance.crf``). Every parameter and
 its source is in ``electrolysis.csv``; values between the listed years are linear, values
-outside them are held.
+outside them are held. All pixels use the same electrolyser. The table holds the lower and upper
+CAPEX of the source range; the default ``mid`` bound is their mean, ``lower`` and ``upper`` are
+for sensitivity runs. A parameter with bound ``all`` has one value for every bound.
 """
 
 from __future__ import annotations
@@ -36,7 +38,8 @@ PARAMETERS_PATH = Path(__file__).with_name("electrolysis.csv")
 KWH_PER_KG_H2_LHV = 120.0 / 3.6  # 120 MJ/kg
 KWH_PER_MWH = 1000.0
 SCENARIOS = ("CPS", "STEPS", "NZE")
-GROUPS = ("china", "other")
+TABLE_BOUNDS = ("lower", "upper")
+CAPEX_BOUNDS = ("mid", *TABLE_BOUNDS)
 ASSUMPTION = "assumption"
 PARAMETERS = (
     "capex",
@@ -48,21 +51,11 @@ PARAMETERS = (
     "wacc_premium",
 )
 
-# The WEO Table B.5 lower range (600 USD/kW in 2024) is the low end of the China range of the GHR
-# 2025 annex (600-1200); the upper range (2600) is the high end of its global average (2000-2600).
-# China, its provinces, and the two special administrative regions take the China values.
-CHINA_KEYS = frozenset({"CHN", "HKG", "MAC"})
-
-
-def group_of(cost_key: str) -> str:
-    """The parameter group of a BOA cost key (ISO-3, or ``ISO3:province``)."""
-    return "china" if cost_key.split(":", 1)[0] in CHINA_KEYS else "other"
-
 
 @dataclass(frozen=True)
 class Row:
     parameter: str
-    group: str
+    bound: str
     scenario: str
     year: int
     value: float
@@ -72,18 +65,21 @@ class Row:
 
 
 class ParameterTable:
-    """The rows of ``electrolysis.csv``, with lookup by parameter, group, scenario and year."""
+    """The rows of ``electrolysis.csv``, with lookup by parameter, scenario, year and CAPEX bound."""
 
     def __init__(self, rows: list[Row]):
         self.rows = rows
         unknown = sorted({r.parameter for r in rows} - set(PARAMETERS))
         if unknown:
             raise ValueError(f"unknown parameters {unknown}")
+        bad = sorted({r.bound for r in rows} - {*TABLE_BOUNDS, "all"})
+        if bad:
+            raise ValueError(f"unknown bounds {bad}")
         for parameter in PARAMETERS:
-            for group in GROUPS:
+            for bound in TABLE_BOUNDS:
                 for scenario in SCENARIOS:
-                    if not self._select(parameter, group, scenario):
-                        raise ValueError(f"no {parameter} for group {group}, scenario {scenario}")
+                    if not self._select(parameter, bound, scenario):
+                        raise ValueError(f"no {parameter} for bound {bound}, scenario {scenario}")
 
     @classmethod
     def read(cls, path: Path = PARAMETERS_PATH) -> ParameterTable:
@@ -91,7 +87,7 @@ class ParameterTable:
             rows = [
                 Row(
                     parameter=r["parameter"],
-                    group=r["group"],
+                    bound=r["bound"],
                     scenario=r["scenario"],
                     year=int(r["year"]),
                     value=float(r["value"]),
@@ -103,30 +99,41 @@ class ParameterTable:
             ]
         return cls(rows)
 
-    def _select(self, parameter: str, group: str, scenario: str) -> list[Row]:
+    def _select(self, parameter: str, bound: str, scenario: str) -> list[Row]:
         rows = [
             r
             for r in self.rows
-            if r.parameter == parameter and r.group in (group, "all") and r.scenario in (scenario, "all")
+            if r.parameter == parameter and r.bound in (bound, "all") and r.scenario in (scenario, "all")
         ]
         return sorted(rows, key=lambda r: r.year)
 
-    def rows_for(self, parameter: str, group: str, scenario: str) -> list[Row]:
-        rows = self._select(parameter, group, scenario)
-        if len({r.year for r in rows}) != len(rows):
-            raise ValueError(f"{parameter}, {group}, {scenario}: more than one row for a year")
+    def rows_for(self, parameter: str, scenario: str, bound: str = "mid") -> list[Row]:
+        """The rows behind a value; for ``mid``, the rows of both table bounds."""
+        if bound not in CAPEX_BOUNDS:
+            raise ValueError(f"bound must be one of {CAPEX_BOUNDS}, got {bound!r}")
+        rows: list[Row] = []
+        for b in TABLE_BOUNDS if bound == "mid" else (bound,):
+            selected = self._select(parameter, b, scenario)
+            if len({r.year for r in selected}) != len(selected):
+                raise ValueError(f"{parameter}, {b}, {scenario}: more than one row for a year")
+            rows += [r for r in selected if r not in rows]
         return rows
 
-    def value(self, parameter: str, group: str, scenario: str, year: float | np.ndarray) -> float | np.ndarray:
-        """Linear between the listed years, held before the first and after the last."""
-        rows = self.rows_for(parameter, group, scenario)
-        result = np.interp(year, [r.year for r in rows], [r.value for r in rows])
+    def value(self, parameter: str, scenario: str, year: float | np.ndarray, bound: str = "mid") -> float | np.ndarray:
+        """Linear between the listed years, held before the first and after the last; ``mid`` is the
+        mean of the lower and the upper value."""
+        result: np.ndarray
+        if bound == "mid":
+            result = np.mean([self.value(parameter, scenario, year, b) for b in TABLE_BOUNDS], axis=0)
+        else:
+            rows = self.rows_for(parameter, scenario, bound)
+            result = np.asarray(np.interp(year, [r.year for r in rows], [r.value for r in rows]))
         return float(result) if np.ndim(result) == 0 else result
 
 
 @dataclass(frozen=True)
 class Electrolyser:
-    """The parameters of one group and scenario, for one investment year."""
+    """The parameters of one scenario and CAPEX bound, for one investment year."""
 
     year: int
     capex: float  # USD/kW, installed
@@ -139,12 +146,12 @@ class Electrolyser:
     capex_at: Callable[[np.ndarray], np.ndarray]  # installed CAPEX in a later (fractional) year
 
     @classmethod
-    def from_table(cls, table: ParameterTable, group: str, scenario: str, year: int) -> Electrolyser:
+    def from_table(cls, table: ParameterTable, scenario: str, year: int, capex_bound: str = "mid") -> Electrolyser:
         def v(parameter: str) -> float:
-            return float(table.value(parameter, group, scenario, year))
+            return float(table.value(parameter, scenario, year, capex_bound))
 
         def capex_at(when: np.ndarray) -> np.ndarray:
-            return np.asarray(table.value("capex", group, scenario, when), dtype=float)
+            return np.asarray(table.value("capex", scenario, when, capex_bound), dtype=float)
 
         return cls(
             year=year,

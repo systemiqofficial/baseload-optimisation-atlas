@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from boa.config.sources import load_registry, sources_with_tag
 from boa.config.paths import PathConfig
+from boa.config.sources import load_registry, sources_with_tag
 from boa.downstream.finance import crf
 from boa.downstream.hydrogen import (
     ASSUMPTION,
@@ -16,7 +16,6 @@ from boa.downstream.hydrogen import (
     PARAMETERS_PATH,
     Electrolyser,
     ParameterTable,
-    group_of,
     lcoh,
 )
 from boa.downstream.lcoh_file import OUTPUT_VARIABLES, build_lcoh
@@ -32,7 +31,7 @@ def table() -> ParameterTable:
 
 
 def _flat(table: ParameterTable, **changes) -> Electrolyser:
-    return dataclasses.replace(Electrolyser.from_table(table, "other", "STEPS", 2030), **changes)
+    return dataclasses.replace(Electrolyser.from_table(table, "STEPS", 2030), **changes)
 
 
 # --- annuity --------------------------------------------------------------------------------------
@@ -80,30 +79,52 @@ def test_each_parameter_has_one_unit(table):
 
 
 def test_capex_is_linear_between_the_weo_years_and_held_after_2050(table):
-    assert table.value("capex", "other", "STEPS", 2030) == pytest.approx(2600 + (1650 - 2600) * 6 / 11)
-    assert table.value("capex", "china", "NZE", 2060) == pytest.approx(310)
+    assert table.value("capex", "STEPS", 2030, "upper") == pytest.approx(2600 + (1650 - 2600) * 6 / 11)
+    assert table.value("capex", "NZE", 2060, "lower") == pytest.approx(310)
+
+
+def test_mid_capex_is_the_mean_of_the_weo_range(table):
+    assert table.value("capex", "STEPS", 2024) == pytest.approx(1600)
+    assert table.value("capex", "STEPS", 2035) == pytest.approx((420 + 1650) / 2)
+    years = np.array([2024.0, 2040.5, 2060.0])
+    expected = (table.value("capex", "NZE", years, "lower") + table.value("capex", "NZE", years, "upper")) / 2
+    np.testing.assert_allclose(table.value("capex", "NZE", years), expected)
+
+
+def test_only_capex_differs_between_the_bounds(table):
+    for parameter in ("efficiency_lhv", "fom_fraction", "stack_life_hours", "stack_share", "wacc_premium"):
+        values = {table.value(parameter, "STEPS", 2030, b) for b in ("mid", "lower", "upper")}
+        assert len(values) == 1, parameter
+
+
+def test_mid_capex_names_the_rows_of_both_bounds(table):
+    notes = {r.note.split(";")[0] for r in table.rows_for("capex", "STEPS")}
+    assert notes == {"lower range", "upper range"}
 
 
 def test_wacc_premium_falls_linearly_to_zero_in_2050(table):
-    assert table.value("wacc_premium", "other", "STEPS", 2025) == pytest.approx(0.03)
-    assert table.value("wacc_premium", "china", "CPS", 2037.5) == pytest.approx(0.015)
-    assert table.value("wacc_premium", "other", "NZE", 2060) == pytest.approx(0.0)
+    assert table.value("wacc_premium", "STEPS", 2025) == pytest.approx(0.03)
+    assert table.value("wacc_premium", "CPS", 2037.5) == pytest.approx(0.015)
+    assert table.value("wacc_premium", "NZE", 2060) == pytest.approx(0.0)
 
 
-def test_efficiency_is_held_after_2030(table):
-    assert table.value("efficiency_lhv", "other", "STEPS", 2050) == pytest.approx(0.64)
-    assert table.value("efficiency_lhv", "china", "STEPS", 2027) == pytest.approx(0.60)
+def test_efficiency_is_the_global_average_held_after_2030(table):
+    assert table.value("efficiency_lhv", "STEPS", 2024) == pytest.approx(0.63)
+    assert table.value("efficiency_lhv", "STEPS", 2050) == pytest.approx(0.64)
 
 
-@pytest.mark.parametrize("key, group", [("CHN", "china"), ("CHN:CN-NM", "china"), ("HKG", "china"), ("TWN", "other")])
-def test_group_of_cost_key(key, group):
-    assert group_of(key) == group
-
-
-def test_a_table_without_a_parameter_for_a_group_is_rejected(table):
-    rows = [r for r in table.rows if not (r.parameter == "capex" and r.group == "china")]
-    with pytest.raises(ValueError, match="no capex for group china"):
+def test_a_table_without_a_parameter_for_a_bound_is_rejected(table):
+    rows = [r for r in table.rows if not (r.parameter == "capex" and r.bound == "lower")]
+    with pytest.raises(ValueError, match="no capex for bound lower"):
         ParameterTable(rows)
+
+
+def test_an_unknown_bound_is_rejected(table):
+    rows = [dataclasses.replace(r, bound="china") if r.parameter == "capex" else r for r in table.rows]
+    with pytest.raises(ValueError, match="unknown bounds"):
+        ParameterTable(rows)
+    with pytest.raises(ValueError, match="bound must be one of"):
+        table.value("capex", "STEPS", 2030, "median")
 
 
 # --- arithmetic -----------------------------------------------------------------------------------
@@ -183,21 +204,37 @@ def test_build_lcoh_writes_the_promoted_layout_with_lcoh_as_primary_variable(tmp
 
     path = build_lcoh(path_config, 2025, 1.0, 0.9, "STEPS")
 
-    assert path.name == "optimal_lcoh_wy2025_01MWkm2_cov0p9_steps_2030_2050.nc"
+    assert path.name == "optimal_lcoh_wy2025_01MWkm2_cov0p9_steps_mid_2030_2050.nc"
     with xr.open_dataset(path) as ds:
         assert ds.attrs["primary_variable"] == "lcoh"
         assert ds.attrs["lcoh_basis"] == "per_kg_h2_lhv"
+        assert ds.attrs["electrolyser_capex_bound"] == "mid"
         assert set(OUTPUT_VARIABLES) <= set(ds.data_vars)
         assert ds["lcoh"].dims == ("year", "lat", "lon")
         assert ds["lcoh"].attrs["units"] == "USD/kg"
         lcoh_2030 = ds["lcoh"].sel(year=2030).values
         assert np.isnan(lcoh_2030[0, 2]) and np.isnan(lcoh_2030[1, 2])  # status 0 and 2
-        assert lcoh_2030[0, 0] < lcoh_2030[0, 1]  # China CAPEX is lower
+        assert lcoh_2030[0, 0] == lcoh_2030[0, 1]  # one electrolyser for all countries
         assert float(ds["lcoh"].sel(year=2050)[0, 1]) < float(ds["lcoh"].sel(year=2030)[0, 1])
         total = sum(ds[f"lcoh_{part}"] for part in ("electricity", "capital", "fom", "stack"))
         np.testing.assert_allclose(total.values, ds["lcoh"].values, rtol=1e-5)
     parameters = path.with_name(path.stem + "_parameters.csv").read_text(encoding="utf-8")
     assert "iea-weo-2025: Table B.5" in parameters
+    assert parameters.splitlines()[0] == "year,parameter,value,unit,sources"
+
+
+def test_build_lcoh_capex_bounds_order_the_lcoh(tmp_path):
+    path_config = PathConfig.from_root(tmp_path, input_set="cds-2025", cost_set="core-steps", run="r_abcd")
+    _write_year(path_config, 2030)
+    values = {}
+    for bound in ("lower", "mid", "upper"):
+        path = build_lcoh(path_config, 2025, 1.0, 0.9, "STEPS", bound)
+        assert path.name.endswith(f"_steps_{bound}_2030_2030.nc")
+        with xr.open_dataset(path) as ds:
+            values[bound] = float(ds["lcoh"].sel(year=2030)[0, 1])
+    assert values["lower"] < values["mid"] < values["upper"]
+    with pytest.raises(ValueError, match="capex_bound"):
+        build_lcoh(path_config, 2025, 1.0, 0.9, "STEPS", "median")
 
 
 def test_build_lcoh_without_outputs_raises(tmp_path):

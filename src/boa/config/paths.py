@@ -293,14 +293,22 @@ class PathConfig:
         return self.root / "downstream" / self.run
 
     def lcoh_path(
-        self, weather_year: int, load_density: float, coverage: float, scenario: str, year_start: int, year_end: int
+        self,
+        weather_year: int,
+        load_density: float,
+        coverage: float,
+        scenario: str,
+        capex_bound: str,
+        year_start: int,
+        year_end: int,
     ) -> Path:
-        """One scenario's LCOH file, named like the combined-LCOE file plus the electrolyser cost scenario:
-        ``optimal_lcoh_wy<weather_year>_<rho>MWkm2_cov<c>_<scenario>_<first>_<last>.nc``."""
+        """One scenario's LCOH file, named like the combined-LCOE file plus the electrolyser CAPEX scenario
+        and bound: ``optimal_lcoh_wy<weather_year>_<rho>MWkm2_cov<c>_<scenario>_<bound>_<first>_<last>.nc``."""
         return self.downstream_dir / (
             f"optimal_lcoh_wy{int(weather_year)}_"
             f"{format_scenario_number(load_density, pad_int_digits=2)}MWkm2_"
-            f"cov{format_scenario_number(coverage)}_{scenario.lower()}_{int(year_start)}_{int(year_end)}.nc"
+            f"cov{format_scenario_number(coverage)}_{scenario.lower()}_{capex_bound.lower()}_"
+            f"{int(year_start)}_{int(year_end)}.nc"
         )
 
     def map_plots_dir(self, weather_year: int, load_density: float, coverage: float, region: str) -> Path:
