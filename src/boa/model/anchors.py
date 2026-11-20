@@ -2,9 +2,10 @@
 Turning a cost dataset into the anchor set the frontier build searches under.
 
 An anchor is one set of cost coefficients. It decides *where* the build places its dense
-patches and nothing else: the values stored at those patches are pure dispatch, so a badly
-chosen anchor costs search quality, never accuracy. The containment certificate detects the
-case where it mattered.
+patches and nothing else: the values stored at those patches are pure dispatch. But the query
+can only pick among stored designs, so a query far from every anchor can return an LCOE well
+above the true optimum. That is why the query refuses a store whose anchors don't cover its
+costs (`boa.model.global_extension.check_frontier_caches_cover`).
 
 Anchors have to span two axes, and the second is the larger of the two:
 
@@ -34,9 +35,12 @@ import xarray as xr
 
 from boa.model.bisection import CostCoefficients, SearchParams, cost_ratio_simplex, covering_anchors
 from boa.model.cost_calculations import lcoe_coefficients
+from boa.model.logic import return_global_average_costs
 from boa.model.single_point_run import costs_for_key
 
 Candidates = Mapping[tuple[int, str], CostCoefficients]
+
+GLOBAL_AVG_KEY = "GLOBAL_AVG"
 
 
 def cost_candidates(years: Sequence[int], costs_for_year: Callable[[int], tuple[xr.Dataset, int]]) -> Candidates:
@@ -50,13 +54,21 @@ def cost_candidates(years: Sequence[int], costs_for_year: Callable[[int], tuple[
 
     Coefficients are built at baseload 1.0. Baseload scales all four linearly and so cancels
     out of the mix entirely, which is the same reason LCOE is exactly baseload-invariant.
+
+    Each year also gets a `GLOBAL_AVG_KEY` candidate: the query prices a pixel whose country
+    the cost set doesn't author at the average over all keys, and that mix need not lie near
+    any key's own.
     """
     candidates: dict[tuple[int, str], CostCoefficients] = {}
     for year in years:
         costs, horizon = costs_for_year(year)
+        if not costs["iso3"].size:
+            continue
         for key in costs["iso3"].values:
             capex, opex_pct, cost_of_capital = costs_for_key(str(key), costs)
             candidates[(year, str(key))] = lcoe_coefficients(horizon, capex, opex_pct, cost_of_capital, 1.0)
+        capex, opex_pct, cost_of_capital = return_global_average_costs(costs)
+        candidates[(year, GLOBAL_AVG_KEY)] = lcoe_coefficients(horizon, capex, opex_pct, cost_of_capital, 1.0)
     if not candidates:
         raise ValueError("no (cost key, year) candidates; the cost set has no iso3 coordinate")
     return candidates
@@ -84,8 +96,8 @@ def select_anchors(
     if len(chosen) == max_anchors:
         logging.warning(
             f"Anchor selection hit max_anchors={max_anchors} at tol={tol}; some cost keys sit "
-            f"further than {tol} from every anchor. Seeds may be misplaced for those keys, which "
-            f"costs uncertified queries rather than wrong answers -- raise tol or max_anchors."
+            f"further than {tol} from every anchor. Seeds may be misplaced for those keys, so their "
+            f"LCOE can be above the optimum -- raise tol or max_anchors."
         )
     new_years = sorted({label[0] for label in chosen if label[0] != "kept"})
     kept_note = f" ({len(keep)} kept from the stored cache)" if keep else ""

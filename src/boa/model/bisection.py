@@ -117,14 +117,15 @@ class SearchParams:
     corner_cut_threshold: float | None = 1.2
 
     # -- Anchor coverage: how `anchor_cost_coefficients` (anchors.py) selects the anchor
-    #    set a build's seeds are placed under. Governs *where* the build looks, never what
-    #    it finds there, so a bad value costs search quality, not correctness. -----------
+    #    set a build's seeds are placed under. Governs *where* the build looks. Far from
+    #    every anchor the cached LCOE can sit well above the optimum, so the query refuses
+    #    costs a store's anchors don't cover (`check_frontier_caches_cover`). ------------
     anchor_tol: float = 0.02  # simplex distance two anchors may sit apart before both are
     #                           kept. TODO: settle against the re-anchoring benchmark,
     #                           measuring how much cost-mix movement it takes to move a seed.
     max_anchors: int = 32  # bounds the build if `anchor_tol` is pathologically small;
-    #                         exceeding it leaves some cost keys uncovered, which costs
-    #                         uncertified queries rather than wrong ones.
+    #                         exceeding it leaves some cost keys uncovered, and their LCOE
+    #                         can sit above the optimum (`select_anchors` warns).
 
     # -- Coarse tier: ranks basins and bounds the containment proof. Deliberately cheap;
     #    its output is a lower bound on b_min, never an answer. -------------------------
@@ -200,8 +201,10 @@ class SearchParams:
     #    under e. -----------------------------------------------------------------------
     b_cap: float = 500.0  # baseload-hours; above this a pixel is called infeasible
     tol_rel_patch: float = 1e-2
-    repair_rate_cap: float = 0.02  # share of pixels the containment certificate may
-    #                                send back for repair before the run is suspect
+    repair_rate_cap: float = 0.02  # no effect: nothing is repaired at query time. Kept only
+    #                                because removing a field changes `identity_hash` and so
+    #                                forks every cache and run; drop it at the next
+    #                                intentional hash change.
 
     def __post_init__(self) -> None:
         if self.corner_cut_threshold is not None and not 1.0 <= self.corner_cut_threshold <= 2.0:
@@ -868,7 +871,8 @@ def anchor_score(s_vals: np.ndarray, w_vals: np.ndarray, b_lower: np.ndarray, an
         been.
 
     The anchor ratios are frozen rather than the query year's real prices. That is what
-    keeps the build year-agnostic, and it costs at most repair work, never accuracy.
+    keeps the build year-agnostic; in exchange, the query refuses costs that lie further than
+    `anchor_tol` from every anchor (`boa.model.global_extension.check_frontier_caches_cover`).
     """
     numerator = anchor.a_s * s_vals[:, None] + anchor.a_w * w_vals[None, :]
     return numerator + anchor.a_b * np.power(b_lower, GAMMA)
@@ -1417,23 +1421,3 @@ def argmin_lcoe(frontier: PixelFrontier, coeffs: CostCoefficients) -> Optimum:
         patch_certified=_containment_certificate(frontier, coeffs, best_lcoe),
         argmin_truncated=_argmin_truncated(frontier, k, i, j),
     )
-
-
-def check_repair_budget(n_repaired: int, n_points: int, params: SearchParams) -> None:
-    """
-    Raise if the repair rate exceeds `params.repair_rate_cap`.
-
-    Repair means a full on-the-fly patch sweep for a pixel whose containment certificate
-    failed to fire -- expected occasionally, since the patches are seeded with frozen
-    anchor costs rather than the query year's real ones. Past a couple of percent the
-    query stops being "minutes per year", so this fails loudly instead of silently letting
-    a run degrade into one expensive re-search per pixel.
-    """
-    if n_points == 0:
-        return
-    rate = n_repaired / n_points
-    if rate > params.repair_rate_cap:
-        raise RuntimeError(
-            f"repair rate {rate:.1%} ({n_repaired}/{n_points} points) exceeds "
-            f"repair_rate_cap {params.repair_rate_cap:.1%} -- too many patch repairs needed."
-        )

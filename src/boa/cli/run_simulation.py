@@ -45,7 +45,9 @@ from boa.config.physical_parameters import REGION_COORDS
 from boa.model.anchors import cost_candidates
 from boa.model.bisection import SearchParams
 from boa.model.global_extension import (
+    FrontierCacheCoverageError,
     build_frontier_cache_for_region,
+    check_frontier_caches_cover,
     combine_regional_datasets_into_global_dataset,
     query_frontier_cache_for_region,
 )
@@ -386,9 +388,15 @@ def query_all_years(
     No profiles are opened. The sampler needed them at query time to re-run dispatch on its
     winner; the frontier store already holds every dispatch result the pricing needs, so a
     year costs four cost scalars and an argmin per pixel.
+
+    Before anything is written, every region's cache must cover every (cost key, year) mix the
+    query will price (`check_frontier_caches_cover`); otherwise `FrontierCacheCoverageError`
+    names the build to run.
     """
+    year_costs = {year: _validate_cost_set(path_config, year) for year in years}
+    check_frontier_caches_cover(REGION_COORDS, coverage, cost_candidates(years, year_costs.__getitem__), path_config)
     for year in years:
-        costs, horizon = _validate_cost_set(path_config, year)
+        costs, horizon = year_costs[year]
         for region in REGION_COORDS:
             logging.info(f"\nQuerying frontier cache for {region} y{year}")
             query_frontier_cache_for_region(
@@ -564,7 +572,8 @@ def main_build_cache(argv: list[str]) -> int:
 def main_query(argv: list[str]) -> int:
     """
     `query` subcommand: re-derive optimal-solution NetCDFs from pre-built frontier
-    caches for the requested years. Requires the caches to exist; will not build.
+    caches for the requested years. Requires the caches to exist and to cover this cost set
+    and these years; will not build.
     """
     parser = argparse.ArgumentParser(
         prog="boa-run query",
@@ -611,16 +620,20 @@ def main_query(argv: list[str]) -> int:
             logging.error(str(e))
             return 1
         run_manifest.record_invocation(path_config, "query", list(argv), parameters=resolved_parameters(args, years))
-        query_all_years(
-            path_config,
-            years,
-            args.load_density,
-            args.coverage,
-            args.workers,
-            weather_year,
-            force=args.force,
-            generate_plots=args.plots,
-        )
+        try:
+            query_all_years(
+                path_config,
+                years,
+                args.load_density,
+                args.coverage,
+                args.workers,
+                weather_year,
+                force=args.force,
+                generate_plots=args.plots,
+            )
+        except FrontierCacheCoverageError as e:
+            logging.error(str(e))
+            return 1
         if args.promote_lcoe and run_promotion(path_config, weather_year, args.load_density, args.coverage) != 0:
             return 1
     logging.info("\nquery: all (region, year) pairs complete.")

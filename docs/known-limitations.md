@@ -207,25 +207,17 @@ which designs the cache contains (see [Methodology](methodology.md#cost-anchors)
 - **A rebuild can change an earlier result.** When a run has cost mixes that a stored cache does
   not cover, BOA builds the cache again for more cost mixes. The new cache can have other
   patches. The LCOE for an earlier cost set and investment year can then be different.
-- **Per-year files are not refreshed.** A command that finds the file of a year skips that year,
-  unless you force a new calculation. After a cache rebuild without this, the per-year files in a
-  run can come from different caches. The files do not record the build time or the cost mixes
-  that the cache was built for. The promotion step cannot find this. See
+- **Old per-year files stay until a query runs on their year.** A rebuild changes the frontier
+  cache only. Each per-year file records the build time of the cache that it was priced from
+  (`frontier_cache_built_at`). A query derives again each file of its years that comes from an
+  earlier build. The files of the other years keep the earlier build, so one run directory can
+  hold files from two builds. The promotion step stops when the GLOBAL files of the years come
+  from different builds. See
   [Rebuild a frontier cache](running-the-model.md#rebuild-a-frontier-cache).
-- **The query does not check the cost mixes.** The query step uses the cache that it finds. The
-  cache path contains the weather year, the region, the coverage target and the search settings.
-  It does not contain the cost set or the years. A cache from another cost set or another range
-  of years is used without a warning. The cost mix check runs in the commands that build the cache
-  (see [Rebuild a frontier cache](running-the-model.md#rebuild-a-frontier-cache)). Pixels whose
-  cost mix the cache does not cover get results that the containment check confirms less often.
-  The LCOE can be higher than with a cache that covers the cost mix.
-- **A full cache is used again.** A cache that is built for the largest number of cost mixes
-  (`max_anchors`, 32 by default) is used again when it does not cover the cost mixes of the run.
-  BOA writes a warning.
-- **The mean costs are not a cost mix that the cache covers.** The cache covers the cost keys in
-  the cost set. A pixel whose country is not a cost key, or that has no country, is priced with
-  the mean costs of all cost keys (see [Inputs and costs](#inputs-and-costs)). The cache is not
-  built for the cost mix of these mean costs.
+- **A full cache is used with a warning.** A cache that is built for the largest number of cost
+  mixes (`max_anchors`, 32 by default) passes the coverage check of the build and of the query,
+  also when it does not cover the cost mixes of the run. BOA writes a warning. For the uncovered
+  cost mixes, the LCOE can be higher than the optimum, and the output does not show it.
 - **The cache identity is the weather-year label.** BOA does not compare the content of the
   profiles or of the land-sea mask. A new profile build for the same year, or a changed land-sea
   mask, uses the old cache without a warning.
