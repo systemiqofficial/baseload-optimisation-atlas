@@ -141,7 +141,8 @@ class PathConfig:
         │   ├── run.json                   same run label + same params -> same directory
         │   └── outputs/wy<year>/<rho>MWkm2/cov<c>/nc/<REGION>/
         │             optimal_sol_wy<year>_<rho>MWkm2_cov<c>_<REGION>_<inv_year>.nc
-        └── lcoe-only/<run>_<hash>/        combined per-run LCOE files the steel sim reads
+        ├── lcoe-only/<run>_<hash>/        combined per-run LCOE files the steel sim reads
+        └── downstream/<run>_<hash>/       optional products priced from the LCOE (boa-lcoh: LCOH files)
 
     ``<rho>``/``<c>`` are dot-free, formatted via ``format_scenario_number`` (e.g.
     ``rho=2.5`` -> ``"02p5MWkm2"``, ``coverage=0.95`` -> ``"cov0p95"``); ``<year>`` is the
@@ -284,6 +285,22 @@ class PathConfig:
         """Canonical path of one scenario's combined-LCOE file."""
         return self.lcoe_promotion_dir / self.promoted_lcoe_filename(
             weather_year, load_density, coverage, year_start, year_end
+        )
+
+    @property
+    def downstream_dir(self) -> Path:
+        """``downstream/<run>`` — products priced from the run's LCOE by the optional downstream steps."""
+        return self.root / "downstream" / self.run
+
+    def lcoh_path(
+        self, weather_year: int, load_density: float, coverage: float, scenario: str, year_start: int, year_end: int
+    ) -> Path:
+        """One scenario's LCOH file, named like the combined-LCOE file plus the electrolyser cost scenario:
+        ``optimal_lcoh_wy<weather_year>_<rho>MWkm2_cov<c>_<scenario>_<first>_<last>.nc``."""
+        return self.downstream_dir / (
+            f"optimal_lcoh_wy{int(weather_year)}_"
+            f"{format_scenario_number(load_density, pad_int_digits=2)}MWkm2_"
+            f"cov{format_scenario_number(coverage)}_{scenario.lower()}_{int(year_start)}_{int(year_end)}.nc"
         )
 
     def map_plots_dir(self, weather_year: int, load_density: float, coverage: float, region: str) -> Path:
