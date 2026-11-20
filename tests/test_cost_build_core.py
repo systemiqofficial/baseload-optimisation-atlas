@@ -8,8 +8,8 @@ import openpyxl
 import pandas as pd
 import pytest
 
-from boa.config.cost_sources import get_source, load_registry, source_path
 from boa.config.paths import default_root
+from boa.config.sources import get_source, load_registry, source_path, sources_with_tag
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "cost" / "build_core.py"
 _spec = importlib.util.spec_from_file_location("build_core", SCRIPT)
@@ -40,8 +40,8 @@ def test_every_registry_item_the_build_names_exists():
         assert build_core.label(source_id, ref) == f"{source_id}: {ref}"
 
 
-def test_the_registry_holds_exactly_the_build_inputs():
-    assert tuple(load_registry()) == build_core.INPUTS
+def test_the_costs_tag_holds_exactly_the_build_inputs():
+    assert tuple(sources_with_tag("costs")) == build_core.INPUTS
 
 
 def test_rules_and_transcribed_tables_name_only_known_regions():

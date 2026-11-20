@@ -17,8 +17,9 @@ linearly between them, keeps the 2050 value after 2050, and rejects an investmen
 
 ## Sources of the core set
 
-`boa-sources-fetch` downloads these files and checks their sha256. The list of files is
-`src/boa/config/cost_sources.toml`. Each workbook row names its source as `<id>: <table>`.
+`boa-sources-fetch --tag costs` downloads these files and checks their sha256. The list of files
+is `src/boa/config/sources.toml`, where each of them has the tag `costs`. Each workbook row names
+its source as `<id>: <table>`.
 
 | Id | Source | Used for |
 |---|---|---|

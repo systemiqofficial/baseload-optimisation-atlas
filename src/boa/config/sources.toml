@@ -1,8 +1,11 @@
-# Original files behind the boa-cost-data-core workbooks (scripts/cost/build_core.py).
+# Original files that BOA takes input values from.
 #
 # boa-sources-fetch downloads each file into <data root>/sources/<id>/ and checks its sha256.
-# A workbook row names its source as "<id>: <ref>", where <ref> is the text before the colon
-# in one of the "tables" lines.
+# A value names its source as "<id>: <ref>", where <ref> is the text before the colon in one of
+# the "tables" lines. "tags" says which inputs use the source:
+#   costs             the boa-cost-data-core workbooks (scripts/cost/build_core.py)
+#   capacity-ceiling  the capacity-ceiling densities and land-cover factors
+#                     (boa.config.physical_parameters)
 
 [[source]]
 id = "irena-rpgc-2024-data"
@@ -11,6 +14,7 @@ url = "https://www.irena.org/-/media/Files/IRENA/Agency/Publication/2025/Jul/IRE
 sha256 = "693e09859a4e0ebdb52313e5d0988f184cab80893410c63c660dc1fa7fe7f270"
 licence = "IRENA terms of use: free use with attribution"
 accessed = 2026-11-19
+tags = ["costs"]
 tables = [
   "Table 2.1: onshore wind total installed cost 2024, weighted average by region, USD(2024)/kW",
   "Table 3.1: utility-scale solar PV total installed cost 2024, weighted average by region, USD(2024)/kW",
@@ -27,6 +31,7 @@ url = "https://www.irena.org/-/media/Files/IRENA/Agency/Publication/2025/Jul/IRE
 sha256 = "ffe8ce4bde29616f3edf9ef1a86dbb6ae2d5381a0ecb9bb1f71bb20204b6bada"
 licence = "IRENA terms of use: free use with attribution"
 accessed = 2026-11-19
+tags = ["costs"]
 tables = [
   "Table A1: default real WACC for countries outside the WACC benchmark tool (5% OECD and China, 7.5% elsewhere), p. 202",
   "Box A.2: minimum WACC floor on the Table A1 defaults, p. 203",
@@ -40,6 +45,7 @@ url = "https://www.iea.org/files/9753df19-0a71-422a-b725-012c555763b3/WorldEnerg
 sha256 = "ebee58b6b93d6aed43db5247d54b03a7248510c2986bd24cfb4cca59d339b8f4"
 licence = "CC BY 4.0 (Annex A: CC BY-NC-SA 4.0, not used)"
 accessed = 2026-11-19
+tags = ["costs"]
 tables = [
   "Table B.4a: CPS capital costs 2024, 2035, 2050 (US, EU, China, India), USD(2024)/kW, p. 454",
   "Table B.4b: STEPS capital costs 2024, 2035, 2050 (US, EU, China, India), USD(2024)/kW, p. 455",
@@ -54,6 +60,7 @@ url = "https://naciscdn.org/naturalearth/50m/cultural/ne_50m_admin_0_map_subunit
 sha256 = "156c8645eea09b8c6e487d7e490c29b06f5307ea7c0a3dd8abd032e3f1b36767"
 licence = "Public domain"
 accessed = 2026-11-19
+tags = ["costs"]
 tables = [
   "ISO_A3: ISO-3 code of each map subunit (ADM0_A3 where ISO_A3 is -99)",
   "SUBREGION: UN M49 subregion of each map subunit",

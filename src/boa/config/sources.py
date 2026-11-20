@@ -1,10 +1,11 @@
 """
-The registry of original files behind the core cost workbooks: ``cost_sources.toml`` next to this module.
+The registry of original files that BOA takes input values from: ``sources.toml`` next to this module.
 
 Each ``[[source]]`` names one file as its publisher makes it available for download: ``url``, ``sha256``,
-licence, access date and the tables BOA takes values from. ``boa-sources-fetch`` downloads the files
-into ``<data root>/sources/<id>/``. A cost workbook row names its source as ``<id>: <ref>``, for example
-``irena-rpgc-2024-data: Table 2.1``; ``<ref>`` is the text before the colon of a ``tables`` line.
+licence, access date, ``tags`` for the inputs that use it (from ``TAGS``) and the tables BOA takes
+values from. ``boa-sources-fetch`` downloads the files into ``<data root>/sources/<id>/``. A value names
+its source as ``<id>: <ref>``, for example ``irena-rpgc-2024-data: Table 2.1``; ``<ref>`` is the text
+before the colon of a ``tables`` line.
 """
 
 import datetime as dt
@@ -14,8 +15,10 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
-REGISTRY_PATH = Path(__file__).with_name("cost_sources.toml")
-FIELDS = ("id", "citation", "url", "sha256", "licence", "accessed", "tables")
+REGISTRY_PATH = Path(__file__).with_name("sources.toml")
+FIELDS = ("id", "citation", "url", "sha256", "licence", "accessed", "tags", "tables")
+# What a source is used for. A closed set, so a misspelt tag fails instead of hiding a source.
+TAGS = ("costs", "capacity-ceiling")
 _ID = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -34,6 +37,7 @@ class Source:
     sha256: str
     licence: str
     accessed: dt.date
+    tags: tuple[str, ...]
     tables: tuple[str, ...]
 
     @property
@@ -66,10 +70,15 @@ def _parse_source(entry: dict, index: int) -> Source:
         raise RegistryError(f"{where}: sha256 must be 64 lower-case hex digits")
     if not isinstance(entry["accessed"], dt.date):
         raise RegistryError(f"{where}: accessed must be a date (YYYY-MM-DD)")
+    tags = entry["tags"]
+    if not isinstance(tags, list) or not tags or len(set(tags)) != len(tags):
+        raise RegistryError(f"{where}: tags must be a non-empty list without duplicates")
+    if unknown_tags := sorted(set(tags) - set(TAGS)):
+        raise RegistryError(f"{where}: unknown tag {', '.join(map(str, unknown_tags))}; known: {', '.join(TAGS)}")
     tables = entry["tables"]
     if not tables or not all(isinstance(t, str) and ": " in t for t in tables):
         raise RegistryError(f"{where}: tables must be a non-empty list of '<ref>: <what>' lines")
-    source = Source(**{**entry, "tables": tuple(tables)})
+    source = Source(**{**entry, "tags": tuple(tags), "tables": tuple(tables)})
     if len(set(source.refs)) != len(source.refs):
         raise RegistryError(f"{where}: duplicate table ref")
     if "." not in source.file:
@@ -90,6 +99,14 @@ def load_registry(path: Path = REGISTRY_PATH) -> dict[str, Source]:
     if not sources:
         raise RegistryError(f"{path.name}: no [[source]] entries")
     return sources
+
+
+def sources_with_tag(tag: str, registry: dict[str, Source] | None = None) -> dict[str, Source]:
+    """The sources that carry ``tag``, by id, in file order."""
+    if tag not in TAGS:
+        raise KeyError(f"Unknown tag {tag!r}; known: {', '.join(TAGS)}")
+    registry = load_registry() if registry is None else registry
+    return {source_id: source for source_id, source in registry.items() if tag in source.tags}
 
 
 def get_source(source_id: str, registry: dict[str, Source] | None = None) -> Source:

@@ -1,4 +1,4 @@
-"""The cost source registry and the boa-sources-fetch step."""
+"""The source registry and the boa-sources-fetch step."""
 
 import hashlib
 from dataclasses import replace
@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from boa.cli import fetch_sources
-from boa.config.cost_sources import RegistryError, Source, get_source, load_registry, source_path
+from boa.config.sources import RegistryError, Source, get_source, load_registry, source_path, sources_with_tag
 
 PAYLOAD = b"original file bytes"
 PAYLOAD_SHA = hashlib.sha256(PAYLOAD).hexdigest()
@@ -21,6 +21,7 @@ url = "https://example.org/files/demo.xlsx"
 sha256 = "{PAYLOAD_SHA}"
 licence = "CC BY 4.0"
 accessed = 2026-11-19
+tags = ["costs"]
 tables = ["Table 1: CAPEX 2024, USD(2024)/kW", "Fig 2: WACC, real"]
 """
 
@@ -33,6 +34,7 @@ def _source(**changes) -> Source:
         sha256=PAYLOAD_SHA,
         licence="CC BY 4.0",
         accessed=date(2026, 11, 19),
+        tags=("costs",),
         tables=("Table 1: CAPEX",),
     )
     return replace(base, **changes)
@@ -43,7 +45,7 @@ def _write_payload(_url: str, target: Path, payload: bytes = PAYLOAD) -> None:
 
 
 def _write_registry(tmp_path: Path, text: str) -> Path:
-    path = tmp_path / "cost_sources.toml"
+    path = tmp_path / "sources.toml"
     path.write_text(text, encoding="utf-8")
     return path
 
@@ -56,6 +58,14 @@ def test_tracked_registry_loads():
     assert registry
     for source in registry.values():
         assert source.file, source.id
+
+
+def test_sources_with_tag_filters_and_rejects_an_unknown_tag(tmp_path):
+    registry = load_registry(_write_registry(tmp_path, VALID_ENTRY))
+    assert list(sources_with_tag("costs", registry)) == ["demo-source"]
+    assert sources_with_tag("capacity-ceiling", registry) == {}
+    with pytest.raises(KeyError, match="known: costs"):
+        sources_with_tag("cost", registry)
 
 
 def test_unknown_source_id_names_the_known_ids():
@@ -93,6 +103,10 @@ def test_valid_entry_parses(tmp_path):
         ('"Fig 2: WACC, real"', '"Fig 2 WACC"', "tables must be"),
         ('"Fig 2: WACC, real"', '"Table 1: again"', "duplicate table ref"),
         ('licence = "CC BY 4.0"', 'licence = "CC BY 4.0"\nnote = "x"', "unknown key note"),
+        ('tags = ["costs"]\n', "", "missing tags"),
+        ('tags = ["costs"]', "tags = []", "tags must be"),
+        ('tags = ["costs"]', 'tags = ["costs", "costs"]', "tags must be"),
+        ('tags = ["costs"]', 'tags = ["cost"]', "unknown tag cost"),
     ],
 )
 def test_invalid_entry_is_rejected(tmp_path, old, new, message):
@@ -159,6 +173,12 @@ def test_fetch_failed_download_leaves_no_file(tmp_path):
     with pytest.raises(OSError):
         fetch_sources.fetch_source(_source(), tmp_path, broken)
     assert list((tmp_path / "sources" / "demo-source").iterdir()) == []
+
+
+def test_cli_tag_lists_only_the_sources_with_that_tag(tmp_path, capsys):
+    assert fetch_sources.main(["--tag", "costs", "--list", "--root", str(tmp_path)]) == 0
+    listed = [line.split()[0] for line in capsys.readouterr().out.splitlines()]
+    assert listed == list(sources_with_tag("costs"))
 
 
 def test_cli_unknown_id_exits_2(tmp_path, capsys):

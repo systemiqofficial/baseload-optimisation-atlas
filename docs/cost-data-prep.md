@@ -195,7 +195,7 @@ The core cost set is made from pinned public sources (see [Cost data](cost-data.
 commands from a checkout of the BOA repository:
 
 ```bash
-boa-sources-fetch                                   # download the sources into <data root>/sources/
+boa-sources-fetch --tag costs                       # download the sources into <data root>/sources/
 python scripts/cost/build_core.py --out-dir build/cost-core
 boa-data-prepare --input-file build/cost-core/boa-cost-data-core-steps-v0.1.xlsx --scenario core-steps
 boa-run ... --cost-input core-steps
@@ -216,8 +216,8 @@ The build reads three kinds of input:
 
 ### Updating a source
 
-1. In `src/boa/config/cost_sources.toml`, change the `url`, `sha256` and `accessed` of the
-   source. Change its `tables` lines if the table numbers change.
+1. In `src/boa/config/sources.toml`, change the `url`, `sha256` and `accessed` of the
+   source. A cost source has the tag `costs`. Change its `tables` lines if the table numbers change.
 2. Run `boa-sources-fetch <id>`.
 3. For a PDF source, update its file in `scripts/cost/transcribed/` from the new pages.
 4. Run the build and `pytest tests/test_cost_build_core.py`. These tests skip when the source
