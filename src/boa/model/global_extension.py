@@ -47,6 +47,31 @@ from boa.inputs.profiles import detect_weather_year, open_regional_dataset
 # What `max_baseload_mw` is, for the output attributes.
 CAPACITY_POTENTIAL_METHOD = "max_baseload_mw = min(solar_ceiling_mw / solar_factor, wind_ceiling_mw / wind_factor)"
 
+# `long_name` and `units` of each output variable. Plots take their labels from these, so the
+# same plot code serves any file that sets them, for example a downstream LCOH file.
+OUTPUT_VARIABLE_ATTRS: dict[str, dict[str, str]] = {
+    "lcoe": {"long_name": "LCOE", "units": "USD/MWh"},
+    "lcoe_coverage_based": {"long_name": "Cost per MWh of the full demand", "units": "USD/MWh"},
+    "installation_cost": {"long_name": "Installation cost", "units": "USD"},
+    "installation_cost_solar": {"long_name": "Installation cost, solar", "units": "USD"},
+    "installation_cost_wind": {"long_name": "Installation cost, wind", "units": "USD"},
+    "installation_cost_battery": {"long_name": "Installation cost, battery", "units": "USD"},
+    "solar_factor": {"long_name": "Solar factor", "units": "MW per MW of demand"},
+    "wind_factor": {"long_name": "Wind factor", "units": "MW per MW of demand"},
+    "battery_factor": {"long_name": "Battery factor", "units": "hours of demand"},
+    "coverage": {"long_name": "Coverage", "units": "1"},
+    "served_fraction": {"long_name": "Served fraction", "units": "1"},
+    "cost_of_capital": {"long_name": "Cost of capital", "units": "1/year"},
+    "load_mw": {"long_name": "Demand", "units": "MW"},
+    "solar_ceiling_mw": {"long_name": "Solar capacity ceiling", "units": "MW"},
+    "wind_ceiling_mw": {"long_name": "Wind capacity ceiling", "units": "MW"},
+    "max_baseload_mw": {"long_name": "Capacity potential", "units": "MW"},
+    "max_annual_energy_twh": {"long_name": "Annual energy of the capacity potential", "units": "TWh/yr"},
+    "cost_key": {"long_name": "Cost key"},
+    "status": {"long_name": "Status code"},
+    "ceiling_binding": {"long_name": "Binding capacity ceiling"},
+}
+
 
 def _preload_iso3_from_grid(
     pt_lats: np.ndarray,
@@ -774,6 +799,8 @@ def _assemble_optimal_sol(
         optimal_sol["ceiling_binding"].attrs["flag_meanings"] = " ".join(
             meaning.replace(" ", "_") for meaning in BINDING_CODES.values()
         )
+    for name in optimal_sol.data_vars:
+        optimal_sol[name].attrs.update(OUTPUT_VARIABLE_ATTRS.get(str(name), {}))
     optimal_sol.attrs.update(attrs)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     optimal_sol.to_netcdf(out_path, mode="w", format="NETCDF4", encoding=_float32_output_encoding(optimal_sol))
@@ -912,6 +939,11 @@ def combine_regional_datasets_into_global_dataset(
 
         # Carry run/provenance metadata from regional files; override region and refresh timestamp
         global_ds.attrs.update(next(iter(regional_datasets.values())).attrs)
+        # The NaN-initialised merge above drops variable attributes; take them from the regions.
+        for var in global_ds.data_vars:
+            source = next((ds[var] for ds in regional_datasets.values() if var in ds.data_vars), None)
+            if source is not None:
+                global_ds[var].attrs = {**source.attrs, **global_ds[var].attrs}
         global_ds.attrs["region"] = "GLOBAL"
         global_ds.attrs["created_at"] = datetime.now(timezone.utc).isoformat()
         global_ds.attrs["frontier_cache_built_at"] = _join_cache_stamps(

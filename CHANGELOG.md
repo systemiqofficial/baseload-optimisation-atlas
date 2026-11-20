@@ -16,6 +16,11 @@ Changes to BOA by version, newest first. Each version is a git tag, for example 
 - **Capacity maps** with `--plots`: the LCOE above the capacity potential for each year, and the
   available share of the land for solar PV and wind for each region. They use Crameri's Scientific
   Colour Maps, through the new dependency `cmcrameri`.
+- **Supply curves** with `--plots`: the LCOE over the annual energy of the capacity potential, one
+  ordered by cost and coloured by region, one ordered by region.
+- **Variable attributes**: each variable of a per-year file has `long_name` and `units`. The map
+  and supply-curve functions take their labels from them, so they also plot other gridded cost
+  files, for example an LCOH.
 
 ### Changed
 

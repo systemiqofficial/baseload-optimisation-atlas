@@ -1,6 +1,6 @@
 """
-Maps of the capacity ceiling: the available share of each pixel's land, and the LCOE beside the
-capacity potential.
+Maps of the capacity ceiling: the available share of each pixel's land, and a cost map above a
+quantity map (by default the LCOE above the capacity potential).
 
 The colour maps are Crameri's Scientific Colour Maps (`cmcrameri`): perceptually uniform, so equal
 steps in the data look like equal steps in colour, and readable with colour-vision deficiency.
@@ -26,9 +26,6 @@ from boa.config.physical_parameters import DENG_AVAILABILITY
 # The share scale ends at the largest available fraction of the land-cover table (0.10 for wind
 # in the "high" case), so the colours use the whole range of the data.
 SHARE_VMAX = max(max(factors.values()) for factors in DENG_AVAILABILITY.values())
-# Potential range, MW of baseload. A 0.25 deg pixel holds from a few MW to some 10 000 MW.
-POTENTIAL_RANGE_MW = (10.0, 1.0e4)
-LCOE_VMAX = 200.0  # USD/MWh, as in the other result maps
 
 UNAVAILABLE_COLOUR = "#BDBDBD"
 TECH_TITLES = {"pv": "Solar PV", "wind": "Wind"}
@@ -142,47 +139,93 @@ def plot_availability_share(
     return out_path
 
 
-def plot_lcoe_and_potential(
-    optimal_sol: xr.Dataset,
+def variable_label(data: xr.DataArray) -> str:
+    """`long_name (units)` from the variable's attributes, falling back to its name."""
+    name = str(data.attrs.get("long_name", data.name))
+    units = data.attrs.get("units")
+    return f"{name} ({units})" if units and units != "1" else name
+
+
+# File attributes that describe a result, in the order a title states them.
+_DESCRIBING_ATTRS = (
+    ("region", "{}"),
+    ("investment_year", "investment year {}"),
+    ("coverage_fraction", "coverage {:g}"),
+    ("era5_weather_year", "weather year {}"),
+)
+
+
+def describe_dataset(ds: xr.Dataset) -> str:
+    """A title from the file's own attributes: its `title`, or the attributes that describe a result."""
+    if "title" in ds.attrs:
+        return str(ds.attrs["title"])
+    parts = []
+    for key, form in _DESCRIBING_ATTRS:
+        if key in ds.attrs:
+            value = ds.attrs[key]
+            parts.append(form.format(float(value) if "{:g}" in form else value))
+    return ", ".join(parts)
+
+
+def _decade_range(values: xr.DataArray) -> tuple[float, float]:
+    """Log-scale limits: the decades around the 5th and 99.5th percentile of the positive values."""
+    positive = values.values[np.isfinite(values.values) & (values.values > 0)]
+    if positive.size == 0:
+        return 1.0, 10.0
+    low, high = np.percentile(positive, [5.0, 99.5])
+    return 10.0 ** np.floor(np.log10(low)), 10.0 ** np.ceil(np.log10(max(high, low * 10)))
+
+
+def plot_cost_and_quantity_maps(
+    ds: xr.Dataset,
     out_path: Path,
+    cost_var: str = "lcoe",
+    quantity_var: str = "max_baseload_mw",
     boundaries: gpd.GeoDataFrame | None = None,
     title: str | None = None,
+    cost_range: tuple[float, float] | None = None,
+    quantity_range: tuple[float, float] | None = None,
 ) -> Path:
     """
-    The final result panel: the LCOE above the capacity potential (`max_baseload_mw`).
+    A cost map above a quantity map, for any two variables on `(lat, lon)`: by default the LCOE
+    above the capacity potential, and equally an LCOH above a hydrogen potential.
 
-    The potential uses a log scale, because it spans three orders of magnitude between pixels.
-    A potential of 0 (the land cannot hold the design) is grey.
+    Labels come from each variable's `long_name` and `units`, the title from the file's attributes
+    (`describe_dataset`) unless `title` is given. The cost scale runs from 0 to the 98th percentile
+    unless `cost_range` is given. The quantity uses a log scale, because a potential spans orders
+    of magnitude between pixels. A quantity of 0 (the land cannot hold the design) is grey.
     """
-    lcoe = optimal_sol["lcoe"]
-    potential = optimal_sol["max_baseload_mw"]
-    fig, (ax_lcoe, ax_pot) = _figure(2, lcoe)
+    cost = ds[cost_var]
+    quantity = ds[quantity_var]
+    if cost_range is None:
+        finite = cost.values[np.isfinite(cost.values)]
+        cost_range = (0.0, float(np.percentile(finite, 98.0)) if finite.size else 1.0)
+    fig, (ax_cost, ax_quantity) = _figure(2, cost)
 
-    mesh = ax_lcoe.pcolormesh(
-        lcoe.lon, lcoe.lat, lcoe, cmap=cmc.batlow, norm=Normalize(0.0, LCOE_VMAX), shading="nearest", rasterized=True
+    mesh = ax_cost.pcolormesh(
+        cost.lon, cost.lat, cost, cmap=cmc.batlow, norm=Normalize(*cost_range), shading="nearest", rasterized=True
     )
-    fig.colorbar(mesh, ax=ax_lcoe, label="LCOE (USD/MWh delivered)", extend="max", shrink=0.8)
-    _frame(ax_lcoe, lcoe, boundaries, "LCOE of the optimal design")
+    fig.colorbar(mesh, ax=ax_cost, label=variable_label(cost), extend="max", shrink=0.8)
+    _frame(ax_cost, cost, boundaries, str(cost.attrs.get("long_name", cost_var)))
 
-    _grey_where(ax_pot, potential == 0.0)
-    mesh = ax_pot.pcolormesh(
-        potential.lon,
-        potential.lat,
-        potential.where(potential > 0.0),
+    _grey_where(ax_quantity, quantity == 0.0)
+    mesh = ax_quantity.pcolormesh(
+        quantity.lon,
+        quantity.lat,
+        quantity.where(quantity > 0.0),
         cmap=cmc.lajolla,
-        norm=LogNorm(*POTENTIAL_RANGE_MW, clip=True),
+        norm=LogNorm(*(quantity_range or _decade_range(quantity)), clip=True),
         shading="nearest",
         rasterized=True,
     )
-    fig.colorbar(mesh, ax=ax_pot, label="Capacity potential (MW of baseload)", extend="both", shrink=0.8)
-    _frame(ax_pot, potential, boundaries, "Capacity potential at this LCOE")
-    ax_pot.legend(
+    fig.colorbar(mesh, ax=ax_quantity, label=variable_label(quantity), extend="both", shrink=0.8)
+    _frame(ax_quantity, quantity, boundaries, str(quantity.attrs.get("long_name", quantity_var)))
+    ax_quantity.legend(
         handles=[Patch(facecolor=UNAVAILABLE_COLOUR, label="Land cannot hold the design")],
         loc="lower left",
         frameon=True,
     )
-    if title:
-        fig.suptitle(title)
+    fig.suptitle(title if title is not None else describe_dataset(ds))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close(fig)

@@ -12,8 +12,10 @@ from boa.cds.max_capacity import pixel_area
 from boa.model.capacity_maps import (
     SHARE_VMAX,
     availability_share,
+    describe_dataset,
     plot_availability_share,
-    plot_lcoe_and_potential,
+    plot_cost_and_quantity_maps,
+    variable_label,
 )
 
 LAT = np.array([10.0, 10.25, 10.5])
@@ -57,5 +59,31 @@ def test_panel_is_written_with_zero_and_missing_potential(tmp_path):
         },
         coords={"lat": LAT, "lon": LON},
     )
-    out = plot_lcoe_and_potential(ds, tmp_path / "panel.png")
+    out = plot_cost_and_quantity_maps(ds, tmp_path / "panel.png")
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_labels_and_title_come_from_the_file_metadata(tmp_path):
+    """A downstream file plots with its own names: nothing here knows about LCOE or LCOH."""
+    ds = xr.Dataset(
+        {
+            "lcoh": (
+                ("lat", "lon"),
+                np.array([[3.0, 4.0], [5.0, np.nan], [2.5, 6.0]]),
+                {"long_name": "LCOH", "units": "USD/kg"},
+            ),
+            "h2_potential": (
+                ("lat", "lon"),
+                np.array([[1.0, 0.0], [20.0, 3.0], [5.0, 0.5]]),
+                {"long_name": "Hydrogen potential", "units": "kt/yr"},
+            ),
+        },
+        coords={"lat": LAT, "lon": LON},
+        attrs={"region": "GLOBAL", "investment_year": 2035, "coverage_fraction": 0.9},
+    )
+    assert variable_label(ds["lcoh"]) == "LCOH (USD/kg)"
+    assert describe_dataset(ds) == "GLOBAL, investment year 2035, coverage 0.9"
+    assert describe_dataset(ds.assign_attrs(title="My run")) == "My run"
+    out = plot_cost_and_quantity_maps(ds, tmp_path / "lcoh.png", cost_var="lcoh", quantity_var="h2_potential")
+    assert out.exists()
+

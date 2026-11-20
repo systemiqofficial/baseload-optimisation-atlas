@@ -13,7 +13,13 @@ from typing import Optional
 from boa.config.paths import PathConfig
 from boa.config.physical_parameters import REGION_COORDS
 from boa.inputs.profiles import open_regional_dataset
-from boa.model.capacity_maps import availability_share, land_on_grid, plot_availability_share, plot_lcoe_and_potential
+from boa.model.capacity_maps import (
+    availability_share,
+    land_on_grid,
+    plot_availability_share,
+    plot_cost_and_quantity_maps,
+)
+from boa.model.supply_curves import pixel_regions, plot_supply_curves
 
 
 def plot_time_series(profile: dict[str, np.ndarray], output_path: Optional[Path] = None) -> None:
@@ -264,17 +270,20 @@ def _plot_capacity_maps(
     boundaries: gpd.GeoDataFrame,
 ) -> None:
     """
-    The capacity maps of one result file: the available share of the land (once per region, as it
-    does not change with the year) and the panel of the LCOE above the capacity potential.
+    The capacity plots of one result file: the available share of the land (once per region, as it
+    does not change with the year), the panel of the LCOE above the capacity potential, and the
+    supply curves of the LCOE over the annual energy of the potential.
 
     `optimal_sol` must still hold its zeros: a potential of 0 is a result, shown in grey.
     """
     if "max_baseload_mw" in optimal_sol.data_vars:
-        plot_lcoe_and_potential(
-            optimal_sol,
-            plots_path / f"lcoe_potential_{region}_{year}_cov{coverage:g}.png",
-            boundaries=boundaries,
-            title=f"{region}, investment year {year}, coverage {coverage:g}",
+        plot_cost_and_quantity_maps(
+            optimal_sol, plots_path / f"lcoe_potential_{region}_{year}_cov{coverage:g}.png", boundaries=boundaries
+        )
+    if "max_annual_energy_twh" in optimal_sol.data_vars:
+        regions = pixel_regions(optimal_sol, path_config.iso3_grid_path, path_config.subunits_50m_shapefile_path)
+        plot_supply_curves(
+            optimal_sol, plots_path / f"supply_curve_{region}_{year}_cov{coverage:g}.png", regions=regions
         )
     share_path = plots_path / f"availability_share_{region}.png"
     if share_path.exists():

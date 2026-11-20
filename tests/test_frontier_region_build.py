@@ -274,6 +274,8 @@ def test_the_output_carries_the_potential_of_the_design(profiles, dead_profiles,
         p[0] * 8760 * results[0]["served_fraction"] / 1e6, rel=1e-6
     )
     assert ds["ceiling_binding"].dtype == np.int8
+    assert ds["lcoe"].attrs["units"] == "USD/MWh"
+    assert ds["max_baseload_mw"].attrs == {"long_name": "Capacity potential", "units": "MW"}
 
     assert np.isnan(dead["max_baseload_mw"]) and int(dead["ceiling_binding"]) == BINDING_NONE
     assert float(dead["wind_ceiling_mw"]) == pytest.approx(400.0), "the ceiling is known without a design"
