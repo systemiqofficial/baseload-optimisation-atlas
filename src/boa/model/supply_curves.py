@@ -9,14 +9,16 @@ of its capacity potential), its height its cost (by default the LCOE). Two order
     from the region with the lowest quantity-weighted median cost to the one with the highest.
 
 The most expensive share of each region's quantity (2 % by default) is left out of both curves, so
-a few very expensive pixels do not flatten them. The weighted medians are of the pixels that stay. The regions are the fourteen `REGIONS`, made from
-the UN subregions of the Natural Earth map, and `plot_region_map` shows them in the same colours.
+a few very expensive pixels do not flatten them. The weighted medians are of the pixels that stay.
+The regions are the fourteen `REGIONS`, made from the UN subregions of the Natural Earth map, and
+`plot_region_map` shows them in the same colours.
 
 The functions take any two variables on `(lat, lon)` and label the axes from each variable's
 `long_name` and `units`, so a downstream file (for example an LCOH and a hydrogen potential)
 plots the same way. Pixels with no cost, or a quantity of 0 or none, are left out.
 """
 
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +28,6 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from matplotlib import patheffects
-from matplotlib.artist import Artist
 from matplotlib.collections import PolyCollection
 from matplotlib.colors import BoundaryNorm, ListedColormap
 from matplotlib.lines import Line2D
@@ -222,6 +223,19 @@ def weighted_median_cost(table: pd.DataFrame) -> pd.Series:
     return ordered[reached].groupby("region")["cost"].first()
 
 
+def median_offset(widths: np.ndarray) -> float:
+    """
+    The distance from the left edge of a block, with steps of `widths` in cost order, to the step
+    of the weighted median (`weighted_median_cost`). From there to the right edge, the curve is at
+    or above the median, so a median line drawn over that span never crosses the curve.
+    """
+    if widths.size == 0:
+        return 0.0
+    cumulative = np.cumsum(widths)
+    index = int(np.searchsorted(cumulative, 0.5 * cumulative[-1], side="left"))
+    return float(cumulative[index] - widths[index])
+
+
 def region_order(table: pd.DataFrame) -> list[str]:
     """
     The regions of `table` from the lowest to the highest weighted median cost
@@ -230,6 +244,22 @@ def region_order(table: pd.DataFrame) -> list[str]:
     """
     medians = weighted_median_cost(table)
     return sorted(medians.index, key=lambda region: (region == NO_REGION, float(medians[region]), str(region)))
+
+
+def _draw_regions(ax: plt.Axes, regions: xr.DataArray) -> None:
+    """Paint each pixel of `regions` in the colour of its region; pixels outside all regions stay empty."""
+    names = list(REGIONS)
+    index = {name: float(i) for i, name in enumerate(names)}
+    codes = np.array([index.get(r, np.nan) for r in regions.values.ravel()]).reshape(regions.shape)
+    ax.pcolormesh(
+        regions.lon,
+        regions.lat,
+        codes,
+        cmap=ListedColormap([REGIONS[n] for n in names]),
+        norm=BoundaryNorm(np.arange(len(names) + 1) - 0.5, len(names)),
+        shading="nearest",
+        rasterized=True,
+    )
 
 
 @slide_style
@@ -241,19 +271,9 @@ def plot_region_map(
 ) -> Path:
     """A map of the region of each pixel, in the colours of the supply curves."""
     names = list(REGIONS)
-    index = {name: float(i) for i, name in enumerate(names)}
-    codes = np.array([index.get(r, np.nan) for r in regions.values.ravel()]).reshape(regions.shape)
     fig, axes = _figure(1, regions, width=11.0, extra_height=0.4)
     ax = axes[0]
-    ax.pcolormesh(
-        regions.lon,
-        regions.lat,
-        codes,
-        cmap=ListedColormap([REGIONS[n] for n in names]),
-        norm=BoundaryNorm(np.arange(len(names) + 1) - 0.5, len(names)),
-        shading="nearest",
-        rasterized=True,
-    )
+    _draw_regions(ax, regions)
     _frame(ax, regions, boundaries, "")
     present = set(regions.values.ravel())
     shown = [n for n in names if n in present]
@@ -298,14 +318,18 @@ def plot_supply_curves(
     region by cost inside its block.
 
     The blocks run from the region with the lowest weighted median cost on the left to the one
-    with the highest on the right (`region_order`), and a line in each block marks that median.
-    The legend lists the regions in the order of the blocks.
+    with the highest on the right (`region_order`). In each block, a line at that median runs from
+    the point where the curve reaches it to the right edge. The legend lists the regions in the
+    order of the blocks. With `regions` given, pixels outside all regions (`NO_REGION`) are left
+    out.
 
     The most expensive `cut_share` of each region's quantity is left out (see `drop_costliest`),
     and a caption says so. The cost axis ends at the highest cost that stays, unless `cost_max` is
     given.
     """
     table = drop_costliest(supply_table(ds, cost_var, quantity_var, regions), cut_share)
+    if regions is not None:
+        table = table[table["region"] != NO_REGION]
     widths, x_units = _scaled_quantity(table, ds[quantity_var].attrs.get("units"))
     table = table.assign(width=widths.to_numpy())
     order = region_order(table)
@@ -315,7 +339,13 @@ def plot_supply_curves(
     cost_name = str(ds[cost_var].attrs.get("long_name", cost_var))
     quantity_name = str(ds[quantity_var].attrs.get("long_name", quantity_var)).lower()
 
-    fig, (ax_cost, ax_region) = plt.subplots(2, 1, figsize=(13.33, 7.5), sharex=True, sharey=True, layout="constrained")
+    fig = plt.figure(figsize=(13.33, 7.5), layout="constrained")
+    # With regions, a second column holds the region map (top) and the notes (bottom).
+    grid = fig.add_gridspec(2, 2, width_ratios=(3.2, 1.0)) if regions is not None else fig.add_gridspec(2, 1)
+    ax_cost = fig.add_subplot(grid[0, 0])
+    ax_region = fig.add_subplot(grid[1, 0], sharex=ax_cost, sharey=ax_cost)
+    ax_map: plt.Axes | None = fig.add_subplot(grid[0, 1]) if regions is not None else None
+    ax_notes: plt.Axes | None = fig.add_subplot(grid[1, 1]) if regions is not None else None
 
     _draw_steps(ax_cost, table.sort_values("cost", kind="stable"), colours)
     ax_cost.set_title("Ordered by cost, coloured by region")
@@ -331,7 +361,8 @@ def plot_supply_curves(
         "path_effects": [patheffects.Stroke(linewidth=3.4, foreground="white"), patheffects.Normal()],
     }
     for region, x0, x1 in zip(order, left, right):
-        ax_region.plot([x0, x1], [medians[region]] * 2, solid_capstyle="butt", **median_style)
+        start = x0 + median_offset(by_region.loc[by_region["region"] == region, "width"].to_numpy())
+        ax_region.plot([start, x1], [medians[region]] * 2, solid_capstyle="butt", **median_style)
     for edge in right[:-1]:
         ax_region.axvline(edge, color="white", linewidth=1.2)
     ax_region.set_title(f"One block per region, from the lowest to the highest weighted median {cost_name}")
@@ -349,13 +380,39 @@ def plot_supply_curves(
         ax.grid(axis="y", color="#DDDDDD", linewidth=0.6)
         ax.set_axisbelow(True)
 
-    handles: list[Artist] = [Patch(facecolor=colours[r], label=r) for r in order]
-    handles.append(Line2D([], [], label="Weighted median\nof the region", **median_style))
-    fig.legend(handles=handles, loc="outside right center", frameon=False, title="Region (block order)")
-
+    median_handle = Line2D([], [], label="Weighted median of the region", **median_style)
     caption = [f"Weighted median: half of the {quantity_name} of the region has a lower {cost_name}."]
     if cut_share > 0:
         caption.append(f"Not shown: the most expensive {100 * cut_share:g} % of the {quantity_name} of each region.")
-    fig.text(0.0, -0.01, "\n".join(caption), ha="left", va="top", fontsize=10, color=CAPTION_COLOUR)
+
+    if ax_map is not None and ax_notes is not None and regions is not None:
+        _draw_regions(ax_map, regions)
+        _frame(ax_map, regions, None, "Regions")
+        ax_notes.set_axis_off()
+        ax_notes.legend(handles=[median_handle], loc="upper left", frameon=False, borderaxespad=0.0)
+        ax_notes.text(
+            0.0,
+            0.78,
+            "\n\n".join(textwrap.fill(line, 34) for line in caption),
+            transform=ax_notes.transAxes,
+            ha="left",
+            va="top",
+            fontsize=10,
+            color=CAPTION_COLOUR,
+        )
+        fig.legend(
+            handles=[Patch(facecolor=colours[r], label=r) for r in order],
+            loc="outside lower center",
+            ncols=max((len(order) + 1) // 2, 1),
+            frameon=False,
+            fontsize=10,
+            handlelength=1.2,
+            columnspacing=1.2,
+            title="Regions in block order",
+            title_fontsize=11,
+        )
+    else:
+        fig.legend(handles=[median_handle], loc="outside lower center", frameon=False)
+        fig.text(0.0, -0.01, "\n".join(caption), ha="left", va="top", fontsize=10, color=CAPTION_COLOUR)
     fig.suptitle(title if title is not None else describe_dataset(ds))
     return save_figure(fig, out_path)

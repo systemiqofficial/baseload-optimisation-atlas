@@ -174,10 +174,12 @@ show the capacity ceiling:
   of the capacity potential (`max_annual_energy_twh`), with one step for each pixel. The first is
   ordered by cost and coloured by region. The second has one block for each region, with the
   pixels of the region ordered by cost. The blocks go from the lowest energy-weighted median LCOE
-  on the left to the highest on the right, and a black line in each block shows that median. The
-  weighted median is the LCOE below which half of the annual energy of the region lies. Pixels
-  with no region are the last block. The legend shows the regions in the order of the blocks.
-  Both curves leave out the most expensive 2 % of the annual energy of each region, and the
+  on the left to the highest on the right. In each block, a black line at that median goes from
+  the point where the curve reaches the median to the right edge of the block. The weighted
+  median is the LCOE below which half of the annual energy of the region lies. The curves do not
+  show pixels outside all regions, for example small islands with no country in the ISO-3 grid.
+  A small map at the top right shows the regions in their colours. The legend below the curves
+  shows the regions in two rows, in the order of the blocks. Both curves leave out the most expensive 2 % of the annual energy of each region, and the
   weighted medians use only the pixels that stay. The cost axis ends at the highest cost that
   stays. The energy axis is in PWh/yr when the total is 10,000 TWh/yr or more.
 - `supply_regions_<REGION>.png`: the regions of the supply curves, in the colours of the curves.

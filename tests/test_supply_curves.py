@@ -20,6 +20,7 @@ from boa.model.supply_curves import (
     _rectangles,
     country_regions,
     drop_costliest,
+    median_offset,
     plot_region_map,
     plot_supply_curves,
     region_colour,
@@ -27,6 +28,15 @@ from boa.model.supply_curves import (
     supply_table,
     weighted_median_cost,
 )
+
+
+def test_the_median_line_starts_where_the_curve_reaches_the_median():
+    # Steps 2, 1, 3 (cost order): half of 6 is reached in the second step, which starts at 2.
+    assert median_offset(np.array([2.0, 1.0, 3.0])) == 2.0
+    # Exactly half at the end of the first step: that step holds the median, so the line starts at 0.
+    assert median_offset(np.array([3.0, 3.0])) == 0.0
+    assert median_offset(np.array([])) == 0.0
+
 
 LAT = np.array([0.0, 0.25])
 LON = np.array([10.0, 10.25, 10.5])
