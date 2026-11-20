@@ -23,7 +23,9 @@ from boa.model.supply_curves import (
     plot_region_map,
     plot_supply_curves,
     region_colour,
+    region_order,
     supply_table,
+    weighted_median_cost,
 )
 
 LAT = np.array([0.0, 0.25])
@@ -126,3 +128,33 @@ def test_the_region_map_is_written(tmp_path):
     regions = _regions().copy(data=np.array([["Europe", "China", ""], ["Russia", "", "Europe"]], dtype=object))
     out = plot_region_map(regions, tmp_path / "regions.png")
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_the_weighted_median_is_where_half_of_the_quantity_is_reached():
+    table = pd.DataFrame(
+        {
+            "cost": [10.0, 20.0, 30.0, 5.0, 50.0],
+            "quantity": [1.0, 1.0, 3.0, 10.0, 1.0],
+            "region": ["A", "A", "A", "B", "B"],
+        }
+    )
+    medians = weighted_median_cost(table)
+    # A: 1 + 1 of 5 lie below 30, so half is reached at 30, not at the middle pixel (20).
+    assert medians.to_dict() == {"A": 30.0, "B": 5.0}
+
+
+def test_the_regions_run_from_the_lowest_to_the_highest_weighted_median():
+    table = pd.DataFrame(
+        {
+            "cost": [90.0, 10.0, 40.0, 20.0, 20.0],
+            "quantity": [100.0, 1.0, 5.0, 2.0, 2.0],
+            "region": ["Big", "Big", "Mid", "Tie b", "Tie a"],
+        }
+    )
+    # "Big" has the most quantity but the highest median, so it is last; a tie goes by name.
+    assert region_order(table) == ["Tie a", "Tie b", "Mid", "Big"]
+
+
+def test_the_curves_are_written_as_svg(tmp_path):
+    out = plot_supply_curves(_ds(), tmp_path / "curve.svg", regions=_regions())
+    assert out.read_text(encoding="utf-8").lstrip().startswith("<?xml")

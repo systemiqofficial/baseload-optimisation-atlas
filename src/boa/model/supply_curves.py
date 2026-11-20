@@ -5,10 +5,11 @@ Each pixel is a rectangle: its width is the quantity it can supply (by default t
 of its capacity potential), its height its cost (by default the LCOE). Two orders are drawn:
 
   * by cost, so the curve rises from the cheapest pixel to the dearest, coloured by region;
-  * by region, so each region is one block, with its own pixels by cost inside it.
+  * by region, so each region is one block, with its own pixels by cost inside it. The blocks run
+    from the region with the lowest quantity-weighted median cost to the one with the highest.
 
 The most expensive share of each region's quantity (2 % by default) is left out of both curves, so
-a few very expensive pixels do not flatten them. The regions are the fourteen `REGIONS`, made from
+a few very expensive pixels do not flatten them. The weighted medians are of the pixels that stay. The regions are the fourteen `REGIONS`, made from
 the UN subregions of the Natural Earth map, and `plot_region_map` shows them in the same colours.
 
 The functions take any two variables on `(lat, lon)` and label the axes from each variable's
@@ -17,18 +18,32 @@ plots the same way. Pixels with no cost, or a quantity of 0 or none, are left ou
 """
 
 from pathlib import Path
+from typing import Any
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import xarray as xr
+from matplotlib import patheffects
+from matplotlib.artist import Artist
 from matplotlib.collections import PolyCollection
 from matplotlib.colors import BoundaryNorm, ListedColormap
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from matplotlib.ticker import FuncFormatter
 
 from boa.geo.iso3_finder import iso3_at_batch
-from boa.model.capacity_maps import _figure, _frame, describe_dataset, variable_label
+from boa.model.capacity_maps import (
+    CAPTION_COLOUR,
+    _figure,
+    _frame,
+    describe_dataset,
+    save_figure,
+    slide_style,
+    thousands,
+    variable_label,
+)
 
 # The regions of the supply curves and their colours. The colours are Paul Tol's discrete rainbow
 # for 14 colours (https://personal.sron.nl/~pault/), given to the regions so that neighbours differ.
@@ -100,7 +115,17 @@ COUNTRY_TO_REGION = {
 DEFAULT_CUT_SHARE = 0.02
 
 # Larger units for a total that would otherwise need many digits: unit -> (larger unit, factor).
-_LARGER_UNITS = {"MW": ("GW", 1.0e3), "kW": ("MW", 1.0e3), "t": ("kt", 1.0e3), "kt": ("Mt", 1.0e3)}
+_LARGER_UNITS = {
+    "kW": ("MW", 1.0e3),
+    "MW": ("GW", 1.0e3),
+    "GWh/yr": ("TWh/yr", 1.0e3),
+    "TWh/yr": ("PWh/yr", 1.0e3),
+    "GWh": ("TWh", 1.0e3),
+    "TWh": ("PWh", 1.0e3),
+    "t": ("kt", 1.0e3),
+    "kt": ("Mt", 1.0e3),
+    "kt/yr": ("Mt/yr", 1.0e3),
+}
 
 
 def country_regions(shapefile_path: Path) -> dict[str, str]:
@@ -186,6 +211,28 @@ def region_colour(region: str) -> str:
     return REGIONS.get(region, NO_REGION_COLOUR)
 
 
+def weighted_median_cost(table: pd.DataFrame) -> pd.Series:
+    """
+    The quantity-weighted median cost of each region of `table`: the cost of the pixel at which
+    the cumulative quantity of the region, by cost, first reaches half of the region's total.
+    """
+    ordered = table.sort_values("cost", kind="stable")
+    grouped = ordered.groupby("region")["quantity"]
+    reached = grouped.cumsum() >= 0.5 * grouped.transform("sum")
+    return ordered[reached].groupby("region")["cost"].first()
+
+
+def region_order(table: pd.DataFrame) -> list[str]:
+    """
+    The regions of `table` from the lowest to the highest weighted median cost
+    (`weighted_median_cost`), with the region name to break a tie. `NO_REGION` is always last,
+    because it is not a region but the pixels that no region holds.
+    """
+    medians = weighted_median_cost(table)
+    return sorted(medians.index, key=lambda region: (region == NO_REGION, float(medians[region]), str(region)))
+
+
+@slide_style
 def plot_region_map(
     regions: xr.DataArray,
     out_path: Path,
@@ -196,7 +243,7 @@ def plot_region_map(
     names = list(REGIONS)
     index = {name: float(i) for i, name in enumerate(names)}
     codes = np.array([index.get(r, np.nan) for r in regions.values.ravel()]).reshape(regions.shape)
-    fig, axes = _figure(1, regions)
+    fig, axes = _figure(1, regions, width=11.0, extra_height=0.4)
     ax = axes[0]
     ax.pcolormesh(
         regions.lon,
@@ -215,15 +262,26 @@ def plot_region_map(
         loc="outside lower center",
         ncols=max(min(len(shown), 5), 1),
         frameon=False,
+        handlelength=1.2,
+        columnspacing=1.5,
     )
     if title:
         fig.suptitle(title)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
-    plt.close(fig)
-    return out_path
+    return save_figure(fig, out_path)
 
 
+def _draw_steps(ax: plt.Axes, steps: pd.DataFrame, colours: dict[str, str]) -> None:
+    ax.add_collection(
+        PolyCollection(
+            list(_rectangles(steps["width"].to_numpy(), steps["cost"].to_numpy())),
+            facecolors=[colours[r] for r in steps["region"]],
+            edgecolors="none",
+            rasterized=True,
+        )
+    )
+
+
+@slide_style
 def plot_supply_curves(
     ds: xr.Dataset,
     out_path: Path,
@@ -235,74 +293,69 @@ def plot_supply_curves(
     cut_share: float = DEFAULT_CUT_SHARE,
 ) -> Path:
     """
-    Two supply curves of `cost_var` over `quantity_var`: ordered by cost and coloured by region,
-    and ordered by region (largest total first, each region by cost inside its block).
+    Two supply curves of `cost_var` over `quantity_var`, one above the other: ordered by cost and
+    coloured by region, and ordered by region, with one block per region and the pixels of each
+    region by cost inside its block.
+
+    The blocks run from the region with the lowest weighted median cost on the left to the one
+    with the highest on the right (`region_order`), and a line in each block marks that median.
+    The legend lists the regions in the order of the blocks.
 
     The most expensive `cut_share` of each region's quantity is left out (see `drop_costliest`),
-    and the panels say so. The cost axis ends at the highest cost that stays, unless `cost_max` is
+    and a caption says so. The cost axis ends at the highest cost that stays, unless `cost_max` is
     given.
     """
     table = drop_costliest(supply_table(ds, cost_var, quantity_var, regions), cut_share)
     widths, x_units = _scaled_quantity(table, ds[quantity_var].attrs.get("units"))
     table = table.assign(width=widths.to_numpy())
-    region_order = list(table.groupby("region")["width"].sum().sort_values(ascending=False).index)
-    colours = {r: region_colour(r) for r in region_order}
+    order = region_order(table)
+    medians = weighted_median_cost(table)
+    colours = {r: region_colour(r) for r in order}
     top = cost_max if cost_max is not None else float(table["cost"].max()) if len(table) else 1.0
+    cost_name = str(ds[cost_var].attrs.get("long_name", cost_var))
+    quantity_name = str(ds[quantity_var].attrs.get("long_name", quantity_var)).lower()
 
-    fig, (ax_cost, ax_region) = plt.subplots(2, 1, figsize=(10, 9), sharey=True, layout="constrained")
+    fig, (ax_cost, ax_region) = plt.subplots(2, 1, figsize=(13.33, 7.5), sharex=True, sharey=True, layout="constrained")
 
-    by_cost = table.sort_values("cost", kind="stable")
-    ax_cost.add_collection(
-        PolyCollection(
-            list(_rectangles(by_cost["width"].to_numpy(), by_cost["cost"].to_numpy())),
-            facecolors=[colours[r] for r in by_cost["region"]],
-            edgecolors="none",
-            rasterized=True,
-        )
-    )
-    ax_cost.set_title("Ordered by cost", loc="left")
+    _draw_steps(ax_cost, table.sort_values("cost", kind="stable"), colours)
+    ax_cost.set_title("Ordered by cost, coloured by region")
 
-    by_region = table.assign(order=table["region"].map({r: i for i, r in enumerate(region_order)}))
+    by_region = table.assign(order=table["region"].map({r: i for i, r in enumerate(order)}))
     by_region = by_region.sort_values(["order", "cost"], kind="stable")
-    ax_region.add_collection(
-        PolyCollection(
-            list(_rectangles(by_region["width"].to_numpy(), by_region["cost"].to_numpy())),
-            facecolors=[colours[r] for r in by_region["region"]],
-            edgecolors="none",
-            rasterized=True,
-        )
-    )
-    edges = np.cumsum(by_region.groupby("order", sort=True)["width"].sum().to_numpy())
-    for edge in edges[:-1]:
-        ax_region.axvline(edge, color="black", linewidth=0.6)
-    ax_region.set_title("Ordered by region, each region by cost", loc="left")
+    _draw_steps(ax_region, by_region, colours)
+    right = np.cumsum(by_region.groupby("order", sort=True)["width"].sum().to_numpy())
+    left = right - np.diff(right, prepend=0.0)
+    median_style: dict[str, Any] = {
+        "color": "black",
+        "linewidth": 1.6,
+        "path_effects": [patheffects.Stroke(linewidth=3.4, foreground="white"), patheffects.Normal()],
+    }
+    for region, x0, x1 in zip(order, left, right):
+        ax_region.plot([x0, x1], [medians[region]] * 2, solid_capstyle="butt", **median_style)
+    for edge in right[:-1]:
+        ax_region.axvline(edge, color="white", linewidth=1.2)
+    ax_region.set_title(f"One block per region, from the lowest to the highest weighted median {cost_name}")
 
     total = float(table["width"].sum())
-    name = str(ds[quantity_var].attrs.get("long_name", quantity_var))
-    x_label = f"Cumulative {name.lower()} ({x_units})" if x_units and x_units != "1" else f"Cumulative {name.lower()}"
+    x_label = f"Cumulative {quantity_name} ({x_units})" if x_units and x_units != "1" else f"Cumulative {quantity_name}"
+    ax_region.set_xlabel(x_label)
     for ax in (ax_cost, ax_region):
         ax.set_xlim(0.0, total if total > 0 else 1.0)
         ax.set_ylim(0.0, top)
-        ax.set_xlabel(x_label)
         ax.set_ylabel(variable_label(ds[cost_var]))
-        if cut_share > 0:
-            ax.text(
-                0.01,
-                0.97,
-                f"Most expensive {100 * cut_share:g} % of each region's quantity left out",
-                transform=ax.transAxes,
-                ha="left",
-                va="top",
-                fontsize=8,
-            )
-    fig.legend(
-        handles=[Patch(facecolor=colours[r], label=r) for r in region_order],
-        loc="outside right center",
-        frameon=False,
-        title="Region",
-    )
+        ax.xaxis.set_major_formatter(FuncFormatter(thousands))
+        ax.yaxis.set_major_formatter(FuncFormatter(thousands))
+        ax.tick_params(labelbottom=True)
+        ax.grid(axis="y", color="#DDDDDD", linewidth=0.6)
+        ax.set_axisbelow(True)
+
+    handles: list[Artist] = [Patch(facecolor=colours[r], label=r) for r in order]
+    handles.append(Line2D([], [], label="Weighted median\nof the region", **median_style))
+    fig.legend(handles=handles, loc="outside right center", frameon=False, title="Region (block order)")
+
+    caption = [f"Weighted median: half of the {quantity_name} of the region has a lower {cost_name}."]
+    if cut_share > 0:
+        caption.append(f"Not shown: the most expensive {100 * cut_share:g} % of the {quantity_name} of each region.")
+    fig.text(0.0, -0.01, "\n".join(caption), ha="left", va="top", fontsize=10, color=CAPTION_COLOUR)
     fig.suptitle(title if title is not None else describe_dataset(ds))
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
-    plt.close(fig)
-    return out_path
+    return save_figure(fig, out_path)

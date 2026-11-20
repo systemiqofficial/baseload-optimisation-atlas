@@ -10,9 +10,11 @@ import xarray as xr
 
 from boa.cds.max_capacity import pixel_area
 from boa.model.capacity_maps import (
+    GLOBAL_EXTENT,
     SHARE_VMAX,
     availability_share,
     describe_dataset,
+    map_extent,
     plot_availability_share,
     plot_cost_and_quantity_maps,
     variable_label,
@@ -87,3 +89,15 @@ def test_labels_and_title_come_from_the_file_metadata(tmp_path):
     out = plot_cost_and_quantity_maps(ds, tmp_path / "lcoh.png", cost_var="lcoh", quantity_var="h2_potential")
     assert out.exists()
 
+
+def test_a_global_map_has_the_fixed_extent_and_a_regional_map_its_cells():
+    world = xr.DataArray(
+        np.zeros((2, 3)), dims=("lat", "lon"), coords={"lat": [-10.0, 10.0], "lon": [-179.75, 0.0, 179.75]}
+    )
+    assert map_extent(world) == GLOBAL_EXTENT
+    assert map_extent(xr.DataArray(np.zeros((3, 2)), dims=("lat", "lon"), coords={"lat": LAT, "lon": LON})) == (
+        19.875,
+        20.375,
+        9.875,
+        10.625,
+    )

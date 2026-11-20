@@ -172,17 +172,27 @@ show the capacity ceiling:
   design.
 - `supply_curve_<REGION>_<year>_cov<c>.png`: two supply curves of the LCOE over the annual energy
   of the capacity potential (`max_annual_energy_twh`), with one step for each pixel. The first is
-  ordered by cost and coloured by region. The second has one block for each region, the largest
-  first, with the pixels of the region ordered by cost. Both curves leave out the most expensive
-  2 % of the annual energy of each region. The cost axis ends at the highest cost that stays.
+  ordered by cost and coloured by region. The second has one block for each region, with the
+  pixels of the region ordered by cost. The blocks go from the lowest energy-weighted median LCOE
+  on the left to the highest on the right, and a black line in each block shows that median. The
+  weighted median is the LCOE below which half of the annual energy of the region lies. Pixels
+  with no region are the last block. The legend shows the regions in the order of the blocks.
+  Both curves leave out the most expensive 2 % of the annual energy of each region, and the
+  weighted medians use only the pixels that stay. The cost axis ends at the highest cost that
+  stays. The energy axis is in PWh/yr when the total is 10,000 TWh/yr or more.
 - `supply_regions_<REGION>.png`: the regions of the supply curves, in the colours of the curves.
   BOA writes this map once for each region. The 14 regions come from the UN subregions of the
   Natural Earth map (`SUBREGION`). China and Russia are regions of their own. A country with
   territories in more than one subregion gets the region of its main territory. The colours are
   Paul Tol's discrete rainbow.
 - `availability_share_<REGION>.png`: the available share of the pixel area for solar PV and for
-  wind, from the maximum-capacity stores, on a scale from 0 to 0.10. Grey land has no available
+  wind, from the maximum-capacity stores, on a scale from 0 % to 10 %. Grey land has no available
   area. BOA writes this map once for each region, because it does not change with the year.
+
+The plots have a size and letter size for slides. The maps have a colour bar below each map and
+no latitude or longitude axes. A global map always shows latitudes from −60° to 75°. The functions
+write the file type that the suffix of the output path gives, for example `.png` at 250 dpi or
+`.svg`.
 
 The colour maps are Crameri's Scientific Colour Maps (package `cmcrameri`). The plots take their
 axis labels from the `long_name` and `units` attributes of each variable, and their titles from
