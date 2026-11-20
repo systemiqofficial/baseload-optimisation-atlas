@@ -348,11 +348,72 @@ def test_without_input_file_records_the_pinned_cost_package(boa_root, core_downl
     assert (boa_root / "costs" / "test" / "boa_cost_data.xlsx").exists()
     provenance = json.loads((boa_root / "costs" / "test" / "source.json").read_text())
     assert provenance["source_workbook"] == str(_cost_package_dir(boa_root) / data_prepare.COST_DATA_WORKBOOK)
+    workbook = _cost_package_dir(boa_root) / data_prepare.COST_DATA_WORKBOOK
     assert provenance["source_package"] == {
+        "package": data_prepare.COST_DATA_FOLDER,
         "version": data_prepare.COST_DATA_VERSION,
+        "workbook": data_prepare.COST_DATA_WORKBOOK,
+        "workbook_sha256": hashlib.sha256(workbook.read_bytes()).hexdigest(),
         "url": data_prepare.COST_DATA_URL,
         "sha256": data_prepare.COST_DATA_SHA256,
     }
+
+
+def _write_package_json(folder: Path, workbook: Path, sha256: str | None = None) -> None:
+    """A core-style package JSON that lists ``workbook`` (with its own sha256 unless one is given)."""
+    sha256 = sha256 or hashlib.sha256(workbook.read_bytes()).hexdigest()
+    record = {
+        "package": "boa-cost-data-core",
+        "version": "0.1",
+        "workbooks": {"steps": {"name": workbook.name, "sha256": sha256}},
+    }
+    (folder / "boa-cost-data-core.json").write_text(json.dumps(record))
+
+
+def test_input_file_next_to_its_package_json_records_the_package(tmp_path, boa_root):
+    workbook = tmp_path / "boa-cost-data-core-steps-v0.1.xlsx"
+    _write_workbook(workbook)
+    _write_package_json(tmp_path, workbook)
+    (tmp_path / "notes.json").write_text("[]")  # a JSON that is not a package JSON is skipped
+
+    assert _run(workbook) == 0
+
+    provenance = json.loads((boa_root / "costs" / "test" / "source.json").read_text())
+    assert provenance["source_workbook"] == str(workbook.resolve())
+    assert provenance["source_package"] == {
+        "package": "boa-cost-data-core",
+        "version": "0.1",
+        "workbook": workbook.name,
+        "workbook_sha256": hashlib.sha256(workbook.read_bytes()).hexdigest(),
+    }
+
+
+def test_input_file_with_a_package_json_for_other_workbooks_records_no_package(tmp_path, boa_root):
+    workbook = tmp_path / "edited.xlsx"
+    _write_workbook(workbook)
+    _write_package_json(tmp_path, workbook, sha256="0" * 64)
+
+    assert _run(workbook) == 0
+
+    provenance = json.loads((boa_root / "costs" / "test" / "source.json").read_text())
+    assert "source_package" not in provenance
+
+
+def test_unchanged_workbook_gets_its_package_added_to_the_source_record(tmp_path, boa_root, capsys):
+    workbook = tmp_path / "boa-cost-data-core-steps-v0.1.xlsx"
+    _write_workbook(workbook)
+    _run(workbook)
+    record = boa_root / "costs" / "test" / "source.json"
+    prepared_at = json.loads(record.read_text())["prepared_at"]
+    _write_package_json(tmp_path, workbook)
+    capsys.readouterr()
+
+    assert _run(workbook) == 0
+
+    assert "Updated the source record" in capsys.readouterr().out
+    provenance = json.loads(record.read_text())
+    assert provenance["source_package"]["package"] == "boa-cost-data-core"
+    assert provenance["prepared_at"] == prepared_at
 
 
 def _cost_package_dir(boa_root: Path) -> Path:

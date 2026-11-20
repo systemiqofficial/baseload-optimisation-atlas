@@ -220,8 +220,10 @@ __marimo__/
 # Claude Code guidance (local-only, not shared via commit history)
 CLAUDE.md
 
-# Dev-only helper scripts, not yet validated end-to-end (see docs/cost-data-prep.md)
-scripts/
+# Dev-only helper scripts, not yet validated end-to-end. scripts/cost/ holds the tracked cost
+# data builds (see docs/cost-data-prep.md).
+scripts/*
+!scripts/cost/
 
 # macOS Finder metadata
 .DS_Store

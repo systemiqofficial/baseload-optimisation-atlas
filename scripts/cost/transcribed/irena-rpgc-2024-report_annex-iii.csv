@@ -1,0 +1,195 @@
+# IRENA (2025), Renewable power generation costs in 2024, Annex III Regional groupings (p. 215).
+# One row per country, in the order and spelling of the report.
+annex region,country
+Asia,Afghanistan
+Asia,Bangladesh
+Asia,Bhutan
+Asia,Brunei Darussalam
+Asia,Cambodia
+Asia,China
+Asia,Democratic People's Republic of Korea
+Asia,India
+Asia,Indonesia
+Asia,Japan
+Asia,Kazakhstan
+Asia,Kyrgyzstan
+Asia,Lao People's Democratic Republic
+Asia,Malaysia
+Asia,Maldives
+Asia,Mongolia
+Asia,Myanmar
+Asia,Nepal
+Asia,Pakistan
+Asia,Philippines
+Asia,Republic of Korea
+Asia,Singapore
+Asia,Sri Lanka
+Asia,Tajikistan
+Asia,Thailand
+Asia,Timor-Leste
+Asia,Turkmenistan
+Asia,Uzbekistan
+Asia,Viet Nam
+Africa,Algeria
+Africa,Angola
+Africa,Benin
+Africa,Botswana
+Africa,Burkina Faso
+Africa,Burundi
+Africa,Cabo Verde
+Africa,Cameroon
+Africa,Central African Republic
+Africa,Chad
+Africa,Comoros
+Africa,Congo
+Africa,Cote d'Ivoire
+Africa,Democratic Republic of the Congo
+Africa,Djibouti
+Africa,Egypt
+Africa,Equatorial Guinea
+Africa,Eritrea
+Africa,Ethiopia
+Africa,Eswatini
+Africa,Gabon
+Africa,Gambia
+Africa,Ghana
+Africa,Guinea
+Africa,Guinea-Bissau
+Africa,Kenya
+Africa,Lesotho
+Africa,Liberia
+Africa,Libya
+Africa,Madagascar
+Africa,Malawi
+Africa,Mali
+Africa,Mauritania
+Africa,Mauritius
+Africa,Morocco
+Africa,Mozambique
+Africa,Namibia
+Africa,Niger
+Africa,Nigeria
+Africa,Rwanda
+Africa,Sao Tome and Principe
+Africa,Senegal
+Africa,Seychelles
+Africa,Sierra Leone
+Africa,Somalia
+Africa,South Africa
+Africa,South Sudan
+Africa,Sudan
+Africa,Togo
+Africa,Tunisia
+Africa,Uganda
+Africa,United Republic of Tanzania
+Africa,Zambia
+Africa,Zimbabwe
+Central America and the Caribbean,Antigua and Barbuda
+Central America and the Caribbean,Bahamas
+Central America and the Caribbean,Barbados
+Central America and the Caribbean,Belize
+Central America and the Caribbean,Costa Rica
+Central America and the Caribbean,Cuba
+Central America and the Caribbean,Dominica
+Central America and the Caribbean,Dominican Republic
+Central America and the Caribbean,El Salvador
+Central America and the Caribbean,Grenada
+Central America and the Caribbean,Guatemala
+Central America and the Caribbean,Haiti
+Central America and the Caribbean,Honduras
+Central America and the Caribbean,Jamaica
+Central America and the Caribbean,Nicaragua
+Central America and the Caribbean,Panama
+Central America and the Caribbean,Saint Kitts and Nevis
+Central America and the Caribbean,Saint Lucia
+Central America and the Caribbean,Saint Vincent and the Grenadines
+Central America and the Caribbean,Trinidad and Tobago
+Eurasia,Armenia
+Eurasia,Azerbaijan
+Eurasia,Georgia
+Eurasia,Russian Federation
+Eurasia,Turkiye
+Europe,Albania
+Europe,Andorra
+Europe,Austria
+Europe,Belarus
+Europe,Belgium
+Europe,Bosnia and Herzegovina
+Europe,Bulgaria
+Europe,Croatia
+Europe,Cyprus
+Europe,Czech Republic
+Europe,Denmark
+Europe,Estonia
+Europe,Finland
+Europe,France
+Europe,Germany
+Europe,Greece
+Europe,Hungary
+Europe,Iceland
+Europe,Ireland
+Europe,Italy
+Europe,Latvia
+Europe,Liechtenstein
+Europe,Lithuania
+Europe,Luxembourg
+Europe,Malta
+Europe,Monaco
+Europe,Montenegro
+Europe,Netherlands
+Europe,Norway
+Europe,Poland
+Europe,Portugal
+Europe,Republic of Moldova
+Europe,Romania
+Europe,San Marino
+Europe,Serbia
+Europe,Slovakia
+Europe,Slovenia
+Europe,Spain
+Europe,Sweden
+Europe,Switzerland
+Europe,Ukraine
+Europe,United Kingdom
+Middle East,Bahrain
+Middle East,Islamic Republic of Iran
+Middle East,Iraq
+Middle East,Israel
+Middle East,Jordan
+Middle East,Kuwait
+Middle East,Lebanon
+Middle East,Oman
+Middle East,Qatar
+Middle East,Saudi Arabia
+Middle East,Syrian Arab Republic
+Middle East,United Arab Emirates
+Middle East,Yemen
+North America,Canada
+North America,Mexico
+North America,United States
+South America,Argentina
+South America,Plurinational State of Bolivia
+South America,Brazil
+South America,Chile
+South America,Colombia
+South America,Ecuador
+South America,Guyana
+South America,Paraguay
+South America,Peru
+South America,Suriname
+South America,Uruguay
+South America,Bolivarian Republic of Venezuela
+Oceania,Australia
+Oceania,Fiji
+Oceania,Kiribati
+Oceania,Marshall Islands
+Oceania,Federated States of Micronesia
+Oceania,Nauru
+Oceania,New Zealand
+Oceania,Palau
+Oceania,Papua New Guinea
+Oceania,Samoa
+Oceania,Solomon Islands
+Oceania,Tonga
+Oceania,Tuvalu
+Oceania,Vanuatu

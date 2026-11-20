@@ -34,6 +34,7 @@ boa-cds-prepare = "boa.cli.run_cds:prepare"
 boa-cds-download = "boa.cli.run_cds:download"
 boa-data-prepare = "boa.cli.data_prepare:main"
 boa-lcoe = "boa.cli.lcoe_pipeline:main"
+boa-sources-fetch = "boa.cli.fetch_sources:main"
 
 [build-system]
 requires = ["hatchling"]

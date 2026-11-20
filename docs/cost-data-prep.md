@@ -1,5 +1,8 @@
 # Cost-side and geo data preparation
 
+This page tells you how to prepare a cost set and the geo data for a run, which workbook layout
+BOA reads, and how to build the core cost set.
+
 `boa-data-prepare` prepares everything a run needs besides the weather-side stores: the
 static geo data plus a costs scenario from a cost workbook:
 
@@ -64,8 +67,8 @@ inputs/cds-<year>/cache_frontiers/    frontier cache, built by boa-run; keyed on
                                        availability layer set built on that weather
 costs/<scenario>/
 ├── boa_cost_data.xlsx    the cost workbook, copied unchanged
-├── source.json           scenario, prepared_at, source workbook (+ package version, URL,
-│                         sha256 when downloaded) and the workbook's sha256
+├── source.json           scenario, prepared_at, source workbook, the workbook's sha256,
+│                         and source_package when the workbook belongs to a cost package
 └── cache_costs/          cost_of_renewables_<year>_investment_year.nc, one per year
 ```
 
@@ -97,7 +100,7 @@ CAPEX sheet in USD/MW would give costs 1,000 times too high.
 
 | Value | Unit | How BOA uses it |
 |---|---|---|
-| CAPEX, `Solar PV` and `Onshore wind` | USD/kW (2024 USD in v0.1) | × 1,000, to USD/MW |
+| CAPEX, `Solar PV` and `Onshore wind` | USD/kW (2024 USD in `boa-cost-data` v0.1 and in the core set) | × 1,000, to USD/MW |
 | CAPEX, `Battery` | USD/kWh | × 1,000, to USD/MWh |
 | `opex` | fraction of CAPEX per year (0.01 = 1%) | charged every year of the lifetime, discounted |
 | `cost of capital` | fraction (0.05 = 5%) | the discount rate |
@@ -132,8 +135,8 @@ warning. Provinces share their country's rate.
 **Countries without costs:** a pixel whose country isn't in Country mapping, or has no
 `irena region`, is priced at run time with the global average: the mean over all cost keys,
 per technology, logged as `[FALLBACK]`. Åland uses Finland's costs and South Georgia
-Argentina's. v0.1 leaves out Antarctica, Bouvet Island, South Georgia and St Helena, and all
-but South Georgia lie outside every region box, so with v0.1 only 12 land pixels without a
+Argentina's. `boa-cost-data` v0.1 leaves out Antarctica, Bouvet Island, South Georgia and St Helena, and all
+but South Georgia lie outside every region box, so with `boa-cost-data` v0.1 only 12 land pixels without a
 country use the global average.
 
 Surrounding spaces, including non-breaking ones, are ignored in every key column:
@@ -176,7 +179,49 @@ workbook produces; refactors, log messages and new checks don't need it.
 4. Run with it: `boa-run ... --cost-input my_scenario`.
 
 Only the workbook is copied into the scenario. Its `source.json` records where it came from:
-the file path, plus the package's URL, version and sha256 when it is the package workbook.
+the file path and the workbook's sha256. When the workbook belongs to a cost package, it also
+records `source_package`: the package name, version, workbook name and workbook sha256 (and the
+URL and zip sha256 of the pinned package). An `--input-file` workbook belongs to a package when a
+package JSON in the same folder lists its sha256, for example `boa-cost-data-core.json` next to
+the core workbooks. A second prepare of an unchanged workbook updates `source.json` if the
+origin differs.
 The package's `boa-cost-data.json` (sheet dates, units, rounding and notes) stays with the
 package in `data/boa-cost-data/`; it names the workbook `boa-cost-data-v<version>.xlsx`, and
 its `workbook.sha256` matches a scenario's `boa_cost_data.xlsx` prepared from it.
+
+## Building the core cost set
+
+The core cost set is made from pinned public sources (see [Cost data](cost-data.md)). Run these
+commands from a checkout of the BOA repository:
+
+```bash
+boa-sources-fetch                                   # download the sources into <data root>/sources/
+python scripts/cost/build_core.py --out-dir build/cost-core
+boa-data-prepare --input-file build/cost-core/boa-cost-data-core-steps-v0.1.xlsx --scenario core-steps
+boa-run ... --cost-input core-steps
+```
+
+The build writes one workbook for each WEO scenario (`cps`, `steps`, `nze`). `core-steps` is the
+name you give to the costs set in BOA. `boa-sources-fetch --list` shows which sources are on disk.
+The build stops if a file is missing or its sha256 is not the pinned value.
+
+The build reads three kinds of input:
+
+| Input | Holds | Check it against |
+|---|---|---|
+| `scripts/cost/transcribed/*.csv` | Values typed from the PDF sources, in the layout of the source table | The page in the file header |
+| `scripts/cost/rules.toml` | Our decisions: which WEO row a region follows, OECD regions, name aliases, the subregion table | — |
+| The IRENA data file | Read by the script | The **Inputs** sheet of each workbook |
+| The Natural Earth file | Read by the script | The `irena region` and `source` columns of the **Country mapping** sheet |
+
+### Updating a source
+
+1. In `src/boa/config/cost_sources.toml`, change the `url`, `sha256` and `accessed` of the
+   source. Change its `tables` lines if the table numbers change.
+2. Run `boa-sources-fetch <id>`.
+3. For a PDF source, update its file in `scripts/cost/transcribed/` from the new pages.
+4. Run the build and `pytest tests/test_cost_build_core.py`. These tests skip when the source
+   files are not fetched. With `pypdf` installed, they compare the WEO Tables B.4 and B.5 with
+   the PDF. They check that each `source` cell names a table in the registry.
+5. Check Annex III and Table A1 against the PDF by hand. Compare the **Inputs** and
+   **Country mapping** sheets with the source files.

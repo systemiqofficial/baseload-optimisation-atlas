@@ -223,20 +223,81 @@ def _install_cost_data(package_dir: Path) -> None:
     console.print(f"Installed cost data v{COST_DATA_VERSION} into [dim]{package_dir}[/dim]")
 
 
+def _package_of(workbook: Path) -> dict | None:
+    """
+    The cost package that ``workbook`` belongs to, from a package JSON in the same folder.
+
+    A package JSON has ``package``, ``version`` and its workbooks with their sha256: one under
+    ``workbook`` (boa-cost-data) or several under ``workbooks`` (boa-cost-data-core). The workbook
+    belongs to the package when its sha256 is one of them. Returns None when no JSON matches.
+    """
+    workbook_sha256 = _sha256(workbook)
+    for path in sorted(workbook.parent.glob("*.json")):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(record, dict) or "package" not in record or "version" not in record:
+            continue
+        entries = list(record.get("workbooks", {}).values()) if isinstance(record.get("workbooks"), dict) else []
+        if isinstance(record.get("workbook"), dict):
+            entries.append(record["workbook"])
+        for entry in entries:
+            if isinstance(entry, dict) and entry.get("sha256") == workbook_sha256:
+                return {
+                    "package": record["package"],
+                    "version": record["version"],
+                    "workbook": entry.get("name", workbook.name),
+                    "workbook_sha256": workbook_sha256,
+                }
+    return None
+
+
 def _prepare(args: argparse.Namespace) -> None:
     """Prepare from --input-file, else from the pinned cost data package installed under data/."""
     if args.input_file is not None:
         if not args.input_file.exists():
             raise FileNotFoundError(f"Input workbook not found: {args.input_file}")
-        _prepare_from(args, args.input_file, {"source_workbook": str(args.input_file.resolve())})
+        origin: dict = {"source_workbook": str(args.input_file.resolve())}
+        if (package := _package_of(args.input_file)) is not None:
+            origin["source_package"] = package
+        _prepare_from(args, args.input_file, origin)
         return
     package_dir = PathConfig.from_auto_detect(cost_set=args.scenario).data_dir / COST_DATA_FOLDER
     _install_cost_data(package_dir)
+    workbook = package_dir / COST_DATA_WORKBOOK
     origin = {
-        "source_workbook": str(package_dir / COST_DATA_WORKBOOK),
-        "source_package": {"version": COST_DATA_VERSION, "url": COST_DATA_URL, "sha256": COST_DATA_SHA256},
+        "source_workbook": str(workbook),
+        "source_package": {
+            "package": COST_DATA_FOLDER,
+            "version": COST_DATA_VERSION,
+            "workbook": COST_DATA_WORKBOOK,
+            "workbook_sha256": _sha256(workbook),
+            "url": COST_DATA_URL,
+            "sha256": COST_DATA_SHA256,
+        },
     }
-    _prepare_from(args, package_dir / COST_DATA_WORKBOOK, origin)
+    _prepare_from(args, workbook, origin)
+
+
+def _write_provenance(costs_dir: Path, scenario: str, origin: dict, source_sha256: str, prepared_at: str) -> None:
+    provenance = {"scenario": scenario, "prepared_at": prepared_at, **origin, "source_sha256": source_sha256}
+    (costs_dir / "source.json").write_text(json.dumps(provenance, indent=2) + "\n")
+
+
+def _refresh_provenance(costs_dir: Path, scenario: str, origin: dict, source_sha256: str) -> None:
+    """For an unchanged workbook, update the source record if it names a different origin."""
+    record = costs_dir / "source.json"
+    try:
+        old = json.loads(record.read_text())
+    except (OSError, json.JSONDecodeError):
+        old = {}
+    expected = {"scenario": scenario, **origin, "source_sha256": source_sha256}
+    if {key: value for key, value in old.items() if key != "prepared_at"} == expected:
+        return
+    prepared_at = old.get("prepared_at") or datetime.now(UTC).isoformat(timespec="seconds")
+    _write_provenance(costs_dir, scenario, origin, source_sha256, prepared_at)
+    console.print(f"Updated the source record [dim]{record}[/dim]")
 
 
 def _prepare_from(args: argparse.Namespace, source: Path, origin: dict) -> None:
@@ -251,6 +312,7 @@ def _prepare_from(args: argparse.Namespace, source: Path, origin: dict) -> None:
     source_sha256 = _sha256(source)
     if target.exists() and _sha256(target) == source_sha256:
         console.print(f"[green]✓ Costs scenario '{args.scenario}' is already up to date.[/green]")
+        _refresh_provenance(paths.costs_dir, args.scenario, origin, source_sha256)
         _build_cost_cache(target, paths.cost_cache_dir, _cache_years(years, args))
         return
 
@@ -268,13 +330,8 @@ def _prepare_from(args: argparse.Namespace, source: Path, origin: dict) -> None:
         shutil.rmtree(paths.cost_cache_dir)
         console.print("Removed the scenario's stale cost cache.")
 
-    provenance = {
-        "scenario": args.scenario,
-        "prepared_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        **origin,
-        "source_sha256": source_sha256,
-    }
-    (paths.costs_dir / "source.json").write_text(json.dumps(provenance, indent=2) + "\n")
+    prepared_at = datetime.now(UTC).isoformat(timespec="seconds")
+    _write_provenance(paths.costs_dir, args.scenario, origin, source_sha256, prepared_at)
 
     verb = "Updated" if replaced else "Created"
     console.print(f"[green]✓ {verb} costs scenario '{args.scenario}'[/green] [dim]({target})[/dim]")

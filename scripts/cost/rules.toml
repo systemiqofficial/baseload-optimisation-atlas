@@ -1,0 +1,90 @@
+# The decisions of the core cost build (build_core.py). No source gives these; they are ours.
+# The transcribed source tables are in transcribed/.
+
+# The IRENA cost region that follows each WEO Table B.4 row. Every other region follows the mean
+# change of the four rows.
+[weo_row_of_region]
+"United States" = "United States"
+"Europe" = "European Union"
+"China" = "China"
+"India" = "India"
+
+# IRENA cost regions that take the OECD O&M of Tables A3 and A4. All other regions take non-OECD O&M.
+[oecd]
+regions = ["Europe", "Other North America", "Oceania", "United States"]
+
+# IRENA publishes cost rows for these four countries. They leave their Annex III region.
+[single_country_rows]
+CHN = "China"
+IND = "India"
+BRA = "Brazil"
+USA = "United States"
+
+# The cost row of the other countries in an Annex III region that has single-country rows.
+[split_regions]
+"Asia" = "Other Asia"
+"North America" = "Other North America"
+"South America" = "Other South America"
+
+# IRENA and Natural Earth spell some countries differently. Keys and values are normalised names
+# (lower case, no accents, no punctuation).
+[name_aliases]
+"viet nam" = "vietnam"
+"democratic people's republic of korea" = "north korea"
+"republic of korea" = "south korea"
+"lao people's democratic republic" = "laos"
+"russian federation" = "russia"
+"united republic of tanzania" = "tanzania"
+"congo" = "republic of the congo"
+"bolivarian republic of venezuela" = "venezuela"
+"plurinational state of bolivia" = "bolivia"
+"islamic republic of iran" = "iran"
+"syrian arab republic" = "syria"
+"republic of moldova" = "moldova"
+"federated states of micronesia" = "micronesia"
+"turkiye" = "turkey"
+"cabo verde" = "cape verde"
+"czech republic" = "czechia"
+"united states" = "united states of america"
+"congo rep" = "republic of the congo"
+"bolivia plurinational state of" = "bolivia"
+"iran islamic republic of" = "iran"
+"venezuela bolivarian republic of" = "venezuela"
+"pitcairn" = "pitcairn islands"
+"state of palestine" = "palestine"
+"south georgia and south sandwich islands" = "south georgia and islands"
+
+# The IRENA cost region of a code that Annex III does not list, by its Natural Earth (UN M49) SUBREGION.
+# A territory of China (SOVEREIGNT "China") takes the China row first.
+[subregion_regions]
+"Caribbean" = "Central America and the Caribbean"
+"Central America" = "Central America and the Caribbean"
+"South America" = "Other South America"
+"Northern America" = "Other North America"
+"Northern Europe" = "Europe"
+"Southern Europe" = "Europe"
+"Western Europe" = "Europe"
+"Eastern Europe" = "Europe"
+"Eastern Africa" = "Africa"
+"Middle Africa" = "Africa"
+"Northern Africa" = "Africa"
+"Southern Africa" = "Africa"
+"Western Africa" = "Africa"
+"Western Asia" = "Middle East"
+"Eastern Asia" = "Other Asia"
+"South-Eastern Asia" = "Other Asia"
+"Southern Asia" = "Other Asia"
+"Central Asia" = "Other Asia"
+"Australia and New Zealand" = "Oceania"
+"Melanesia" = "Oceania"
+"Micronesia" = "Oceania"
+"Polynesia" = "Oceania"
+
+# SUBREGION "Seven seas (open ocean)" has no geographic subregion; such a code uses its REGION_UN.
+[region_un_regions]
+"Africa" = "Africa"                  # French Southern Lands, Heard Island, Diego Garcia
+"Americas" = "Other South America"   # South Georgia and South Sandwich Islands, like the Falklands
+
+# A code with this SUBREGION or REGION_UN has no IRENA cost region; the workbooks have no row for it.
+[no_region]
+name = "Antarctica"
