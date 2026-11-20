@@ -42,6 +42,8 @@ nav:
       - Weather data: weather-data.md
       - Cost data: cost-data.md
       - Known limitations: known-limitations.md
+  - Downstream (optional):
+      - Hydrogen cost (LCOH): downstream-hydrogen.md
   - Code docs:
       - Architecture: architecture.md
       - API reference: api-reference.md

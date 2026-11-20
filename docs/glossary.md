@@ -133,6 +133,12 @@ Levelised cost of electricity: the discounted cost of the system divided by the 
 that the system delivers to the demand, in USD per MWh. See
 [What one LCOE value means](overview.md#what-one-lcoe-value-means).
 
+## LCOH
+
+Levelised cost of hydrogen: the cost of one kilogram of hydrogen from an electrolyser that uses the
+electricity of the optimal BOA system, in USD per kg. An optional step after the BOA run calculates
+it. See [Hydrogen cost (LCOH)](downstream-hydrogen.md).
+
 ## Load density
 
 The demand for each km² of pixel area, in MW/km². The pixel area is the full area of the grid

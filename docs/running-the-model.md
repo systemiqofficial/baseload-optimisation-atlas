@@ -326,6 +326,28 @@ When all steps succeed, the last two lines of the standard output are `BOA_RUN=<
 `BOA_RUN_DIR=<path>`. They give the name of the run and its directory of promoted files under
 `<root>/lcoe-only/`.
 
+## Hydrogen cost from a run
+
+The optional `boa-lcoh` step calculates the LCOH of each pixel from the GLOBAL per-year files of a
+finished run. It needs no download: its parameters are part of BOA. For the method, the parameters
+and the output file, see [Hydrogen cost (LCOH)](downstream-hydrogen.md).
+
+1. Run `boa-run` first, so that the run has GLOBAL per-year files.
+2. Run `boa-lcoh` with the run label:
+
+    ```bash
+    boa-lcoh --run wy2025-core-steps                              # all coverage targets, STEPS CAPEX
+    boa-lcoh --run wy2025-core-steps --scenario NZE --coverage 0.9
+    ```
+
+3. Find the files in `<root>/downstream/<run>_<hash>/`.
+
+To check the parameter values against their sources, download the source files:
+
+```bash
+boa-sources-fetch --tag hydrogen   # into <root>/sources/<id>/, with a sha256 check
+```
+
 ## Per-year output files
 
 A per-year file is a NetCDF file for one region and one investment year. The GLOBAL file combines

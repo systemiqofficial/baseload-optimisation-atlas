@@ -25,7 +25,7 @@ its source as `<id>: <table>`.
 |---|---|---|
 | `irena-rpgc-2024-data` | IRENA (2025), *Renewable power generation costs in 2024*, data file | CAPEX 2024 (Tables 2.1, 3.1, S.1), O&M (Tables A3, A4), cost of capital (Fig A1) |
 | `irena-rpgc-2024-report` | IRENA (2025), *Renewable power generation costs in 2024*, report | Regions (Annex III). Table A1 gives the default values in Fig A1, which the build does not use as own values. |
-| `iea-weo-2025` | IEA (2025), *World Energy Outlook 2025*, Annex B (CC BY 4.0) | CAPEX change to 2035 and 2050 (Tables B.4a–c), battery CAPEX (Table B.5) |
+| `iea-weo-2025` | IEA (2025), *World Energy Outlook 2025*, Annex B (CC BY 4.0) | CAPEX change to 2035 and 2050 (Tables B.4a–c), battery CAPEX (Table B.5). Also the electrolyser CAPEX of the optional [LCOH step](downstream-hydrogen.md) (Table B.5). |
 | `natural-earth-50m-map-subunits` | Natural Earth 1:50m map subunits, v5.1.1 (public domain) | ISO-3 codes and UN subregions |
 
 ## How the core set is made
@@ -51,13 +51,28 @@ intermediate values next to it.
 - 120 of 245 countries have no own Fig A1 value and take the regional median. Fig A1 values
   that IRENA raised to its minimum floor (report Box A.2) count as own values.
 
-!!! note "Cost of capital for other plants (not used by BOA)"
+!!! note "Cost of capital for other plants"
     The cost of capital is for wind and solar projects. For an electrolyser or a power-to-methanol
     plant that uses BOA power, add a technology premium of about 3 percentage points (real). Use
     +1 and +5 points for a sensitivity. Sources: Egli et al. (2025), *Nature Energy* 10, SI Table 5
     (3.25 points); Lee and Saygin (2023), OECD ENV/WKP(2023)19, p. 39 (1 to 5 points, by country
     rating); Terrapon-Pfaff et al. (2025), *Frontiers in Energy Research* 13, Table 2. These
-    sources give no premium for the methanol synthesis step alone.
+    sources give no premium for the methanol synthesis step alone. The optional
+    [LCOH step](downstream-hydrogen.md) uses 3 points in 2025, which decrease linearly to 0 in 2050.
+
+## Sources of the LCOH step
+
+The optional [LCOH step](downstream-hydrogen.md) takes its electrolyser parameters from the sources
+with the tag `hydrogen` in `src/boa/config/sources.toml`. The core cost build does not use the two
+sources below. `boa-sources-fetch --tag hydrogen` downloads all sources with the tag.
+
+| Id | Source | Used by |
+|---|---|---|
+| `iea-ghr-2025-annex` | IEA (2025), *Global Hydrogen Review 2025: Assumptions annex* (CC BY 4.0) | [Hydrogen cost (LCOH)](downstream-hydrogen.md) |
+| `irena-green-h2-2020` | IRENA (2020), *Green hydrogen cost reduction* (IRENA terms of use) | [Hydrogen cost (LCOH)](downstream-hydrogen.md) |
+
+The LCOH step also takes the electrolyser CAPEX from WEO Table B.5. `iea-weo-2025` has the tags
+`costs` and `hydrogen`.
 
 ## The Systemiq set
 

@@ -19,6 +19,7 @@ this differs from the cost to supply a real baseload demand at that pixel.
 | The search finds a low-cost design, not always the lowest | The LCOE can be higher than the true minimum. | [Search precision](#search-precision) |
 | The frontier cache depends on how it was built | The same query can give different results after a rebuild. | [Reuse of the frontier cache](#reuse-of-the-frontier-cache) |
 | Input assumptions and fallbacks | Some inputs have no source or use a fallback value. | [Inputs and costs](#inputs-and-costs) |
+| The optional LCOH step adds its own simplifications | The LCOH has all the limits of the LCOE, and more. | [Hydrogen cost: limits](downstream-hydrogen.md#limits) |
 
 ## Capacity ceiling and potential
 
