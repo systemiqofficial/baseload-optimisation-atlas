@@ -13,8 +13,18 @@ Every profile obeys the contract `calculate_served_fraction` documents
 say so at the callsite.
 """
 
+import os
+from pathlib import Path
+
 import numpy as np
 import pytest
+
+# Point HDF5 at a folder with no filter plugins before anything imports netCDF4, which otherwise
+# sets HDF5_PLUGIN_PATH to its bundled plugins. With them, each Variable.filters() call (once per
+# variable on every netCDF open) loads the plugin DLLs again: about 120 ms per variable on Windows
+# machines that scan each DLL load. The tests write and read only deflate/shuffle, which HDF5 has
+# built in. A value already set in the environment is kept.
+os.environ.setdefault("HDF5_PLUGIN_PATH", str(Path(__file__).parent / "_no_hdf5_plugins"))
 
 # Three weeks of hourly data. Long enough for multi-day battery behaviour to
 # show up, short enough that a full grid sweep in a test stays sub-second.
