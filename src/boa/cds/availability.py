@@ -300,7 +300,7 @@ def availability_tag(names: list[str]) -> str:
     two ceilings in two max-capacity stores. It deliberately no longer separates the
     frontier cache: that store holds no availability assumption, so layer sets share it and
     an A/B of two ceilings reads the same physics. What stops a stale ceiling being reused
-    is the signature, carried in the capacity-box sidecar's own filename.
+    is the signature, which the store carries and the query copies into its output.
     """
     tags = [LAYER_TAGS[name] for name in LAYER_ORDER if name in names]
     return "+".join(tags) if tags else NO_LAYERS_TAG

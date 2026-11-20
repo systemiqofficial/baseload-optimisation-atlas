@@ -221,9 +221,9 @@ def test_query_output_is_baseload_invariant_in_lcoe_but_not_in_cost(
 
 def test_the_query_reads_no_capacity_ceiling():
     """
-    Pins the M3-to-M4 window rather than hiding it: the ceiling is deliberately not applied
-    yet, so this asserts the worker takes no capacity argument. When Grid 2 lands the
-    constrained search arrives through a sidecar, not by growing a parameter here.
+    The ceiling never changes which design wins: it only sets the capacity potential of the
+    winner, after the argmin (`_assemble_optimal_sol`). So the pricing worker takes no
+    capacity argument.
     """
     import inspect
 
@@ -231,3 +231,125 @@ def test_the_query_reads_no_capacity_ceiling():
 
     params = set(inspect.signature(_query_frontier_tile).parameters)
     assert not params & {"pv_max", "wind_max", "limit", "max_cap"}
+
+
+# --------------------------------------------------------------------------
+# Capacity potential in the query output
+# --------------------------------------------------------------------------
+
+
+def test_the_output_carries_the_potential_of_the_design(profiles, dead_profiles, anchor_costs, tmp_path, query_inputs):
+    """
+    With the ceilings given, each solved pixel gets the largest baseload its design can supply on
+    that land, and the binding technology. The pixel with no design and the sea pixel get NaN and
+    binding code 0, as for `status`.
+    """
+    from boa.model.capacity_potential import BINDING_NONE, max_baseload
+    from boa.model.global_extension import _assemble_optimal_sol, _query_frontier_tile
+
+    cache = _region_cache(profiles, dead_profiles, anchor_costs, tmp_path)
+    capex, opex, coc, keys = query_inputs
+    _, results, _ = _query_frontier_tile(np.arange(2), cache, capex, opex, coc, keys, np.full(2, 500.0), 25)
+    ceiling = {"solar": np.array([900.0, 900.0]), "wind": np.array([400.0, 400.0])}
+    ds = _assemble_optimal_sol(
+        [np.arange(2)],
+        [results],
+        2,
+        cache.all_lats,
+        cache.all_lons,
+        cache.iy,
+        cache.ix,
+        {},
+        tmp_path / "out.nc",
+        ceiling_mw=ceiling,
+    )
+    live, dead, sea = ds.isel(lat=0, lon=0), ds.isel(lat=1, lon=0), ds.isel(lat=0, lon=1)
+
+    design = results[0]["design"]
+    p, b = max_baseload(np.array([design["solar"]]), np.array([design["wind"]]), np.array([900.0]), np.array([400.0]))
+    assert float(live["max_baseload_mw"]) == pytest.approx(p[0], rel=1e-6)
+    assert int(live["ceiling_binding"]) == b[0] != BINDING_NONE
+    assert float(live["solar_ceiling_mw"]) == pytest.approx(900.0)
+    assert float(live["max_annual_energy_twh"]) == pytest.approx(
+        p[0] * 8760 * results[0]["served_fraction"] / 1e6, rel=1e-6
+    )
+    assert ds["ceiling_binding"].dtype == np.int8
+
+    assert np.isnan(dead["max_baseload_mw"]) and int(dead["ceiling_binding"]) == BINDING_NONE
+    assert float(dead["wind_ceiling_mw"]) == pytest.approx(400.0), "the ceiling is known without a design"
+    assert np.isnan(sea["max_baseload_mw"]) and int(sea["ceiling_binding"]) == BINDING_NONE
+
+
+def test_the_potential_does_not_depend_on_the_load_density(
+    profiles, dead_profiles, anchor_costs, tmp_path, query_inputs
+):
+    """The design is dimensionless, so the baseload the land supports is the same at any demand."""
+    from boa.model.global_extension import _assemble_optimal_sol, _query_frontier_tile
+
+    cache = _region_cache(profiles, dead_profiles, anchor_costs, tmp_path)
+    capex, opex, coc, keys = query_inputs
+    ceiling = {"solar": np.array([900.0, 900.0]), "wind": np.array([400.0, 400.0])}
+    potentials = []
+    for load in (100.0, 1000.0):
+        _, results, _ = _query_frontier_tile(np.arange(2), cache, capex, opex, coc, keys, np.full(2, load), 25)
+        ds = _assemble_optimal_sol(
+            [np.arange(2)],
+            [results],
+            2,
+            cache.all_lats,
+            cache.all_lons,
+            cache.iy,
+            cache.ix,
+            {},
+            tmp_path / f"out_{load:.0f}.nc",
+            ceiling_mw=ceiling,
+        )
+        potentials.append(float(ds["max_baseload_mw"].isel(lat=0, lon=0)))
+    assert potentials[0] == pytest.approx(potentials[1], rel=1e-12)
+
+
+def _max_cap_store(lats, lons):
+    import xarray as xr
+
+    y, x = np.asarray(lats, dtype=np.float64), np.asarray(lons, dtype=np.float64)
+    shape = (len(y), len(x))
+    return xr.Dataset(
+        {
+            "pv": (("y", "x"), np.arange(shape[0] * shape[1], dtype=float).reshape(shape) * 100.0),
+            "wind": (("y", "x"), np.full(shape, 50.0)),
+        },
+        coords={"y": y, "x": x},
+        attrs={
+            "availability_signature": "abc123",
+            "availability_layers": "lulc,cds_exclusion",
+            "density_mw_per_km2": "{'pv': 50.0, 'wind': 7.0}",
+        },
+    )
+
+
+def test_the_ceiling_is_read_at_each_point_of_the_cache(profiles, dead_profiles, anchor_costs, tmp_path, monkeypatch):
+    from boa.model import global_extension
+
+    cache = _region_cache(profiles, dead_profiles, anchor_costs, tmp_path)
+    store = _max_cap_store(cache.all_lats, cache.all_lons)
+    monkeypatch.setattr(global_extension, "open_regional_dataset", lambda kind, region, cfg: store)
+
+    ceiling, attrs = global_extension._ceiling_at_points("TESTREGION", cache.lats, cache.lons, None)
+
+    # Both points sit in column 0, rows 0 and 1: pv values 0 and 200.
+    np.testing.assert_allclose(ceiling["solar"], [0.0, 200.0])
+    np.testing.assert_allclose(ceiling["wind"], [50.0, 50.0])
+    assert attrs["capacity_ceiling_signature"] == "abc123"
+    assert attrs["capacity_ceiling_layers"] == "lulc,cds_exclusion"
+
+
+def test_a_ceiling_on_another_grid_is_refused(profiles, dead_profiles, anchor_costs, tmp_path, monkeypatch):
+    """Taking the nearest node of a different grid would put another pixel's land under this design."""
+    from boa.model import global_extension
+
+    cache = _region_cache(profiles, dead_profiles, anchor_costs, tmp_path)
+    store = _max_cap_store(np.asarray(cache.all_lats) + 0.1, cache.all_lons)
+    monkeypatch.setattr(global_extension, "open_regional_dataset", lambda kind, region, cfg: store)
+
+    with pytest.raises(ValueError, match="different grids"):
+        global_extension._ceiling_at_points("TESTREGION", cache.lats, cache.lons, None)

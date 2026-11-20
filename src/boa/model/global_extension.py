@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
-from boa.cds.max_capacity import pixel_area
+from boa.cds.max_capacity import SIGNATURE_ATTR, pixel_area
 from boa.geo.iso3_finder import iso3_at_batch
 from boa.geo.geospatial import choose_land_points_in_cutout
 from boa.config.paths import PathConfig
@@ -27,6 +27,7 @@ from boa.model.bisection import (
     build_pixel_frontier,
 )
 from boa.model.anchors import Candidates, anchors_for_build, uncovered
+from boa.model.capacity_potential import BINDING_CODES, max_annual_energy_twh, max_baseload
 from boa.model.cost_calculations import installation_cost_breakdown, lcoe_coefficients
 from boa.model.frontier_cache import (
     FRONTIER_CACHE_VERSION,
@@ -41,7 +42,10 @@ from boa.model.frontier_cache import (
     stack_pixel_frontiers,
     write_frontier_cache,
 )
-from boa.inputs.profiles import detect_weather_year
+from boa.inputs.profiles import detect_weather_year, open_regional_dataset
+
+# What `max_baseload_mw` is, for the output attributes.
+CAPACITY_POTENTIAL_METHOD = "max_baseload_mw = min(solar_ceiling_mw / solar_factor, wind_ceiling_mw / wind_factor)"
 
 
 def _preload_iso3_from_grid(
@@ -116,9 +120,9 @@ def _query_frontier_tile(
     What remains is arithmetic: four cost scalars against cached physics, an argmin, and the
     installation-cost breakdown.
 
-    **The capacity ceiling is not applied.** `argmin_lcoe` takes no capacity parameter -- the
-    ceiling belongs to Grid 2 -- so between M3 and M4 this reports the *unconstrained* optimum.
-    The caller warns about it. Delete that warning together with this note when Grid 2 lands.
+    **No capacity ceiling enters here.** The worker reports the unconstrained optimum, and
+    `_assemble_optimal_sol` derives the capacity potential from that design afterwards
+    (`boa.model.capacity_potential`). The ceiling never changes which design wins.
 
     `load_mw` is this region's per-pixel absolute demand (D1: `load_density * pixel_area(lat)`),
     precomputed once by the caller. It only sets the MW/MWh scale of the reported design --
@@ -440,9 +444,11 @@ def query_frontier_cache_for_region(
     value. Each pixel's own `load_mw = load_density * pixel_area(lat)` is what actually scales
     its reported design.
 
-    **The capacity ceiling is not applied.** Grid 2 lands in M4; until then this reports the
-    unconstrained optimum, and the warning below says so at every call. Delete the warning with
-    the note in `_query_frontier_tile` when the constrained search arrives.
+    **The capacity ceiling sets the potential, not the LCOE.** The LCOE and the design are the
+    unconstrained optimum. The region's max-capacity store gives each pixel's solar and wind
+    ceiling, and `max_baseload_mw` is the largest baseload that design can supply on that land
+    (`boa.model.capacity_potential`). A missing store raises: the frontier cache holds no
+    ceiling, so this read is the only place a stale or absent one could be caught.
 
     An existing NetCDF is reused, unless `force`, only while it records the `built_at` of the
     store as it is now (`frontier_cache_built_at`). A rebuilt store can give other designs, so
@@ -462,16 +468,10 @@ def query_frontier_cache_for_region(
             return xr.open_dataset(out_path)
         logging.info(f"{out_path.name} was priced from an earlier build of the frontier cache; re-deriving it.")
 
-    logging.warning(
-        "[UNCONSTRAINED] The capacity ceiling is not applied yet (Grid 2 arrives in M4), so "
-        "these LCOEs are the unconstrained optimum. With the availability layers on the ceiling "
-        "binds nearly everywhere, so the results will be optimistic and plausible-looking. Do "
-        "not promote them."
-    )
-
     cache = read_frontier_cache(cache_file, params, coverage, weather_year)
     npts = cache.n_points
     logging.info(f"Querying frontier cache for {region} y{year}: {npts} points, {len(cache.all_lats)} lat rows.")
+    ceiling_mw, ceiling_attrs = _ceiling_at_points(region, cache.lats, cache.lons, path_config)
 
     cost_keys, capex_per_tech, opex_per_tech, coc_arr = _derive_cost_arrays(cache.lats, cache.lons, costs, path_config)
     # D1: latitude-free density -> per-pixel absolute demand. Computed once for the whole
@@ -526,7 +526,10 @@ def query_frontier_cache_for_region(
         "source": "Baseload Optimisation Atlas (BOA)",
         "frontier_cache_path": str(cache_file.relative_to(cache_dir)),
         "frontier_cache_built_at": str(cache.meta.get("built_at", "")),
+        # 0: the LCOE and the design are unconstrained. The ceiling enters only the potential.
         "capacity_ceiling_applied": 0,
+        "capacity_potential_method": CAPACITY_POTENTIAL_METHOD,
+        **ceiling_attrs,
     }
     optimal_sol = _assemble_optimal_sol(
         tiles,
@@ -538,9 +541,39 @@ def query_frontier_cache_for_region(
         cache.ix,
         attrs,
         out_path,
+        ceiling_mw=ceiling_mw,
     )
     logging.info(f"Wrote {out_path.name} ({solved}/{npts} pixels solved).")
     return optimal_sol
+
+
+def _ceiling_at_points(
+    region: str, lats: np.ndarray, lons: np.ndarray, path_config: PathConfig
+) -> tuple[dict[str, np.ndarray], dict[str, str]]:
+    """
+    Each point's solar and wind ceiling in MW, from the region's max-capacity store, plus the
+    output attributes that say which ceiling it was.
+
+    The store is on the same grid as the profile stores the frontier cache was built from, so
+    every point must match a store node exactly; a mismatch means the two come from different
+    grids and raises rather than taking the nearest node.
+    """
+    with open_regional_dataset("max_cap", region, path_config) as ds:
+        at = ds[["pv", "wind"]].sel(
+            y=xr.DataArray(lats, dims="point"), x=xr.DataArray(lons, dims="point"), method="nearest"
+        )
+        if len(lats) and max(np.abs(at.y.values - lats).max(), np.abs(at.x.values - lons).max()) > 1e-6:
+            raise ValueError(f"{region}: the max-capacity store and the frontier cache are on different grids")
+        ceiling = {
+            "solar": np.asarray(at["pv"].values, dtype=np.float64),
+            "wind": np.asarray(at["wind"].values, dtype=np.float64),
+        }
+        attrs = {
+            "capacity_ceiling_signature": str(ds.attrs.get(SIGNATURE_ATTR, "")),
+            "capacity_ceiling_layers": str(ds.attrs.get("availability_layers", "")),
+            "capacity_ceiling_density_mw_per_km2": str(ds.attrs.get("density_mw_per_km2", "")),
+        }
+    return ceiling, attrs
 
 
 def _derive_cost_arrays(
@@ -634,6 +667,7 @@ def _assemble_optimal_sol(
     ix: np.ndarray,
     attrs: dict,
     out_path: Path,
+    ceiling_mw: dict[str, np.ndarray] | None = None,
 ) -> xr.Dataset:
     """
     Scatter per-point results onto the region grid, write the NetCDF, return the dataset.
@@ -641,6 +675,9 @@ def _assemble_optimal_sol(
     `status`, `cost_key`, `cost_of_capital` and `load_mw` are written for every point, including
     the ones with no optimum, so a missing result can be traced. Everything the search didn't
     produce is NaN: at those points and at every sea pixel of the region grid.
+
+    With `ceiling_mw` (per-point solar and wind ceilings in MW), the file also gets the ceilings,
+    the capacity potential of each design and the technology that binds it.
     """
     fields = {
         name: np.full(npts, np.nan)
@@ -690,6 +727,16 @@ def _assemble_optimal_sol(
             fields["coverage"][k_int] = r["coverage"]
             fields["served_fraction"][k_int] = r["served_fraction"]
 
+    binding_flat = None
+    if ceiling_mw is not None:
+        fields["solar_ceiling_mw"] = ceiling_mw["solar"]
+        fields["wind_ceiling_mw"] = ceiling_mw["wind"]
+        p_max, binding_flat = max_baseload(
+            fields["solar_factor"], fields["wind_factor"], ceiling_mw["solar"], ceiling_mw["wind"]
+        )
+        fields["max_baseload_mw"] = p_max
+        fields["max_annual_energy_twh"] = max_annual_energy_twh(p_max, fields["served_fraction"])
+
     shape = (len(all_lats), len(all_lons))
 
     def _to_grid(flat: np.ndarray, dtype=float) -> np.ndarray:
@@ -708,6 +755,12 @@ def _assemble_optimal_sol(
             "status": (("lat", "lon"), _to_grid(status_flat, np.int8)),
         },
     )
+    if binding_flat is not None:
+        optimal_sol["ceiling_binding"] = (("lat", "lon"), _to_grid(binding_flat, np.int8))
+        optimal_sol["ceiling_binding"].attrs["flag_values"] = list(BINDING_CODES)
+        optimal_sol["ceiling_binding"].attrs["flag_meanings"] = " ".join(
+            meaning.replace(" ", "_") for meaning in BINDING_CODES.values()
+        )
     optimal_sol.attrs.update(attrs)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     optimal_sol.to_netcdf(out_path, mode="w", format="NETCDF4", encoding=_float32_output_encoding(optimal_sol))
@@ -778,10 +831,11 @@ def combine_regional_datasets_into_global_dataset(
         lat_global = np.arange(-90, 90.1, 0.25)
         lon_global = np.arange(-180, 180.1, 0.25)
 
-        # Strip the string-typed cost_key and the int8 status from the numeric flow; both are
-        # merged separately below (the NaN init would promote status to float, and the
-        # zero-strip would erase its "not modelled" code 0).
-        NON_NUMERIC_VARS = ("cost_key", "status")
+        # Strip the string-typed cost_key and the int8 codes from the numeric flow; they are
+        # merged separately below (the NaN init would promote a code to float, and the
+        # zero-strip would erase its "none" code 0).
+        INT8_VARS = ("status", "ceiling_binding")
+        NON_NUMERIC_VARS = ("cost_key", *INT8_VARS)
         numeric_datasets = {
             region: ds.drop_vars([v for v in NON_NUMERIC_VARS if v in ds.data_vars])
             for region, ds in regional_datasets.items()
@@ -812,27 +866,32 @@ def combine_regional_datasets_into_global_dataset(
                 ck_grid[mask] = arr[mask]
             global_ds["cost_key"] = (("lat", "lon"), ck_grid)
 
-        # Same treatment for the int8 status band: exact reindex per region, first non-zero wins.
-        if any("status" in ds.data_vars for ds in regional_datasets.values()):
-            status_grid = np.zeros((len(lat_global), len(lon_global)), dtype=np.int8)
+        # Same treatment for each int8 code band: exact reindex per region, first non-zero wins.
+        for code_var in INT8_VARS:
+            if not any(code_var in ds.data_vars for ds in regional_datasets.values()):
+                continue
+            code_grid = np.zeros((len(lat_global), len(lon_global)), dtype=np.int8)
             for region, ds in regional_datasets.items():
-                if "status" not in ds.data_vars:
+                if code_var not in ds.data_vars:
                     continue
-                rds = ds[["status"]].reindex(lat=lat_global, lon=lon_global, fill_value=0)
-                arr = np.asarray(rds["status"].values).astype(np.int8)
-                mask = (status_grid == 0) & (arr != 0)
-                status_grid[mask] = arr[mask]
-            global_ds["status"] = (("lat", "lon"), status_grid)
+                rds = ds[[code_var]].reindex(lat=lat_global, lon=lon_global, fill_value=0)
+                arr = np.asarray(rds[code_var].values).astype(np.int8)
+                mask = (code_grid == 0) & (arr != 0)
+                code_grid[mask] = arr[mask]
+            global_ds[code_var] = (("lat", "lon"), code_grid)
+            first = next(ds for ds in regional_datasets.values() if code_var in ds.data_vars)
+            global_ds[code_var].attrs.update(first[code_var].attrs)
 
         # A region built under a different SearchParams (or re-queried after a frontier
-        # rebuild) must not silently combine with stale neighbours — the GLOBAL attrs below
-        # claim a single hash for the lot.
-        hashes = {ds.attrs.get("search_params_hash") for ds in regional_datasets.values()}
-        if len(hashes) != 1:
-            raise ValueError(
-                f"regional files disagree on search_params_hash: {sorted(map(str, hashes))}. "
-                "Re-query the stale regions before combining."
-            )
+        # rebuild, or against another ceiling) must not silently combine with stale
+        # neighbours — the GLOBAL attrs below claim a single value for the lot.
+        for attr in ("search_params_hash", "capacity_ceiling_signature"):
+            values = {ds.attrs.get(attr) for ds in regional_datasets.values()}
+            if len(values) != 1:
+                raise ValueError(
+                    f"regional files disagree on {attr}: {sorted(map(str, values))}. "
+                    "Re-query the stale regions before combining."
+                )
 
         # Carry run/provenance metadata from regional files; override region and refresh timestamp
         global_ds.attrs.update(next(iter(regional_datasets.values())).attrs)
