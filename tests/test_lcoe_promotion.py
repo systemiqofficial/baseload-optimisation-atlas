@@ -203,6 +203,23 @@ def test_varying_scenario_settings_are_rejected(tmp_config):
         promote_lcoe(tmp_config, WEATHER_YEAR, LOAD_DENSITY, COVERAGE)
 
 
+def test_years_priced_from_different_frontier_builds_are_rejected(tmp_config):
+    """A cache rebuilt between two queries gives years from two builds; their LCOEs don't belong in one file."""
+    for i, year in enumerate(YEARS):
+        _write_year(tmp_config, year, lcoe_offset=i, frontier_cache_built_at="EUROPE=2026-01-01T00:00:00")
+    _write_year(tmp_config, YEARS[1], frontier_cache_built_at="EUROPE=2026-02-01T00:00:00")
+    with pytest.raises(ValueError, match="another build of the frontier caches"):
+        promote_lcoe(tmp_config, WEATHER_YEAR, LOAD_DENSITY, COVERAGE)
+
+
+def test_the_frontier_build_stamp_is_not_carried_into_the_promoted_file(tmp_config):
+    """It only checks the years against each other; the promoted-file contract stays as it is."""
+    for i, year in enumerate(YEARS):
+        _write_year(tmp_config, year, lcoe_offset=i, frontier_cache_built_at="EUROPE=2026-01-01T00:00:00")
+    with xr.open_dataset(promote_lcoe(tmp_config, WEATHER_YEAR, LOAD_DENSITY, COVERAGE)) as out:
+        assert "frontier_cache_built_at" not in out.attrs
+
+
 def test_cost_key_containing_the_separator_is_rejected(tmp_config):
     _write_run(tmp_config, years=(2025,))
     _write_year(tmp_config, 2025, cost_keys=[["", "DEU", "DEU"], ["FRA", "FRA", "CHN,Sichuan"]])

@@ -119,7 +119,8 @@ def promote_lcoe(path_config: PathConfig, weather_year: int, load_density: float
 
     Raises if the years disagree on the grid, on ``cost_key``/``status`` or on any
     scenario attribute — all three are stored once, so year-invariance is a contract
-    rather than an assumption.
+    rather than an assumption. It also raises if the years were priced from different
+    builds of the frontier caches (``frontier_cache_built_at``).
     """
     files = year_files(path_config, weather_year, load_density, coverage)
     if not files:
@@ -139,6 +140,7 @@ def promote_lcoe(path_config: PathConfig, weather_year: int, load_density: float
         cost_key = np.asarray(reference["cost_key"].values)
         status = np.asarray(reference["status"].values).astype(np.int8)
         attrs = _provenance_attrs(path_config, reference, years)
+        cache_stamps = reference.attrs.get("frontier_cache_built_at")
     if "capacity_ceiling_applied" not in attrs:
         raise ValueError(
             f"{files[years[0]].name} does not record capacity_ceiling_applied, so the promoted file could not "
@@ -161,6 +163,13 @@ def promote_lcoe(path_config: PathConfig, weather_year: int, load_density: float
             }
             if differing:
                 raise ValueError(f"{files[year].name} was produced with different settings: {differing}.")
+            # Not carried into the promoted file; it only shows that every year was priced from the
+            # same build of each region's frontier cache.
+            if i and ds.attrs.get("frontier_cache_built_at") != cache_stamps:
+                raise ValueError(
+                    f"{files[year].name} was priced from another build of the frontier caches than "
+                    f"{files[years[0]].name}. Re-run `boa-run query` for these years, which re-derives the stale ones."
+                )
             lcoe[i] = ds["lcoe"].values.astype(np.float32)
 
     cost_key_id, legend = _encode_cost_keys(cost_key)

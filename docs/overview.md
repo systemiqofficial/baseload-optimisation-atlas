@@ -249,10 +249,12 @@ anchors). When BOA builds a cache, it first compares these cost mixes with the c
 cost keys and investment years of the run. When the stored cache does not cover them, BOA builds
 the cache again for more cost mixes. The new cache can have different patches. Thus the LCOE for
 an earlier cost set and investment year can change after this rebuild. A run that only prices a
-stored cache does not do this comparison: it uses the cache that it finds. BOA identifies a cache
-by the weather-year label, the region, the coverage target and the search settings, not by the
-content of the weather data. [Running the model](running-the-model.md) gives the details, and
-[Known limitations](known-limitations.md) describes the effects on the results.
+stored cache does not build it. This run stops when the cache does not cover the cost mixes of
+the run. A full cache is an exception (see
+[Running the model](running-the-model.md#rebuild-a-frontier-cache)). BOA identifies a cache by
+the weather-year label, the region, the coverage target and the search settings. It does not use
+the content of the weather data. [Known limitations](known-limitations.md) describes the effects
+on the results.
 
 The search uses grids of designs. Thus the result is the best design that the search found, not
 an exact optimum. For each result, BOA also does a **containment check**: it checks whether no

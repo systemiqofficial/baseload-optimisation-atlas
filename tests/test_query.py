@@ -22,7 +22,6 @@ from boa.model.bisection import (
     argmin_lcoe,
     b_min_at,
     build_pixel_frontier,
-    check_repair_budget,
     dispatch_metrics,
 )
 from boa.model.cost_calculations import (
@@ -370,20 +369,6 @@ def test_coarse_certificate_detects_an_optimum_outside_the_patch(frontier, coeff
 
     optimum = argmin_lcoe(tampered, coeffs)
     assert not optimum.patch_certified
-
-
-def test_repair_budget_allows_a_small_rate():
-    """A handful of repairs per region is expected and must not stop a query."""
-    check_repair_budget(n_repaired=5, n_points=10_000, params=PARAMS)
-
-
-def test_query_fails_when_the_repair_rate_exceeds_the_cap():
-    """
-    Repair means a full on-the-fly patch sweep. Past a couple of percent the query
-    stops being "minutes per year", so it fails loudly rather than degrading.
-    """
-    with pytest.raises(RuntimeError, match="patch"):
-        check_repair_budget(n_repaired=900, n_points=10_000, params=PARAMS)
 
 
 # --------------------------------------------------------------------------

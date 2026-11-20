@@ -3,6 +3,7 @@ import xarray as xr
 from concurrent.futures import ThreadPoolExecutor
 import time
 import logging
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -34,6 +35,7 @@ from boa.model.frontier_cache import (
     frontier_at,
     frontier_cache_path,
     read_frontier_anchors,
+    read_frontier_built_at,
     read_frontier_cache,
     read_frontier_cache_version,
     stack_pixel_frontiers,
@@ -358,6 +360,61 @@ def build_frontier_cache_for_region(
     return written
 
 
+class FrontierCacheCoverageError(RuntimeError):
+    """A frontier cache a query needs is missing, or its anchors don't cover the query's costs."""
+
+
+def check_frontier_caches_cover(
+    regions: Iterable[str],
+    coverage: float,
+    candidates: Candidates,
+    path_config: PathConfig,
+    params: SearchParams | None = None,
+) -> None:
+    """
+    Raise `FrontierCacheCoverageError` unless every region's frontier cache exists and covers
+    every cost mix in `candidates`.
+
+    The query prices any costs it is given, but a store's patches are dense only near the
+    anchors it was built with. Far from them the cached argmin can sit well above the optimum
+    a search at those costs would find, and nothing in the output shows it. So the query
+    refuses exactly the stores `build_frontier_cache_for_region` would rebuild for the same
+    candidates (`anchors_for_build`), before it writes anything. A store at `max_anchors`
+    passes, as it does for the build; `select_anchors` warns about the gap.
+    """
+    params = SearchParams() if params is None else params
+    weather_year = detect_weather_year(path_config)
+    cache_dir = path_config.frontier_cache_dir(weather_year)
+    problems = []
+    for region in regions:
+        cache_file = frontier_cache_path(cache_dir, region, coverage, params, weather_year, ERA5_DATA_RESOLUTION)
+        where = cache_file.relative_to(cache_dir)
+        if not cache_file.exists():
+            problems.append(f"{region}: no frontier cache at {where}")
+            continue
+        stale = read_frontier_cache_version(cache_file) != FRONTIER_CACHE_VERSION
+        stored = None if stale else read_frontier_anchors(cache_file)
+        if anchors_for_build(stored, candidates, params) is None:
+            continue
+        if stale:
+            problems.append(f"{region}: {where} was built by another frontier-cache version")
+        elif stored is None:
+            problems.append(f"{region}: {where} records no anchors, so it can't show what it covers")
+        else:
+            problems.append(
+                f"{region}: {uncovered(stored, candidates, params.anchor_tol)} of {len(candidates)} "
+                f"(cost key, year) mixes lie further than anchor_tol={params.anchor_tol} from the "
+                f"{len(stored)} anchors of {where}"
+            )
+    if problems:
+        raise FrontierCacheCoverageError(
+            "The frontier caches do not cover this query's costs:\n  "
+            + "\n  ".join(problems)
+            + "\nRun `boa-run build-cache` with the same --weather-input, --cost-input, --coverage and "
+            "year arguments (or a bare `boa-run`), then query again."
+        )
+
+
 def query_frontier_cache_for_region(
     year: int,
     region: str,
@@ -386,15 +443,24 @@ def query_frontier_cache_for_region(
     **The capacity ceiling is not applied.** Grid 2 lands in M4; until then this reports the
     unconstrained optimum, and the warning below says so at every call. Delete the warning with
     the note in `_query_frontier_tile` when the constrained search arrives.
+
+    An existing NetCDF is reused, unless `force`, only while it records the `built_at` of the
+    store as it is now (`frontier_cache_built_at`). A rebuilt store can give other designs, so
+    a file priced from an earlier build is derived again rather than left beside new ones.
     """
     params = SearchParams() if params is None else params
     weather_year = detect_weather_year(path_config)
     cache_dir = path_config.frontier_cache_dir(weather_year)
     cache_file = frontier_cache_path(cache_dir, region, coverage, params, weather_year, ERA5_DATA_RESOLUTION)
     out_path = path_config.optimal_sol_path(weather_year, load_density, coverage, region, year)
+    built_at = read_frontier_built_at(cache_file) if cache_file.exists() else None
     if out_path.exists() and not force:
-        logging.info(f"{out_path.name} already exists; skipping (use --force to re-derive).")
-        return xr.open_dataset(out_path)
+        with xr.open_dataset(out_path) as existing:
+            derived_from = existing.attrs.get("frontier_cache_built_at")
+        if derived_from is not None and derived_from == built_at:
+            logging.info(f"{out_path.name} already exists; skipping (use --force to re-derive).")
+            return xr.open_dataset(out_path)
+        logging.info(f"{out_path.name} was priced from an earlier build of the frontier cache; re-deriving it.")
 
     logging.warning(
         "[UNCONSTRAINED] The capacity ceiling is not applied yet (Grid 2 arrives in M4), so "
@@ -459,6 +525,7 @@ def query_frontier_cache_for_region(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "source": "Baseload Optimisation Atlas (BOA)",
         "frontier_cache_path": str(cache_file.relative_to(cache_dir)),
+        "frontier_cache_built_at": str(cache.meta.get("built_at", "")),
         "capacity_ceiling_applied": 0,
     }
     optimal_sol = _assemble_optimal_sol(
@@ -647,6 +714,29 @@ def _assemble_optimal_sol(
     return optimal_sol
 
 
+def _join_cache_stamps(stamps: dict[str, str]) -> str:
+    """One `REGION=built_at` entry per region, `;`-separated (an ISO timestamp holds neither sign)."""
+    return ";".join(f"{region}={stamp}" for region, stamp in stamps.items())
+
+
+def _global_file_is_current(global_path: Path, regional_paths: dict[str, Path]) -> bool:
+    """
+    Whether the GLOBAL file lists the `frontier_cache_built_at` of every regional file as it is
+    now. Also True when a regional file is missing: no new combine is possible then.
+    """
+    stamps = {}
+    for region, path in regional_paths.items():
+        if not path.exists():
+            return True
+        with xr.open_dataset(path) as ds:
+            stamps[region] = str(ds.attrs.get("frontier_cache_built_at", ""))
+    with xr.open_dataset(global_path) as ds:
+        if ds.attrs.get("frontier_cache_built_at") == _join_cache_stamps(stamps):
+            return True
+    logging.info(f"{global_path.name} was combined from earlier regional files; combining it again.")
+    return False
+
+
 def combine_regional_datasets_into_global_dataset(
     year: int,
     coverage: float,
@@ -660,19 +750,24 @@ def combine_regional_datasets_into_global_dataset(
     original 9 -- boxes were split/added since) into one global dataset on a shared
     0.25 deg grid. Returns None, without writing anything, if any region's file is missing --
     a partial GLOBAL combine would silently look complete.
+
+    An existing GLOBAL file is reused, unless `force`, only while its `frontier_cache_built_at`
+    still lists the stamp of every regional file, so a re-derived region is combined again.
     """
     regions = list(REGION_COORDS.keys())
     regional_datasets = {}
+    regional_paths = {
+        region: path_config.optimal_sol_path(weather_year, load_density, coverage, region, year) for region in regions
+    }
 
     # Check if the global dataset already exists
     global_output_path = path_config.optimal_sol_path(weather_year, load_density, coverage, "GLOBAL", year)
-    if global_output_path.exists() and not force:
+    if global_output_path.exists() and not force and _global_file_is_current(global_output_path, regional_paths):
         logging.info(f"Global optimal solution already exists at {global_output_path}. (use --force to re-derive)")
         return xr.open_dataset(global_output_path)
     else:
         logging.info(f"Combining regional datasets into global dataset for {year}.")
-        for region in regions:
-            optimal_sol_path = path_config.optimal_sol_path(weather_year, load_density, coverage, region, year)
+        for region, optimal_sol_path in regional_paths.items():
             if not optimal_sol_path.exists():
                 logging.warning(f"Optimal solution for {region} not found. Please check processing.")
                 return None
@@ -743,6 +838,9 @@ def combine_regional_datasets_into_global_dataset(
         global_ds.attrs.update(next(iter(regional_datasets.values())).attrs)
         global_ds.attrs["region"] = "GLOBAL"
         global_ds.attrs["created_at"] = datetime.now(timezone.utc).isoformat()
+        global_ds.attrs["frontier_cache_built_at"] = _join_cache_stamps(
+            {region: ds.attrs.get("frontier_cache_built_at", "") for region, ds in regional_datasets.items()}
+        )
 
         # Save the global dataset
         global_output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -491,6 +491,13 @@ def read_frontier_anchors(path: Path) -> list[CostCoefficients] | None:
     return None if anchors is None else [CostCoefficients(**a) for a in anchors]
 
 
+def read_frontier_built_at(path: Path) -> str | None:
+    """When a store was written (its meta `built_at`), read without loading any array; None when it records none."""
+    raw_meta = zarr.open_group(str(path), mode="r").attrs.get("meta", {})
+    built_at = raw_meta.get("built_at") if isinstance(raw_meta, dict) else None
+    return None if built_at is None else str(built_at)
+
+
 def read_frontier_cache_version(path: Path) -> int:
     """The `FRONTIER_CACHE_VERSION` a store was built under, read from its meta; 1 when it records none."""
     raw_meta = zarr.open_group(str(path), mode="r").attrs.get("meta", {})

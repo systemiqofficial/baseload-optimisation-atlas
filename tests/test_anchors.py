@@ -62,10 +62,28 @@ def test_a_key_with_a_different_mix_earns_its_own_anchor():
         }
     )
     anchors = anchor_cost_coefficients([2025], _one_year(costs))
-    assert len(anchors) == 2
+    # Two keys plus their global average, which sits between them and is covered by neither.
+    assert len(anchors) == 3
 
     mixes = sorted(cost_ratio_simplex(a)[0] for a in anchors)
-    assert mixes[0] < mixes[1], "the two anchors should sit at opposite ends of the solar share"
+    assert mixes[0] < mixes[1] < mixes[2], "the key anchors should sit at opposite ends of the solar share"
+
+
+def test_each_year_has_a_global_average_candidate():
+    """
+    The query prices a pixel whose country the cost set doesn't author at the average over all
+    keys. That mix is a real query, so the anchors must cover it like any key's own.
+    """
+    from boa.model.anchors import GLOBAL_AVG_KEY, cost_candidates
+    from boa.model.cost_calculations import lcoe_coefficients
+    from boa.model.logic import return_global_average_costs
+
+    costs = _costs({"AAA": SOLAR_CHEAP, "BBB": WIND_CHEAP})
+    candidates = cost_candidates([2025, 2030], _one_year(costs))
+
+    assert set(candidates) == {(y, k) for y in (2025, 2030) for k in ("AAA", "BBB", GLOBAL_AVG_KEY)}
+    expected = lcoe_coefficients(HORIZON, *return_global_average_costs(costs), 1.0)
+    assert candidates[(2025, GLOBAL_AVG_KEY)] == expected
 
 
 def test_every_key_ends_up_within_tol_of_some_anchor():
@@ -108,8 +126,8 @@ def test_a_declining_capex_trajectory_earns_anchors_over_time():
 
 def test_max_anchors_bounds_the_build_and_warns(caplog):
     """
-    Stopping early leaves keys uncovered. That costs uncertified queries rather than wrong
-    answers, but it must not pass silently -- the tolerance was asked for and not delivered.
+    Stopping early leaves keys uncovered, and their LCOE can then sit above the optimum. It must
+    not pass silently -- the tolerance was asked for and not delivered.
     """
     rng = np.random.default_rng(1)
     keys = {

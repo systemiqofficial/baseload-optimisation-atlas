@@ -21,7 +21,7 @@ boa-run --weather-input cds-2023 --cost-input rev3 --dry-run  # check the inputs
 |---|---|---|
 | `boa-run` | Checks the inputs. Builds the frontier cache of each region when it is missing or when it does not cover the cost mixes of the run. Then writes the per-year files for each year. | `--dry-run`, `--plots`, `--promote-lcoe` |
 | `boa-run build-cache` | Builds the frontier caches. Writes no per-year file. It ignores `--load-density`. | `--force` |
-| `boa-run query` | Writes the per-year files from existing frontier caches. It never builds a cache. | `--force`, `--plots`, `--promote-lcoe` |
+| `boa-run query` | Writes the per-year files from existing frontier caches that cover the cost mixes of the run. It never builds a cache. It stops with exit code 1 when a cache is missing or does not cover them (see [Rebuild a frontier cache](#rebuild-a-frontier-cache)). | `--force`, `--plots`, `--promote-lcoe` |
 | `boa-run point` | Computes one pixel. Writes no NetCDF file. | `--lat`, `--lon` |
 
 All commands accept these options:
@@ -124,26 +124,37 @@ way: through the cost mixes that it was built for, which are its [anchors](gloss
   cache covers the cost mixes, BOA uses the cache as it is. When it does not, BOA builds the cache
   again for the old cost mixes and the new ones. A new cost set, or more years, makes one
   rebuild, and the cache then covers them.
-- **`boa-run query` does no cost mix check.** It reads the cache that it finds at the cache path.
-  The path contains the weather year, the region, the coverage target and the search settings. It
-  contains neither the cost set nor the years. A query can use a cache that was built for other
-  costs or other years, and BOA gives no warning. Run `boa-run build-cache` with the same cost set
-  and years before you run `boa-run query`.
-- **A query needs a cache.** When no cache exists, `boa-run query` stops with an error. The
-  coverage is part of the cache path. A query with another `--coverage` finds no cache, and stops
-  with the same error.
+- **`boa-run query` stops when a cache does not cover the run.** Before it writes a file, it
+  checks the frontier cache of each region against the cost mixes of the run, with the rule of the
+  cost mix check above. The cache path contains the weather year, the region, the coverage target
+  and the search settings. It contains neither the cost set nor the years, so a cache can exist
+  and still not cover the run. The query stops, with exit code 1 and no per-year file written,
+  when one of these is true for a region:
+    - The cache is missing. A query with another `--coverage` finds no cache, because the
+      coverage is part of the cache path.
+    - The cache was built by another cache version.
+    - The cache records no anchors.
+    - The anchors of the cache do not cover every combination of cost key and investment year of
+      the run, and the mean costs of all cost keys for each of those years.
+
+    The error message names each region and the reason. To correct it, run `boa-run build-cache`
+    with the same `--weather-input`, `--cost-input`, `--coverage` and year options, or run
+    `boa-run` without a subcommand. Then run `boa-run query` again.
 - **A cache at the limit.** When a cache holds the largest number of cost mixes that it can hold
   (`max_anchors`, 32 by default), BOA uses it as it is, with a warning, because a rebuild cannot
-  add a cost mix.
+  add a cost mix. The query also uses it. The LCOE of the cost mixes that the cache does not
+  cover can be above the optimum.
 - **A cache from another cache version.** `boa-run` and `build-cache` build it again. `query`
-  stops with an error that names `boa-run build-cache`.
+  stops with an error (see above).
 - **Force.** `boa-run build-cache --force` builds each cache again, also when it covers
   the cost mixes of the run. `boa-run` has no `--force` option.
-- **After a rebuild, use `boa-run query --force`.** A command that finds a per-year file skips the
-  year. A per-year file does not record the build time, the cache version or the cost mixes that its
-  cache was built for. A rebuild does not change the existing per-year files, and old and new
-  results can be in one run directory. Run `boa-run query --force` with the same scenario options
-  to write them again.
+- **Per-year files after a rebuild.** Each per-year file records the build time of the cache that
+  it was priced from, in the attribute `frontier_cache_built_at`. Without `--force`, a command that
+  finds a per-year file uses it only when this value is the build time of the current cache. In
+  all other cases, the command derives the file again. This includes a file that has no such
+  attribute. The GLOBAL file is combined again when a regional file has another build time than
+  the one that the GLOBAL file records. `boa-run query --force` derives every regional file again
+  and combines every GLOBAL file again. The coverage check also runs with `--force`.
 
 A rebuild for more cost mixes can change which designs the cache holds, and therefore the LCOE of
 an earlier cost set or year. See
@@ -216,7 +227,11 @@ boa-run --load-density 1.0 --coverage 0.95 --promote-lcoe   # or at the end of a
 
 The output is `<root>/lcoe-only/<label>_<hash>/optimal_lcoe_wy<weather year>_<rho>MWkm2_cov<c>_<first>_<last>.nc`.
 Promotion stops with an error when the years disagree on `cost_key`, on `status` or on a scenario
-attribute. The layout of the promoted file is a contract: see
+attribute. It also stops when the GLOBAL files of the years record different values of
+`frontier_cache_built_at`. This means that the years were priced from different builds of the
+frontier caches. Files without the attribute count as one value. Run `boa-run query` again for
+these years: it derives the files that come from an earlier build. The promoted file does not
+contain the attribute. The layout of the promoted file is a contract: see
 [The promoted LCOE file](promoted-lcoe-file.md).
 
 `boa-promote-lcoe --run <label>` fails when the label matches more than one directory
@@ -226,8 +241,8 @@ BOA does not apply the capacity ceiling, and the promoted file carries `capacity
 0`. Promotion requires the attribute `capacity_ceiling_applied` in the per-year files, but it does
 not check its value. See
 [The capacity ceiling is not applied](known-limitations.md#the-capacity-ceiling-is-not-applied).
-A promoted file also depends on the state of the frontier cache when the per-year files were
-written (see [Reuse of the frontier cache](known-limitations.md#reuse-of-the-frontier-cache)).
+A promoted file also depends on the frontier caches that the per-year files were priced from (see
+[Reuse of the frontier cache](known-limitations.md#reuse-of-the-frontier-cache)).
 
 ## Run the whole chain with `boa-lcoe`
 
@@ -324,7 +339,7 @@ exist. The rules are:
   non-empty value wins. Each variable is chosen on its own, so the values of one pixel can come
   from different regions.
 - The attributes of the GLOBAL file are the attributes of the first region, with `region` set to
-  `GLOBAL` and a new `created_at`.
+  `GLOBAL`, a new `created_at`, and `frontier_cache_built_at` set to the entries of all regions.
 
 The attributes of a file record the scenario and the provenance:
 
@@ -338,5 +353,6 @@ The attributes of a file record the scenario and the provenance:
 | `era5_weather_year`, `era5_resolution_deg` | The weather year and the grid size, in degrees, of the weather data. |
 | `search_params_hash` | A hash of the search settings. The frontier cache path contains it. |
 | `frontier_cache_path` | The frontier cache that the file was priced from: the path of the cache of the region, relative to the cache directory. In the GLOBAL file, it is the cache of the first region only. The path separator depends on the operating system. |
+| `frontier_cache_built_at` | The build time (UTC) of the frontier cache that the file was priced from. In the GLOBAL file, it has one entry `REGION=<time>` for each region, separated by `;`. |
 | `capacity_ceiling_applied` | `0`: BOA did not apply the capacity ceiling. |
 | `created_at`, `source` | When BOA wrote the file (UTC), and a fixed description. |
