@@ -18,7 +18,6 @@ The functions take any two variables on `(lat, lon)` and label the axes from eac
 plots the same way. Pixels with no cost, or a quantity of 0 or none, are left out.
 """
 
-import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +31,7 @@ from matplotlib.artist import Artist
 from matplotlib.collections import PolyCollection
 from matplotlib.colors import BoundaryNorm, ListedColormap
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch
+from matplotlib.patches import Patch, Rectangle
 from matplotlib.ticker import FuncFormatter
 
 from boa.geo.iso3_finder import iso3_at_batch
@@ -116,10 +115,9 @@ COUNTRY_TO_REGION = {
 }
 DEFAULT_CUT_SHARE = 0.02
 
-# The region legend of the supply curves: one column up to this many regions, else two, with
-# labels wrapped at this many characters so that two columns fit under the region map.
-LEGEND_ROWS_MAX = 8
-LEGEND_LABEL_WIDTH = 16
+# The region map inside the cost-ordered supply curve, as (x, y, width, height) in axes fractions:
+# the top left, which a rising curve leaves free.
+MAP_INSET_BOUNDS = (0.01, 0.40, 0.40, 0.58)
 
 # Larger units for a total that would otherwise need many digits: unit -> (larger unit, factor).
 _LARGER_UNITS = {
@@ -345,13 +343,7 @@ def plot_supply_curves(
     cost_name = str(ds[cost_var].attrs.get("long_name", cost_var))
     quantity_name = str(ds[quantity_var].attrs.get("long_name", quantity_var)).lower()
 
-    fig = plt.figure(figsize=(13.33, 7.5), layout="constrained")
-    # With regions, a second column holds the region map (top) and the notes (bottom).
-    grid = fig.add_gridspec(2, 2, width_ratios=(3.2, 1.0)) if regions is not None else fig.add_gridspec(2, 1)
-    ax_cost = fig.add_subplot(grid[0, 0])
-    ax_region = fig.add_subplot(grid[1, 0], sharex=ax_cost, sharey=ax_cost)
-    ax_map: plt.Axes | None = fig.add_subplot(grid[0, 1]) if regions is not None else None
-    ax_notes: plt.Axes | None = fig.add_subplot(grid[1, 1]) if regions is not None else None
+    fig, (ax_cost, ax_region) = plt.subplots(2, 1, figsize=(13.33, 7.5), sharex=True, sharey=True, layout="constrained")
 
     _draw_steps(ax_cost, table.sort_values("cost", kind="stable"), colours)
     ax_cost.set_title("Ordered by cost, coloured by region")
@@ -391,28 +383,28 @@ def plot_supply_curves(
     if cut_share > 0:
         caption.append(f"Not shown: the most expensive {100 * cut_share:g} % of the {quantity_name} of each region.")
 
-    if ax_map is not None and ax_notes is not None and regions is not None:
-        _draw_regions(ax_map, regions)
-        _frame(ax_map, regions, None, "Regions")
-        ax_notes.set_axis_off()
-        # Below the map: the regions in block order, in two columns when one would be too long,
-        # and the median line last.
-        handles: list[Artist] = [Patch(facecolor=colours[r], label=textwrap.fill(r, LEGEND_LABEL_WIDTH)) for r in order]
-        handles.append(
-            Line2D([], [], label=textwrap.fill(str(median_handle.get_label()), LEGEND_LABEL_WIDTH), **median_style)
+    if regions is not None:
+        # A supply curve rises to the right, so its top left is free: the region map goes there.
+        x0, y0, width, height = MAP_INSET_BOUNDS
+        ax_cost.add_patch(
+            Rectangle(
+                (x0, y0), width, height, transform=ax_cost.transAxes, facecolor="white", edgecolor="none", zorder=2
+            )
         )
-        ax_notes.legend(
+        ax_map = ax_cost.inset_axes(MAP_INSET_BOUNDS, zorder=3)
+        _draw_regions(ax_map, regions)
+        _frame(ax_map, regions, None, "")
+        # On the right: the regions in block order, one column, and the median line last.
+        handles: list[Artist] = [Patch(facecolor=colours[r], label=r) for r in order]
+        handles.append(median_handle)
+        fig.legend(
             handles=handles,
-            loc="upper left",
-            ncols=1 if len(handles) <= LEGEND_ROWS_MAX else 2,
+            loc="outside right center",
             frameon=False,
-            borderaxespad=0.0,
-            fontsize=10,
-            handlelength=1.0,
-            handletextpad=0.5,
-            columnspacing=0.8,
+            fontsize=10.5,
+            handlelength=1.2,
             title="Regions in block order",
-            title_fontsize=11,
+            title_fontsize=11.5,
             alignment="left",
         )
     else:
