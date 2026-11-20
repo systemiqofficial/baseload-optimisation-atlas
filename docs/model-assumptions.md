@@ -24,7 +24,7 @@ page are the references of this site for those sources.
 | Battery CAPEX correction | `BATTERY_UNIT_CAPEX_SCALING_FACTOR` | Yes. It sets the battery cost. |
 | Learning rates | `LEARNING_RATES` | No. The code does not read them. |
 | Deterioration rates | `YEARLY_DETERIORATION_RATES` | No. The code does not read them. |
-| Land-use densities and land availability | `THEORETICAL_DENSITY_MW_PER_KM2`, `PACKING_FACTOR`, `CAPACITY_DENSITY_MW_PER_KM2`, `LULC_CODES` | No. They set the capacity ceiling. BOA does not apply the ceiling when it selects a design (see [Known limitations](known-limitations.md)). |
+| Land-use densities and land availability | `CAPACITY_DENSITY_MW_PER_KM2`, `DENG_AVAILABILITY`, `ESA_CCI_TO_DENG_CLASS`, `LULC_CODES` | No. They set the capacity ceiling, which limits the capacity potential, not the design (see [Known limitations](known-limitations.md#capacity-ceiling-and-potential)). |
 | Weather grid and regions | `ERA5_DATA_RESOLUTION`, `ERA5_DATA_YEAR`, `REGION_COORDS` | Yes, indirectly: they select the weather data and the pixels. |
 
 The LCOE also uses the CAPEX, the OPEX and the cost of capital of the cost set. These are
@@ -106,73 +106,83 @@ of the horizon, and the battery capacity does not decrease. See
 ## Capacity ceiling parameters
 
 These values set the capacity ceiling of a pixel: the largest solar and wind capacity that the
-land of the pixel can hold. The ceiling is the pixel area multiplied by the applied density and by
-the land-availability fraction.
+land of the pixel can hold. The ceiling is the pixel area multiplied by the density and by the
+land-availability fraction. The ceiling sets the capacity potential, not the design or the LCOE
+(see [Known limitations](known-limitations.md#capacity-ceiling-and-potential)).
+
+All densities and fractions come from one source, so they are consistent with each other:
+Deng, Y.Y. et al. (2015), *Quantifying a realistic, worldwide wind and solar electricity supply*,
+Global Environmental Change 31: 239–252,
+[doi:10.1016/j.gloenvcha.2015.01.005](https://doi.org/10.1016/j.gloenvcha.2015.01.005). The source
+registry `src/boa/config/sources.toml` pins the file with the id `deng-2015-realistic-wind-solar`
+and the tag `capacity-ceiling`. `boa-sources-fetch --tag capacity-ceiling` downloads it.
+
+The land-cover map and the exclusion masks are data sets of the Copernicus Climate Data Store
+(CDS). The registry lists them with `access = "cds-api"`: the entry gives the data set page, the
+data set name of the CDS API request, the DOI, the version and the licence. `boa-cds-download`
+gets them with a CDS account. `boa-sources-fetch` skips them.
+
+| Id | Source | Access point | Used for |
+|---|---|---|---|
+| `deng-2015-realistic-wind-solar` | Deng et al. (2015) | File download | Densities, land-availability fractions |
+| `c3s-satellite-land-cover` | ESA-CCI land cover, version 2.1.1, year 2022, [doi:10.24381/cds.006f2c9a](https://doi.org/10.24381/cds.006f2c9a) | [CDS data set `satellite-land-cover`](https://cds.climate.copernicus.eu/datasets/satellite-land-cover) | Layer `lulc`: land-cover class of each 300 m pixel |
+| `c3s-energy-global-reanalysis` | C3S global climate and energy indicators, version 1.00, [doi:10.24381/3bb607bd](https://doi.org/10.24381/3bb607bd) | [CDS data set `sis-energy-global-reanalysis`](https://cds.climate.copernicus.eu/datasets/sis-energy-global-reanalysis), variables `solar_pv_exclusion_mask` and `wind_power_exclusion_mask` | Layer `cds_exclusion`: excluded pixels for solar PV and for wind |
+
+The land-cover data set page lists three licences (ESA CCI, CC-BY and VITO) and does not say
+which applies to version 2.1.1. The energy data set has the CC-BY licence.
 
 The pixel area (`pixel_area` in `boa.cds.max_capacity`) is not the exact area of the grid cell on
 a sphere. It is the square of the side length of 0.25° of arc on a sphere with a radius of
 6371.0 km, multiplied by cos(latitude). The radius is the constant `EARTH_RADIUS_KM` (mean
 radius, no source).
 
-BOA builds the ceiling as a separate data store. It does not apply the ceiling when it selects a
-design. Each output file records `capacity_ceiling_applied = 0`. Thus the values in this
-section do not change the LCOE. See [Known limitations](known-limitations.md).
+### Densities
 
-The applied density is the theoretical density multiplied by the packing factor. The option
-`--pv-density` or `--wind-density` of `boa-cds-prepare` replaces the applied density for one build.
+`CAPACITY_DENSITY_MW_PER_KM2` gives the installed capacity for each km² of available land. The
+option `--pv-density` or `--wind-density` of `boa-cds-prepare` replaces it for one build.
 
-### Theoretical density and packing factor
-
-| Technology | Theoretical density (MW/km²) | Packing factor (fraction) | Applied density (MW/km²) |
-|---|---|---|---|
-| Solar PV | 141.9 | 0.33 | 46.827 |
-| Wind | 10.42 | 1.0 | 10.42 |
-
-- **Theoretical density** (`THEORETICAL_DENSITY_MW_PER_KM2`): the power density with zero
-  spacing. Source: Scholz (2012), REMix PhD thesis, Tab. 4.1.3 (PV) and Tab. 4.3.1 (wind).
-  [Link](https://elib.dlr.de/77976/1/REMix_Thesis_YS.pdf)
-- **Packing factor** (`PACKING_FACTOR`): the fraction of the area of a site that the equipment
-  covers (row spacing, access roads).
-    - PV: Scholz, Tab. 4.1.3. The code states that five independent sources confirm a value of
-      about 20 % to 40 %. It names Ong et al. (2013), NREL/TP-6A20-56290; NREL/TP-6A20-87843
-      (2023); and Risch et al. (2022), doi:10.3390/en15155536.
-    - Wind: 1.0. The spacing between turbines is already in the theoretical density.
-- **Applied density** (`CAPACITY_DENSITY_MW_PER_KM2`): the product of the two values. This
-  is a calculation, not a separate source.
+| Technology | Density (MW/km²) | Source |
+|---|---|---|
+| Solar PV | 50 | Deng (2015), footnote 2, p. 243: the top of the range of "typical power densities of solar farms (25–50 MW/km²)". The source does not say if the values are AC or DC. |
+| Wind | 7 | Deng (2015), Section 2.2.2, p. 244: the power density `D`. |
 
 ### Land-availability fractions
 
 `LULC_CODES` gives, for each technology, the available fraction for each land-cover class of the
-ESA-CCI land-cover map. The fraction has no unit. It applies to each 300 m ESA-CCI pixel of that
-class. The value of a 0.25° cell is the mean of these fractions over the ESA-CCI pixels of the
-cell ([lulc_fraction][boa.cds.availability.lulc_fraction]). A class that the table does not list
-has a fraction of 0, so the ceiling is 0 there.
+ESA-CCI land-cover map. The fraction is the share of the class area that holds solar or wind
+plants. It includes the competition with other uses of the land. The fraction has no unit. It
+applies to each 300 m ESA-CCI pixel of that class. The value of a 0.25° cell is the mean of these
+fractions over the ESA-CCI pixels of the cell
+([lulc_fraction][boa.cds.availability.lulc_fraction]). A class that the table does not list has a
+fraction of 0, so the ceiling is 0 there.
 
-**Source: team estimate.** The code states that these values are a team judgement and not
-derived from the literature. No source gave a fraction that is safe to multiply with the packing
-factor without a double count. The code states that a person must check the values before a run
-is trusted.
+**Source:** Deng (2015), Table 2, p. 242. The table has three cases (Low, Medium, High) and gives
+the High case separately for industrialised and developing countries. Neither the paper nor its
+supplementary information gives a reason or a list of countries for this split. BOA uses the High
+case for industrialised countries in all countries (`AVAILABILITY_CASE = "high"`). It is the top of
+the range of 3 % to 10 % for wind that the paper states a basis for.
+
+Deng uses the land classes of the USGS GLCC map. The table `ESA_CCI_TO_DENG_CLASS` gives each
+ESA-CCI class a Deng class. This is a BOA decision, not part of the source: the GLCC map has no
+"desert" class either, and BOA uses the bare-area classes for it.
+
+| ESA-CCI classes (code) | Deng class | Solar PV | Wind |
+|---|---|---|---|
+| Cropland, rainfed (10, 11, 12), irrigated (20), cropland and natural-vegetation mosaics (30, 40) | Agriculture | 0.02 | 0.10 |
+| Forest, all types (50, 60, 61, 62, 70, 71, 72, 80, 81, 82, 90) | Forest | 0 (excluded) | 0.02 |
+| Tree and shrub, and herbaceous mosaics (100, 110) | Forest | 0 (excluded) | 0.02 |
+| Shrubland (120, 121, 122), grassland (130) | Grassland | 0.03 | 0.10 |
+| Lichens and mosses (140), sparse vegetation (150, 151, 152, 153) | Barren land | 0.03 | 0.10 |
+| Bare areas (200, 201, 202) | Desert | 0.08 | 0.10 |
+| Urban (190), wetland (160, 170, 180), water (210), snow and ice (220) | Excluded | 0 | 0 |
+
+Deng excludes forest for solar, "including mixed land covers", so the tree mosaics (100, 110) have
+no solar fraction. Deng excludes urban areas, water and ice for all technologies.
 
 These fractions apply only when the build uses the land-cover layer (`--layers lulc`). A build
-without layers uses only the pixel area and the applied density.
-
-| ESA-CCI classes (code) | Solar PV | Wind |
-|---|---|---|
-| Cropland, rainfed (10, 11, 12), irrigated (20), cropland and natural-vegetation mosaics (30, 40) | 0.10 | 0.10 |
-| Tree and shrub, and herbaceous mosaics (100, 110) | 0.10 | 0.10 |
-| Shrubland (120, 121, 122) | 0.10 | 0.10 |
-| Grassland (130) | 0.10 | 0.10 |
-| Forest, all types (50, 60, 61, 62, 70, 71, 72, 80, 81, 82, 90) | 0 (excluded) | 0.10 |
-| Lichens and mosses (140) | 1.0 | 1.0 |
-| Sparse vegetation (150, 151, 152, 153) | 1.0 | 1.0 |
-| Bare areas (200, 201, 202) | 1.0 | 1.0 |
-| Urban (190) | 0.20 (rooftop proxy) | 0 (excluded) |
-| Wetland (160, 170, 180), water (210), snow and ice (220) | 0 (excluded) | 0 (excluded) |
-
-For wind, the code states that the other availability layer (`cds_exclusion`) excludes forest that
-a protected area covers. This holds only when the build uses both layers
-(`--layers lulc,cds_exclusion`). With `--layers lulc` alone, protected forest keeps the forest
-fraction.
+without layers uses only the pixel area and the density. The other layer (`cds_exclusion`)
+multiplies the fraction by 0 in the pixels that the Copernicus exclusion mask excludes (see
+[Known limitations](known-limitations.md#capacity-ceiling-and-potential)).
 
 ## Weather data parameters
 
@@ -195,6 +205,7 @@ team chose.
 |---|---|---|---|---|
 | `ALASKA` | 72.0 | −170.0 | 42.0 | −110.25 |
 | `CANADA` | 72.0 | −110.0 | 42.0 | −50.0 |
+| `GREENLAND` | 72.0 | −49.75 | 59.5 | −25.25 |
 | `NORTH_AMERICA` | 41.75 | −128.0 | 8.0 | −50.0 |
 | `SOUTH_AMERICA` | 7.75 | −85.0 | −58.0 | −33.0 |
 | `EUROPE` | 72.0 | −25.0 | 35.0 | 62.0 |
@@ -214,6 +225,8 @@ team chose.
 - The regions do not cover Antarctica (south of 60° S) or the high Arctic (north of 72° N). The
   southernmost region box reaches 58° S.
 - Adjacent boxes are one grid cell (0.25 degrees) apart, so that no land cell is in two boxes.
+- `GREENLAND` covers the longitude gap between `CANADA` and `EUROPE`. The far west and east
+  coasts of Greenland are in these two boxes.
 - `HAWAII`, `GALAPAGOS`, `MASCARENE` and `KERGUELEN` are small boxes for islands that are in a
   longitude gap between two continental boxes.
 - Some of the larger boxes are split into a west box and an east box. A region is stored only

@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.13"
 resolution-markers = [
     "python_full_version >= '3.15' and platform_machine == 'ARM64' and sys_platform == 'win32'",
@@ -94,6 +94,7 @@ name = "baseload-optimisation-atlas"
 version = "1.10.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cmcrameri" },
     { name = "dask", extra = ["array"] },
     { name = "geopandas" },
     { name = "matplotlib" },
@@ -130,6 +131,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "cdsapi", marker = "extra == 'cds'", specifier = ">=0.7.4" },
+    { name = "cmcrameri", specifier = ">=1.10" },
     { name = "dask", extras = ["array"], specifier = ">=2025.5.0" },
     { name = "geopandas" },
     { name = "matplotlib" },
@@ -344,6 +346,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/27/fb/576f067976d320f5f0114a8d9fa1215425441bb35627b1993e5afd8111e5/cloudpickle-3.1.2.tar.gz", hash = "sha256:7fda9eb655c9c230dab534f1983763de5835249750e85fbcef43aaa30a9a2414", size = 22330, upload-time = "2025-11-03T09:25:26.604Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/39/799be3f2f0f38cc727ee3b4f1445fe6d5e4133064ec2e4115069418a5bb6/cloudpickle-3.1.2-py3-none-any.whl", hash = "sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a", size = 22228, upload-time = "2025-11-03T09:25:25.534Z" },
+]
+
+[[package]]
+name = "cmcrameri"
+version = "1.10"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/94/9e/43d76a835977e9d1b5cb1f9524004055c2d66a12406f91ef7262c83d1631/cmcrameri-1.10.tar.gz", hash = "sha256:38a776359040674cb4028695faf0121d0ccadb40eee0c9834eb4947674962b7e", size = 260605, upload-time = "2026-08-04T09:54:50.477Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/83/17/24e1d6d7a882a15fed5dcf7528891c9782613fd9a2ebe1bb426f4f1ef581/cmcrameri-1.10-py3-none-any.whl", hash = "sha256:0ccc9970fe35d74543bb8aeca5a5a97d8a09de71d2237d1bb714c9968cc2018d", size = 277668, upload-time = "2026-08-04T09:54:49.139Z" },
 ]
 
 [[package]]

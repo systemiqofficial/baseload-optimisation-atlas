@@ -1,7 +1,7 @@
 """
 Build the boa-cost-data-core package: one BOA cost workbook per IEA WEO 2025 scenario (CPS, STEPS, NZE).
 
-Every value comes from a pinned file in src/boa/config/cost_sources.toml, and every row names its
+Every value comes from a pinned file in src/boa/config/sources.toml, and every row names its
 source as "<id>: <item ref>". Fetch the files first:
 
     boa-sources-fetch irena-rpgc-2024-data irena-rpgc-2024-report iea-weo-2025 natural-earth-50m-map-subunits
@@ -36,8 +36,8 @@ import openpyxl
 import pandas as pd
 
 from boa.cli.fetch_sources import file_sha256
-from boa.config.cost_sources import Source, get_source, source_path
 from boa.config.paths import default_root
+from boa.config.sources import Source, get_source, source_path
 from boa.geo.iso3_grid_builder import NE_TO_BOA
 
 PACKAGE = "boa-cost-data-core"

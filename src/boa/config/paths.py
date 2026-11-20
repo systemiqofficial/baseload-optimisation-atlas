@@ -191,8 +191,8 @@ class PathConfig:
         Keyed on the weather year and deliberately **not** on ``input_set``. A frontier store
         holds no land-availability assumption — the search box comes from capacity factors and
         the point set from the ERA5 land-sea mask — so every layer set built on the same
-        weather shares one cache. Revising the LULC table then rebuilds the ceiling and the
-        Grid 2 sidecars but not the physics, and an A/B of two ceilings reads the same physics
+        weather shares one cache. Revising the LULC table then rebuilds the ceiling stores but
+        not the physics, and an A/B of two ceilings reads the same physics
         bytes instead of two independently rebuilt copies of them.
 
         A method rather than a field because the weather year is not known when the config is

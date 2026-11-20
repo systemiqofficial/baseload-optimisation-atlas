@@ -20,9 +20,10 @@ preferred route; for a re-published year it also offers `--use-republished` (see
 in `data/cds/` (~6 GB per year); the convert stage builds a shared global intermediate at
 `data/cds/global_zarr/` (~12 GB per year, deletable — it rebuilds in about a minute), after
 which each region converts in seconds. Max-capacity stores default to geometry-only (pixel
-area x density); pass `--layers lulc,cds_exclusion` to `boa-cds-prepare` for the layered
-land-availability ceiling instead — it lands in its own input set (e.g.
-`cds-2024-lulc+excl`) rather than overwriting the geometry-only stores.
+area x density, with no land-availability fractions, so the capacity potential is far too large);
+pass `--layers lulc,cds_exclusion` to `boa-cds-prepare` for the layered land-availability ceiling
+instead — it lands in its own input set (e.g. `cds-2024-lulc+excl`) rather than overwriting the
+geometry-only stores.
 
 Already have the raw data (from another machine or an earlier checkout)? Drop the
 *extracted* per-year directories — 12 monthly NetCDFs each — into `data/cds/` under the

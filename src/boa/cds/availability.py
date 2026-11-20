@@ -9,11 +9,15 @@ grid, and the layers multiply. Two are implemented:
   * `lulc` -- fractional, from the ESA-CCI 300 m land-cover class map. A 0.25 deg cell
     is exactly a 90x90 block of ESA-CCI pixels, so aggregation is an exact block mean
     with no reprojection. Classes absent from `LULC_CODES` get 0, which is what makes
-    forest, wetland, water and snow hard exclusions.
-  * `cds_exclusion` -- binary, from the Copernicus combined exclusion masks. Seven
-    criteria unioned: protected areas, polar, urban, water, slope, elevation and
-    distance to shore. Notably it has no forest criterion, so the two layers are
-    complementary rather than redundant.
+    urban, wetland, water and snow hard exclusions for both technologies, and forest
+    one for PV.
+  * `cds_exclusion` -- binary, from the Copernicus combined exclusion masks, a union of
+    criteria on the 0.25 deg grid. The file attributes list protected areas, polar
+    areas, water, high slope and high elevation for PV, and the same without water for
+    wind. The C3S documentation also names urban areas (urban cover of 45 % or more);
+    spot checks find dense city centres excluded in the wind mask but not in the PV
+    mask. Neither mask has a forest, cropland or settlement-setback criterion, so the
+    `lulc` layer is what covers those.
 
 The registry is deliberately narrow. `latitude_weighting_coefficients` ships in the same
 mask bundle and is cos(lat), which `pixel_area` already contains -- multiplying it in
@@ -24,10 +28,8 @@ layers together with the densities, and `availability_tag` names the set for the
 directory. Both exist because a max-capacity store records what it was built from nowhere
 else, so a changed layer set or density would otherwise be reused in silence.
 
-The layers are only as good as their parameters, and those are not settled: see the
-warning on `physical_parameters.LULC_CODES`, whose fractions and the densities beside them set how
-much of a cell is usable and currently leave most European land unable to host a 500 MW
-baseload at all.
+The land-cover fractions and the densities come from one paper (Deng et al. 2015, see
+`physical_parameters.DENG_2015`), so they are consistent with each other.
 """
 
 from __future__ import annotations
@@ -298,7 +300,7 @@ def availability_tag(names: list[str]) -> str:
     two ceilings in two max-capacity stores. It deliberately no longer separates the
     frontier cache: that store holds no availability assumption, so layer sets share it and
     an A/B of two ceilings reads the same physics. What stops a stale ceiling being reused
-    is the signature, carried in the capacity-box sidecar's own filename.
+    is the signature, which the store carries and the query copies into its output.
     """
     tags = [LAYER_TAGS[name] for name in LAYER_ORDER if name in names]
     return "+".join(tags) if tags else NO_LAYERS_TAG

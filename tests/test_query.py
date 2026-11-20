@@ -494,9 +494,9 @@ def test_truncation_is_reported_per_query_not_baked_into_status(frontier, coeffs
 
 def test_grid_one_argmin_takes_no_capacity_parameter():
     """
-    Grid 1 answers "what is the best system here?", with no reference to how much
-    can physically be built. The capacity box lives entirely in Grid 2, so the
-    ceiling is not merely unused by this search -- it is unreachable from it.
+    The argmin answers "what is the best system here?", with no reference to how much
+    can physically be built. The ceiling only sets the capacity potential of the winner
+    afterwards, so it is not merely unused by this search -- it is unreachable from it.
 
     Asserted structurally rather than behaviourally, because a test that calls the
     same function twice with the same arguments proves nothing.

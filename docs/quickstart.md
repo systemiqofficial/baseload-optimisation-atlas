@@ -56,9 +56,8 @@ INFO - Running single-point simulation for year 2030
 ...
 INFO - Location DEU -> region EUROPE (inside_box=True)
 ...
-INFO - Physical capacity limits: {'solar': 46.827000000000005, 'wind': 10.42}
+INFO - Capacity ceiling: solar 23522 MW, wind 3293 MW
 INFO - Building the frontier and pricing it...
-WARNING - [UNCONSTRAINED] The capacity ceiling is not applied yet (...), so this LCOE is the unconstrained optimum. ... Do not promote it.
 ...
 INFO - Optimization complete for (52.5, 13.4)
 INFO -   Optimal LCOE: 75.49 $/MWh
@@ -66,6 +65,7 @@ INFO -   Installation cost: 3208.23 M$
 INFO -   Solar overscale factor: 4.38
 INFO -   Wind overscale factor: 1.98
 INFO -   Battery overscale factor: 18.57
+INFO -   Capacity potential at this LCOE: <n> MW baseload (wind ceiling binds)
 INFO - All plots saved to <root>\runs\quickstart_49e8\outputs\plots\single_point\cov0.9\lat_52_50_lon_13_40
 INFO - Total runtime: 7.06 seconds (0.12 minutes)
 INFO - point: all years complete.
@@ -81,10 +81,13 @@ How to read the result:
   the system has 4.38 MW of solar and 1.98 MW of wind. The battery stores 18.57 hours of the demand.
   The log calls the three values "overscale factors". The battery factor is in hours of demand, not
   in MW per MW.
-- **Physical capacity limits** is the capacity ceiling of the pixel, relative to the demand.
-  BOA writes this line but does not apply the ceiling, and the WARNING says this. Here the system
-  is far below the ceiling. See
-  [Known limitations](known-limitations.md#the-capacity-ceiling-is-not-applied).
+- **Capacity ceiling** is the largest solar and wind capacity that the land of the pixel can
+  hold. These values are for maximum-capacity stores without land-availability layers: the full
+  area of the pixel times 50 MW/km² of solar and 7 MW/km² of wind.
+- **Capacity potential** is the largest demand that this land can supply with this design, at
+  this LCOE. Here the wind ceiling binds at about 1660 MW (3293 MW divided by the wind factor of
+  1.98). The system for a demand of 470 MW fits on the land. See
+  [Known limitations](known-limitations.md#capacity-ceiling-and-potential).
 
 The command also writes two plots, a time series of the profiles and the state of charge of the
 battery, in the folder that the last INFO line names.
@@ -116,7 +119,7 @@ When a store is missing, the command stops and prints the preparation command to
 boa-run --weather-input cds-2025 --run quickstart --coverage 0.9 --start-year 2030 --end-year 2030
 ```
 
-BOA builds the frontier cache of each of the 17 regions, and then writes the result for 2030. The
+BOA builds the frontier cache of each of the 18 regions, and then writes the result for 2030. The
 build of the frontier caches takes most of the time. The README gives about 75 minutes for each
 coverage target for a run from 2025 to 2060. This page gives no time for the run of this step.
 
@@ -134,7 +137,7 @@ are in this folder:
 ```text
 <root>/runs/quickstart_49e8/outputs/wy2025/01MWkm2/cov0p9/nc/
 ├── ALASKA/optimal_sol_wy2025_01MWkm2_cov0p9_ALASKA_2030.nc
-├── ...                                                        (17 regions)
+├── ...                                                        (18 regions)
 ├── EUROPE/optimal_sol_wy2025_01MWkm2_cov0p9_EUROPE_2030.nc
 ├── ...
 └── GLOBAL/optimal_sol_wy2025_01MWkm2_cov0p9_GLOBAL_2030.nc
@@ -171,7 +174,8 @@ status          1.00
 
 The `lcoe` is in USD/MWh, the three factors are the design as in step 2, and `coverage` is the
 fraction of hours in which the system supplies the full demand. A `status` of 1 means that the
-search found a result for the pixel. The file attribute `capacity_ceiling_applied` is 0.
+search found a result for the pixel. The file attribute `capacity_ceiling_applied` is 0: the LCOE
+is the unconstrained optimum. The file also has the capacity potential `max_baseload_mw`.
 
 The values are close to the values of step 2, but not the same. The difference can come from the
 placement of the search. The single-point run places its search with the costs of only this pixel.

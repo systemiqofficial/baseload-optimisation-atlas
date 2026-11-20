@@ -150,10 +150,11 @@ way: through the cost mixes that it was built for, which are its [anchors](gloss
   the cost mixes of the run. `boa-run` has no `--force` option.
 - **Per-year files after a rebuild.** Each per-year file records the build time of the cache that
   it was priced from, in the attribute `frontier_cache_built_at`. Without `--force`, a command that
-  finds a per-year file uses it only when this value is the build time of the current cache. In
+  finds a per-year file uses it only when this value is the build time of the current cache, and
+  its `capacity_ceiling_signature` is the signature of the current maximum-capacity store. In
   all other cases, the command derives the file again. This includes a file that has no such
-  attribute. The GLOBAL file is combined again when a regional file has another build time than
-  the one that the GLOBAL file records. `boa-run query --force` derives every regional file again
+  attribute. The GLOBAL file is combined again when a regional file has another build time or
+  another ceiling signature than the GLOBAL file records. `boa-run query --force` derives every regional file again
   and combines every GLOBAL file again. The coverage check also runs with `--force`.
 
 A rebuild for more cost mixes can change which designs the cache holds, and therefore the LCOE of
@@ -163,7 +164,47 @@ an earlier cost set or year. See
 ## Plots
 
 `boa-run` and `boa-run query` make map PNGs only with `--plots`. The maps show `lcoe`,
-`solar_factor`, `wind_factor` and `battery_factor`, for each region and for GLOBAL. They are in
+`solar_factor`, `wind_factor` and `battery_factor`, for each region and for GLOBAL. Two more maps
+show the capacity ceiling:
+
+- `lcoe_potential_<REGION>_<year>_cov<c>.png`: the LCOE above the capacity potential
+  `max_baseload_mw`, on a log scale. Grey pixels have a potential of 0: the land cannot hold the
+  design.
+- `supply_curve_<REGION>_<year>_cov<c>.png`: two supply curves of the LCOE over the annual energy
+  of the capacity potential (`max_annual_energy_twh`), with one step for each pixel. The first is
+  ordered by cost and coloured by region. The second has one block for each region, with the
+  pixels of the region ordered by cost. The blocks go from the lowest energy-weighted median LCOE
+  on the left to the highest on the right. In each block, a black line at that median goes from
+  the point where the curve reaches the median to the right edge of the block. The weighted
+  median is the LCOE below which half of the annual energy of the region lies. The curves do not
+  show pixels outside all regions, for example small islands with no country in the ISO-3 grid.
+  A map in the top left of the first curve shows the regions in their colours. The legend
+  on the right shows the regions in one column, in the order of the blocks. Long region names
+  use two lines. An empty row separates the median line from the regions. Both curves leave
+  out the most expensive 2 % of the annual energy of each region, and the
+  weighted medians use only the pixels that stay. The cost axis ends at the highest cost that
+  stays. The energy axis is in PWh/yr when the total is 10,000 TWh/yr or more.
+- `supply_regions_<REGION>.png`: the regions of the supply curves, in the colours of the curves.
+  BOA writes this map once for each region. The 14 regions come from the UN subregions of the
+  Natural Earth map (`SUBREGION`). China and Russia are regions of their own. A country with
+  territories in more than one subregion gets the region of its main territory. The colours are
+  Paul Tol's discrete rainbow.
+- `availability_share_<REGION>.png`: the available share of the pixel area for solar PV and for
+  wind, from the maximum-capacity stores, on a scale from 0 % to 10 %. Grey land has no available
+  area. BOA writes this map once for each region, because it does not change with the year.
+
+The plots have a size and letter size for slides. The maps have a colour bar below each map and
+no latitude or longitude axes. A global map always shows latitudes from −60° to 72°, the extent of the regions. The functions
+write the file type that the suffix of the output path gives, for example `.png` at 250 dpi or
+`.svg`.
+
+The colour maps are Crameri's Scientific Colour Maps (package `cmcrameri`). The plots take their
+axis labels from the `long_name` and `units` attributes of each variable, and their titles from
+the attributes of the file. The functions
+[plot_cost_and_quantity_maps][boa.model.capacity_maps.plot_cost_and_quantity_maps] and
+[plot_supply_curves][boa.model.supply_curves.plot_supply_curves] take the names of the cost and
+quantity variables, so they also plot other gridded files with these attributes, for example a
+levelised cost of hydrogen. The maps are in
 `<root>/runs/<label>_<hash>/outputs/wy<weather year>/<rho>MWkm2/cov<c>/plots/<REGION>/`. The log
 line "Regridding regional datasets onto the global grid" appears when BOA combines the regions into
 the GLOBAL file. It appears with or without `--plots`. The `point` command always makes its plots
@@ -171,10 +212,14 @@ the GLOBAL file. It appears with or without `--plots`. The `point` command alway
 
 ## Capacity ceiling
 
-BOA does not apply the capacity ceiling. Each query reports the unconstrained optimum for the
-coverage target, for each load density, and writes a warning to the log. Each per-year file records
-`capacity_ceiling_applied = 0`: BOA did not apply the capacity ceiling. See
-[The capacity ceiling is not applied](known-limitations.md#the-capacity-ceiling-is-not-applied).
+Each query reports the unconstrained optimum for the coverage target, and records
+`capacity_ceiling_applied = 0`. It also reads the maximum-capacity store of each region and writes
+the capacity potential of the design: `max_baseload_mw`, the largest demand that the land of the
+pixel can supply at this LCOE. A missing maximum-capacity store stops the query.
+
+The potential uses the land-availability fractions only when the maximum-capacity stores were built
+with `boa-cds-prepare --layers lulc,cds_exclusion`. See
+[Capacity ceiling and potential](known-limitations.md#capacity-ceiling-and-potential).
 
 ## Reproduce a result
 
@@ -237,10 +282,10 @@ contain the attribute. The layout of the promoted file is a contract: see
 `boa-promote-lcoe --run <label>` fails when the label matches more than one directory
 `<label>_<hash>`. In that case, pass the full directory name. The default label is `default`.
 
-BOA does not apply the capacity ceiling, and the promoted file carries `capacity_ceiling_applied =
-0`. Promotion requires the attribute `capacity_ceiling_applied` in the per-year files, but it does
-not check its value. See
-[The capacity ceiling is not applied](known-limitations.md#the-capacity-ceiling-is-not-applied).
+The promoted file carries `capacity_ceiling_applied = 0`: the LCOE is the unconstrained optimum.
+It does not contain the capacity potential. Promotion requires the attribute
+`capacity_ceiling_applied` in the per-year files, but it does not check its value. See
+[Capacity ceiling and potential](known-limitations.md#capacity-ceiling-and-potential).
 A promoted file also depends on the frontier caches that the per-year files were priced from (see
 [Reuse of the frontier cache](known-limitations.md#reuse-of-the-frontier-cache)).
 
@@ -305,6 +350,10 @@ the dimensions `lat` and `lon`.
 | `load_mw` | float32 | MW | The demand of the pixel: the load density multiplied by the area of the pixel. The installed solar capacity in MW is `solar_factor × load_mw`. The battery capacity in MWh is `battery_factor × load_mw`. |
 | `cost_key` | string | — | The cost key that priced the pixel, for example `DEU` or `CHN:CN-GS`. |
 | `status` | int8 | code | Why the pixel has, or has not, a result. The next paragraph gives the values. |
+| `solar_ceiling_mw`, `wind_ceiling_mw` | float32 | MW | The capacity ceiling of the pixel: the largest solar and wind capacity that its land can hold. Set for every modelled pixel. |
+| `max_baseload_mw` | float32 | MW | The capacity potential: the largest demand that the land of the pixel can supply with this design, `min(solar_ceiling_mw / solar_factor, wind_ceiling_mw / wind_factor)`. It does not depend on the load density. |
+| `max_annual_energy_twh` | float32 | TWh per year | The energy that the capacity potential delivers in a year of 8760 hours: `max_baseload_mw × 8760 × served_fraction`. |
+| `ceiling_binding` | int8 | code | The technology whose ceiling sets `max_baseload_mw`: 1 solar, 2 wind, 0 no design. |
 
 The unit of all money values is USD. BOA does not convert currency and does not adjust for
 inflation. It uses the values of the cost workbook as they are.
@@ -312,7 +361,8 @@ inflation. It uses the values of the cost workbook as they are.
 The installation costs are the costs in the investment year only. They do not contain OPEX.
 
 **Status.** `status` is 1 when the search found a result. For every other value, the variables of
-the design, the LCOE, the installation costs, `coverage` and `served_fraction` are NaN. The values of `cost_key`,
+the design, the LCOE, the installation costs, `coverage`, `served_fraction`, `max_baseload_mw`
+and `max_annual_energy_twh` are NaN, and `ceiling_binding` is 0. The values of `cost_key`,
 `cost_of_capital` and `load_mw` depend on the status. The code table is in
 [Known limitations](known-limitations.md#status-codes). The status is the same for every
 investment year of a run.
@@ -332,10 +382,10 @@ exist. The rules are:
 
 - When the per-year file of a region is missing, BOA writes a warning, writes no GLOBAL file, and
   continues. The command can still end with the message that all simulations completed.
-- When the files disagree on `search_params_hash`, BOA stops with a `ValueError`. Query the stale
-  regions again.
+- When the files disagree on `search_params_hash` or on `capacity_ceiling_signature`, BOA stops
+  with a `ValueError`. Query the stale regions again.
 - Where regions overlap, the first non-NaN value of each variable wins, with the regions in the
-  order of the region list. For `status`, the first non-zero value wins. For `cost_key`, the first
+  order of the region list. For `status` and `ceiling_binding`, the first non-zero value wins. For `cost_key`, the first
   non-empty value wins. Each variable is chosen on its own, so the values of one pixel can come
   from different regions.
 - The attributes of the GLOBAL file are the attributes of the first region, with `region` set to
@@ -354,5 +404,9 @@ The attributes of a file record the scenario and the provenance:
 | `search_params_hash` | A hash of the search settings. The frontier cache path contains it. |
 | `frontier_cache_path` | The frontier cache that the file was priced from: the path of the cache of the region, relative to the cache directory. In the GLOBAL file, it is the cache of the first region only. The path separator depends on the operating system. |
 | `frontier_cache_built_at` | The build time (UTC) of the frontier cache that the file was priced from. In the GLOBAL file, it has one entry `REGION=<time>` for each region, separated by `;`. |
-| `capacity_ceiling_applied` | `0`: BOA did not apply the capacity ceiling. |
+| `capacity_ceiling_applied` | `0`: the capacity ceiling does not limit the design or the LCOE. |
+| `capacity_potential_method` | The formula of `max_baseload_mw`. |
+| `capacity_ceiling_signature` | The `availability_signature` of the maximum-capacity stores: a hash of the land-availability layers and the densities. |
+| `capacity_ceiling_layers` | The land-availability layers of the maximum-capacity stores, for example `lulc,cds_exclusion`. Empty for stores without layers. |
+| `capacity_ceiling_density_mw_per_km2` | The solar and wind densities of the maximum-capacity stores, in MW/km². |
 | `created_at`, `source` | When BOA wrote the file (UTC), and a fixed description. |

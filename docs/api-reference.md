@@ -32,6 +32,20 @@ work together.
     options:
       heading_level: 3
 
+## Capacity potential and result plots
+
+::: boa.model.capacity_potential
+    options:
+      heading_level: 3
+
+::: boa.model.capacity_maps
+    options:
+      heading_level: 3
+
+::: boa.model.supply_curves
+    options:
+      heading_level: 3
+
 ## Single point and reference dispatch
 
 ::: boa.model.single_point_run

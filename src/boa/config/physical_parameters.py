@@ -38,92 +38,50 @@ YEARLY_DETERIORATION_RATES = {
     "battery": 0.015,  # 1.5%/year; batteries degrade faster (NREL, see README.md)
 }
 
-# ===== Max-capacity ceiling parameters (boa_cds max-capacity) =====
-# Applied density = theoretical density (stage 1) x packing factor (stage 2) x land-
-# availability fraction (stage 3, LULC_CODES below).
+# ===== Capacity-ceiling parameters (boa_cds max-capacity) =====
+# ceiling(tech) = pixel_area x CAPACITY_DENSITY_MW_PER_KM2[tech] x availability(tech), where
+# availability is the ESA-CCI land-cover fraction (LULC_CODES) times the CDS exclusion mask.
+#
+# Every value comes from one paper, so the densities and the land-cover factors are consistent
+# with each other: Deng et al. (2015), registered as DENG_2015 in boa/config/sources.toml.
+DENG_2015 = "deng-2015-realistic-wind-solar"
 
-# Stage 1: zero-spacing areal power density. Scholz (2012) REMix PhD thesis, Tab. 4.1.3 (pv)
-# / 4.3.1 (wind) -- https://elib.dlr.de/77976/1/REMix_Thesis_YS.pdf
-THEORETICAL_DENSITY_MW_PER_KM2 = {"pv": 141.9, "wind": 10.42}
+# MW per km2 of available land. Overridden per run via --pv-density / --wind-density.
+# pv: the top of Deng's "typical power densities of solar farms (25-50 MW/km2)", which matches
+# the "high" availability case below. wind: Deng's density D.
+CAPACITY_DENSITY_MW_PER_KM2 = {"pv": 50.0, "wind": 7.0}
+CAPACITY_DENSITY_SOURCE = {"pv": f"{DENG_2015}: Footnote 2", "wind": f"{DENG_2015}: Section 2.2.2"}
 
-# Stage 2: fraction of a site's own footprint actually covered (row spacing, access roads).
-# pv: Scholz Tab. 4.1.3, cross-validated to ~20-40% by 5 independent sources (Ong et al.
-# 2013 NREL/TP-6A20-56290, NREL/TP-6A20-87843 2023, Risch et al. 2022 doi:10.3390/en15155536).
-# wind: 1.0 -- turbine self-spacing is already inside the stage-1 figure.
-PACKING_FACTOR = {"pv": 0.33, "wind": 1.0}
-
-# Overridden per-run via --pv-density / --wind-density.
-CAPACITY_DENSITY_MW_PER_KM2 = {
-    tech: THEORETICAL_DENSITY_MW_PER_KM2[tech] * PACKING_FACTOR[tech] for tech in ("pv", "wind")
+# Deng Table 2 has the cases Low, Medium and High, and splits High into industrialised and
+# developing countries. Neither the paper nor its supplementary information gives a reason
+# or a country list for that split, so BOA applies the High/industrialised column to every
+# country and calls it "high". It is the top of the range the paper states a basis for
+# (3-10 % for wind on land).
+AVAILABILITY_CASE = "high"
+AVAILABILITY_SOURCE = f"{DENG_2015}: Table 2"
+DENG_AVAILABILITY = {
+    "pv": {"agriculture": 0.02, "grassland": 0.03, "barren": 0.03, "desert": 0.08},
+    "wind": {"forest": 0.02, "agriculture": 0.10, "grassland": 0.10, "barren": 0.10, "desert": 0.10},
 }
 
-# Stage 3: ESA-CCI LCCS class -> land-availability fraction. Unlisted classes get 0.
-#
-# !!! BALLPARKED, NOT LITERATURE-DERIVED. RECHECK BEFORE TRUSTING A RUN. !!!
-#
-# No source gave a fraction confirmed safe to multiply against stage 2 without double-
-# counting (Scholz's own figures turned out to be Germany-specific fallow-farmland stats,
-# not a transferable constant). These are a team judgement call instead of a citation.
+# ESA-CCI LCCS class -> Deng land class. A BOA judgement, not part of Deng: Deng uses the USGS
+# GLCC map, whose legend has no "desert" class either. Unlisted classes get 0 for both
+# technologies, as Deng excludes them: urban (190), wetland (160-180), water (210), snow and
+# ice (220), no data (0). Forest and the tree mosaics (100, 110) have no PV entry, because Deng
+# excludes forest for PV "including mixed land covers".
+ESA_CCI_TO_DENG_CLASS = {
+    **dict.fromkeys((10, 11, 12, 20, 30, 40), "agriculture"),  # cropland and cropland mosaics
+    **dict.fromkeys((50, 60, 61, 62, 70, 71, 72, 80, 81, 82, 90), "forest"),  # tree cover
+    **dict.fromkeys((100, 110), "forest"),  # tree/shrub and herbaceous mosaics
+    **dict.fromkeys((120, 121, 122, 130), "grassland"),  # shrubland and grassland
+    **dict.fromkeys((140, 150, 151, 152, 153), "barren"),  # lichens and mosses, sparse vegetation
+    **dict.fromkeys((200, 201, 202), "desert"),  # bare areas
+}
+
+# ESA-CCI LCCS class -> available fraction, per technology. Unlisted classes get 0.
 LULC_CODES = {
-    "pv": {
-        10: 0.10,
-        11: 0.10,
-        12: 0.10,  # cropland, rainfed (+ herbaceous / tree-shrub cover)
-        20: 0.10,  # cropland, irrigated or post-flooding
-        30: 0.10,
-        40: 0.10,  # cropland / natural-vegetation mosaics
-        100: 0.10,
-        110: 0.10,  # tree/shrub <-> herbaceous mosaics
-        120: 0.10,
-        121: 0.10,
-        122: 0.10,  # shrubland
-        130: 0.10,  # grassland
-        140: 1.0,  # lichens and mosses (bare/sparse bracket)
-        150: 1.0,
-        151: 1.0,
-        152: 1.0,
-        153: 1.0,  # sparse vegetation
-        190: 0.20,  # urban -- rooftop proxy
-        200: 1.0,
-        201: 1.0,
-        202: 1.0,  # bare areas
-        # forest (50-90), wetland (160/170/180), water (210), snow/ice (220): excluded
-    },
-    "wind": {
-        10: 0.10,
-        11: 0.10,
-        12: 0.10,
-        20: 0.10,
-        30: 0.10,
-        40: 0.10,  # cropland (+ mosaics)
-        50: 0.10,
-        60: 0.10,
-        61: 0.10,
-        62: 0.10,
-        70: 0.10,
-        71: 0.10,
-        72: 0.10,
-        80: 0.10,
-        81: 0.10,
-        82: 0.10,
-        90: 0.10,  # forest, all types -- WDPA-protected forest
-        # is already excluded upstream by cds_exclusion; this covers the non-protected rest
-        100: 0.10,
-        110: 0.10,
-        120: 0.10,
-        121: 0.10,
-        122: 0.10,
-        130: 0.10,
-        140: 1.0,
-        150: 1.0,
-        151: 1.0,
-        152: 1.0,
-        153: 1.0,  # lichens/mosses, sparse vegetation
-        200: 1.0,
-        201: 1.0,
-        202: 1.0,  # bare areas
-        # urban (190), wetland (160/170/180), water (210), snow/ice (220): excluded
-    },
+    tech: {code: factors[cls] for code, cls in ESA_CCI_TO_DENG_CLASS.items() if cls in factors}
+    for tech, factors in DENG_AVAILABILITY.items()
 }
 
 # ===== Copernicus data parameters =====
@@ -137,7 +95,9 @@ ERA5_DATA_YEAR = 2024
 # one grid cell (ERA5_DATA_RESOLUTION) rather than touching exactly, so no land cell is
 # double-built/double-queried. HAWAII, GALAPAGOS, MASCARENE and KERGUELEN are small dedicated
 # boxes for inhabited islands that fall in the longitude gap between two continental boxes --
-# cheaper than stretching a continental box across an ocean to reach them. The four largest
+# cheaper than stretching a continental box across an ocean to reach them. GREENLAND fills the
+# longitude gap between CANADA and EUROPE, so all of Greenland below 72 N is modelled (its far west
+# and east coasts stay in those two boxes). The four largest
 # boxes are each split into a point-balanced west/east pair on a real geographic line, since
 # build-cache only persists a region once every one of its points has finished (no incremental
 # write within a region) -- a smaller box bounds how much work a mid-build crash can lose.
@@ -146,6 +106,7 @@ REGION_COORDS = {
     "SUB_SAHARAN_AFRICA": [3.0, 7.0, -37.0, 52.0],
     "ALASKA": [72.0, -170.0, 42.0, -110.25],
     "CANADA": [72.0, -110.0, 42.0, -50.0],
+    "GREENLAND": [72.0, -49.75, 59.5, -25.25],
     "NORTH_AMERICA": [41.75, -128.0, 8.0, -50.0],
     "SOUTH_AMERICA": [7.75, -85.0, -58.0, -33.0],
     "NORTH_AFRICA": [34.75, -20.0, 3.25, 19.75],

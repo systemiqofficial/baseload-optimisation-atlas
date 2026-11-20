@@ -14,8 +14,8 @@ bisection tolerance is relative rather than absolute.
 Everything here is dimensionless. A design is three overscale factors against a
 demand normalised to 1: solar and wind in multiples of baseload MW, battery in
 baseload-hours. Nothing in this module reads a cost, a year, or a capacity ceiling
--- costs enter only through `argmin_lcoe`, and the ceiling lives in
-`boa.model.capacity_box`.
+-- costs enter only through `argmin_lcoe`, and the ceiling only sets the capacity
+potential of the chosen design (`boa.model.capacity_potential`).
 
 See `docs/methodology.md` for the conceptual walkthrough (with a worked figure) that this
 module's own docstrings assume as background.
@@ -738,8 +738,8 @@ def search_box(solar: np.ndarray, wind: np.ndarray, params: SearchParams) -> tup
     division guard: a zero-CF technology yields a mu of ~7.5e8, and an unclamped box that
     wide is unresolvable at any grid size.
 
-    Nothing here reads a capacity ceiling. The box is physics; the ceiling is
-    `boa.model.capacity_box`.
+    Nothing here reads a capacity ceiling. The box is physics; the ceiling only sets the
+    capacity potential (`boa.model.capacity_potential`).
     """
     from boa.model.logic import overscale_mus_from_cf
 

@@ -1,13 +1,16 @@
 """
-Download the original source files of the core cost workbooks and check their sha256.
+Download the original files that BOA takes input values from, and check their sha256.
 
-Each source in ``boa/config/cost_sources.toml`` is downloaded from its publisher URL into
+Each source in ``boa/config/sources.toml`` is downloaded from its publisher URL into
 ``<data root>/sources/<id>/<file>``, outside the repository. A file that is already there with the
 pinned sha256 is not downloaded again. A download with a different sha256 is kept as
-``<file>.mismatch`` for review, and the command exits with an error.
+``<file>.mismatch`` for review, and the command exits with an error. A source with
+``access = "cds-api"`` is a CDS data set, not a file: this command skips it, and
+``boa-cds-download`` gets it.
 
     boa-sources-fetch                         # every source
     boa-sources-fetch irena-rpgc-2024-data    # one source
+    boa-sources-fetch --tag capacity-ceiling  # every source with one tag
     boa-sources-fetch --list                  # show the registry and what is on disk
 """
 
@@ -19,8 +22,8 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
-from boa.config.cost_sources import Source, get_source, load_registry, source_path
 from boa.config.paths import default_root
+from boa.config.sources import TAGS, Source, get_source, load_registry, source_path, sources_with_tag
 
 CHUNK_BYTES = 1 << 20
 # Some publisher sites refuse requests that send no browser-like User-Agent.
@@ -81,19 +84,23 @@ def fetch_source(
 
 def _list(registry: dict[str, Source], root: Path) -> None:
     for source in registry.values():
-        path = source_path(root, source)
-        state = "present" if path.exists() and file_sha256(path) == source.sha256 else "missing"
-        print(f"{source.id:32} {state:8} {source.licence}")
+        if not source.downloadable:
+            state = source.access
+        else:
+            path = source_path(root, source)
+            state = "present" if path.exists() and file_sha256(path) == source.sha256 else "missing"
+        print(f"{source.id:32} {state:8} {','.join(source.tags):24} {source.licence}")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("ids", nargs="*", help="Source ids to fetch (default: every source)")
     parser.add_argument("--root", type=Path, help="Data root (default: $BOA_DATA_ROOT, else ~/.boa)")
+    parser.add_argument("--tag", choices=TAGS, help="Only the sources with this tag")
     parser.add_argument("--list", action="store_true", help="List the sources and their state on disk")
     args = parser.parse_args(argv)
 
-    registry = load_registry()
+    registry = load_registry() if args.tag is None else sources_with_tag(args.tag)
     root = args.root or default_root()
     if args.list:
         _list(registry, root)
@@ -105,6 +112,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     failed = 0
     for source in sources:
+        if not source.downloadable:
+            print(f"{source.id}: skipped, CDS data set {source.dataset!r}: boa-cds-download gets it")
+            continue
         try:
             print(f"{source.id}: {fetch_source(source, root, download)}")
         except (ValueError, OSError) as exc:

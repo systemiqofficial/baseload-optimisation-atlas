@@ -144,9 +144,10 @@ supplies it.
 
 **Load density.** Each cost coefficient is proportional to the demand `D`. In the LCOE, `D`
 cancels. Thus the LCOE and the selected design do not change with the load density, apart from
-floating-point rounding. This is true because no capacity ceiling applies when BOA selects a
-design: each per-year file records `capacity_ceiling_applied = 0`. See
-[Known limitations](known-limitations.md).
+floating-point rounding. This is true because the capacity ceiling does not limit the design:
+BOA uses it only for the capacity potential of the selected design, and each per-year file records
+`capacity_ceiling_applied = 0`. See
+[Known limitations](known-limitations.md#capacity-ceiling-and-potential).
 
 **The frontier.** For a fixed solar and wind factor, the coverage cannot decrease when the
 battery increases. Thus there is a smallest battery `b_min(s, w)` that meets the coverage target.

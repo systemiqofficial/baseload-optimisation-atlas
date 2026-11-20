@@ -33,6 +33,13 @@ WEATHER_YEAR = 2024
 REGION = "TESTREGION"
 HORIZON = 25
 LOAD_DENSITY = 1.0
+# The signature of the synthetic max-capacity store; a test changes it to stand in for a rebuilt ceiling.
+CEILING = {"signature": "ceiling-a"}
+
+
+@pytest.fixture(autouse=True)
+def _reset_ceiling():
+    CEILING["signature"] = "ceiling-a"
 
 
 @pytest.fixture(scope="module")
@@ -83,6 +90,15 @@ def _stage(root: Path, monkeypatch, profiles, anchor_costs):
         global_extension, "choose_land_points_in_cutout", lambda *_: (np.array([[10.0, 20.0]]), lats, lons)
     )
     monkeypatch.setattr(global_extension, "REGION_COORDS", {REGION: None})
+    monkeypatch.setattr(
+        global_extension,
+        "open_regional_dataset",
+        lambda kind, region, cfg: xr.Dataset(
+            {"pv": (("y", "x"), np.full((2, 2), 900.0)), "wind": (("y", "x"), np.full((2, 2), 400.0))},
+            coords={"y": lats, "x": lons},
+            attrs={"availability_signature": CEILING["signature"], "availability_layers": "lulc,cds_exclusion"},
+        ),
+    )
     capex = {t: np.full((1, HORIZON + 1), v) for t, v in (("solar", 9e5), ("wind", 1.4e6), ("battery", 3e5))}
     opex = {t: np.full(1, v) for t, v in (("solar", 0.01), ("wind", 0.02), ("battery", 0.02))}
     monkeypatch.setattr(
@@ -230,6 +246,37 @@ def test_a_regional_file_is_re_derived_after_the_store_is_rebuilt(staged):
 
     assert _attr(out, "created_at") != created
     assert _attr(out, "frontier_cache_built_at") == read_frontier_built_at(store)
+
+
+def test_a_regional_file_is_re_derived_after_the_ceiling_is_rebuilt(staged):
+    """The same frontier store under another ceiling gives another potential, so the file is stale."""
+    build, path_config = staged
+    build()
+    _close(_query(path_config))
+    out = path_config.optimal_sol_path(WEATHER_YEAR, LOAD_DENSITY, COVERAGE, REGION, 2025)
+    created = _attr(out, "created_at")
+
+    CEILING["signature"] = "ceiling-b"
+    _close(_query(path_config))
+
+    assert _attr(out, "created_at") != created
+    assert _attr(out, "capacity_ceiling_signature") == "ceiling-b"
+
+
+def test_the_global_file_is_combined_again_after_the_ceiling_is_rebuilt(staged):
+    build, path_config = staged
+    build()
+    _close(_query(path_config))
+    _close(_combine(path_config))
+    out = path_config.optimal_sol_path(WEATHER_YEAR, LOAD_DENSITY, COVERAGE, "GLOBAL", 2025)
+    created = _attr(out, "created_at")
+
+    CEILING["signature"] = "ceiling-b"
+    _close(_query(path_config))
+    _close(_combine(path_config))
+
+    assert _attr(out, "created_at") != created
+    assert _attr(out, "capacity_ceiling_signature") == "ceiling-b"
 
 
 def test_the_global_file_is_combined_again_after_a_region_is_re_derived(staged):

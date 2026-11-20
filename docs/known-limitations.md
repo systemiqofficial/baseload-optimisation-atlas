@@ -10,7 +10,7 @@ this differs from the cost to supply a real baseload demand at that pixel.
 
 | Limit | Effect on a result | Section |
 |---|---|---|
-| BOA does not apply the capacity ceiling | The design can need more land than the pixel has. The true unconstrained optimum has an [LCOE](glossary.md#lcoe) at or below the LCOE with a ceiling. | [Capacity ceiling](#the-capacity-ceiling-is-not-applied) |
+| The capacity ceiling limits the potential, not the design | The [LCOE](glossary.md#lcoe) and the design are the unconstrained optimum. The capacity potential is a lower bound, and its quality depends on the land data. | [Capacity ceiling and potential](#capacity-ceiling-and-potential) |
 | One weather year for all years of the horizon | The result has no year-to-year variation of the weather and no degradation. | [One weather year](#one-weather-year-and-no-degradation) |
 | No grid, no transmission, no other source | The LCOE is the cost for each MWh delivered. Unmet demand has no cost. | [Scope of the system](#scope-of-the-system) |
 | Simple battery model | Battery support is more favourable than for a real battery. | [Battery model](#battery-model) |
@@ -20,34 +20,60 @@ this differs from the cost to supply a real baseload demand at that pixel.
 | The frontier cache depends on how it was built | The same query can give different results after a rebuild. | [Reuse of the frontier cache](#reuse-of-the-frontier-cache) |
 | Input assumptions and fallbacks | Some inputs have no source or use a fallback value. | [Inputs and costs](#inputs-and-costs) |
 
-## The capacity ceiling is not applied
+## Capacity ceiling and potential
 
 The **capacity ceiling** is the largest solar and wind capacity that the available land of a
-pixel can hold. The input pipeline can build it: it is the area of the pixel, multiplied by a power
-density in MW/km² and by a land-availability fraction. The search and the query do not apply it.
-The single-point run reads the ceiling store and computes a limit from it, but it does not use
-the limit in the search. Each per-year file records `capacity_ceiling_applied = 0`, and the
-promoted file carries this attribute (see [Promoted LCOE file](promoted-lcoe-file.md)). The query
-writes a warning to the log each time that it computes a region and year.
+pixel can hold: the area of the pixel, multiplied by a power density in MW/km² and by a
+land-availability fraction (see [Model assumptions](model-assumptions.md#capacity-ceiling-parameters)).
 
-**What it means for a result.** BOA gives the unconstrained optimum. The design can need more
-land than the pixel has. The design is the solar, wind and battery factors multiplied by the
-demand in MW. A solar or wind factor is the installed capacity divided by the demand.
+BOA does not use the ceiling when it selects a design. The LCOE and the design are the
+unconstrained optimum, and each per-year file records `capacity_ceiling_applied = 0`. BOA uses the
+ceiling to calculate the **capacity potential** of the design: the largest baseload demand, in MW,
+that the land of the pixel can supply at this LCOE.
 
-The LCOE of the true unconstrained optimum is at or below the LCOE of the same pixel with a
-ceiling. The value that BOA reports is the best design that the search found (see
-[Search precision](#search-precision)). It is not always the true optimum. Thus the reported LCOE
-can be above the LCOE of a design with a ceiling. Do not use the design as a statement about
-capacity that can be built.
+```text
+max_baseload_mw = min(solar_ceiling_mw / solar_factor, wind_ceiling_mw / wind_factor)
+```
+
+The LCOE does not change with the size of the demand, so the same design at the demand
+`max_baseload_mw` has the same LCOE. The technology that gives the smaller value binds
+(`ceiling_binding`). A technology that the design does not use cannot bind. The battery has no
+land limit.
+
+**What it means for a result.**
+
+- The potential is a lower bound. A design with a different mix of solar and wind can use more of
+  the land and supply a larger demand, at a higher LCOE. BOA does not calculate these designs.
+- Solar and wind can use the same land. Each technology is limited only by its own ceiling.
+- The potential follows the design, and the design can change with the costs of each investment
+  year. Thus the potential can be different in each year.
+- When the land cannot hold the design at all (a ceiling of 0 for a technology that the design
+  uses), the potential is 0. The status of the pixel stays 1.
+- The potential does not depend on the load density. Compare `load_mw` with `max_baseload_mw` to
+  see if the land can hold the system that the file reports.
+- The land-availability fractions apply only when the ceiling store uses the land-cover layer
+  (`boa-cds-prepare --layers lulc,cds_exclusion`). A store without layers uses the full area of the
+  pixel, and the potential is then far too large. The attribute `capacity_ceiling_layers` of a
+  per-year file names the layers.
 
 **Load density.** The LCOE does not change with the [load density](glossary.md#load-density). The
 search works with a demand of 1. The load density only scales the reported values in MW and USD
 (see [Overview](overview.md)). The result is exact apart from rounding in the last digits of the
 floating-point numbers.
 
-This depends on the missing ceiling. The ceiling in MW is the same for all load densities, but
-the demand of a pixel increases with the load density. With a ceiling, a high load density would
-limit the design, and the LCOE would change with the load density. BOA does not show this effect.
+**Gaps in the land data.**
+
+- The Copernicus exclusion masks are binary on the 0.25° grid: a pixel is fully excluded or fully
+  available. The masks exclude protected areas, areas above the Arctic and Antarctic circles,
+  slopes of 60 % or more, high elevation and, for solar PV, water. The PV mask does not exclude
+  urban areas; the land-cover layer does. The elevation criterion also excludes some sites with a
+  very good solar resource, for example in the Atacama desert.
+- The source of the land-availability fractions also excludes slopes above 15° and, for wind,
+  elevations above 2000 m. BOA does not apply these limits. It uses only the slope and elevation
+  criteria of the Copernicus masks.
+- BOA has no distance limit to settlements, roads or other infrastructure.
+- The fractions are the "High" case of the source, for industrialised countries, applied to all
+  countries. The source gives larger values for developing countries, without a stated reason.
 
 ## One weather year and no degradation
 
@@ -126,7 +152,7 @@ reference for all codes. The names are the labels in `STATUS_CODES` (`boa.config
 | 3 | Zero solar and wind potential | The capacity factors of solar and wind are zero in all hours. No design can supply the demand. | As for code 2. |
 | 4 | Retired (was: fragile optimum rejected by minimum-survivor cut) | The code does not set it. A file that BOA made with the earlier search method can contain it. That method used a frontier cache of schema version 2, which the current code does not accept. In that method, code 4 marked an optimum that the search rejected as fragile. Do not read it as one of the codes above. | — |
 | 5 | Unallocated | The code does not set it. It has no entry in `STATUS_CODES`. | — |
-| 6 | Reserved | The code does not set it. It is reserved for a pixel that has no feasible design under the capacity ceiling. The ceiling is not applied, so BOA cannot set it (see [above](#the-capacity-ceiling-is-not-applied)). It has no entry in `STATUS_CODES`. | — |
+| 6 | Reserved | The code does not set it. It is reserved for a pixel that has no feasible design under the capacity ceiling. The ceiling limits the capacity potential, not the design, so a pixel whose land cannot hold its design has status 1 and `max_baseload_mw = 0` (see [above](#capacity-ceiling-and-potential)). It has no entry in `STATUS_CODES`. | — |
 
 `status_legend` in the promoted file lists the codes 0 to 4. It does not list 5 and 6. The legend
 text for code 4 contains the words "minimum-survivor cut", from the earlier search method.
@@ -212,7 +238,9 @@ which designs the cache contains (see [Methodology](methodology.md#cost-anchors)
   (`frontier_cache_built_at`). A query derives again each file of its years that comes from an
   earlier build. The files of the other years keep the earlier build, so one run directory can
   hold files from two builds. The promotion step stops when the GLOBAL files of the years come
-  from different builds. See
+  from different builds. A rebuilt maximum-capacity store has the same effect on the capacity
+  potential: a query derives a file again when its `capacity_ceiling_signature` is not the
+  signature of the current store. See
   [Rebuild a frontier cache](running-the-model.md#rebuild-a-frontier-cache).
 - **A full cache is used with a warning.** A cache that is built for the largest number of cost
   mixes (`max_anchors`, 32 by default) passes the coverage check of the build and of the query,

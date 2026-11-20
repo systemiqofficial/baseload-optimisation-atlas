@@ -26,6 +26,7 @@ from boa.model.bisection import (
     argmin_lcoe,
     build_pixel_frontier,
 )
+from boa.model.capacity_potential import BINDING_CODES, max_annual_energy_twh, max_baseload
 from boa.model.cost_calculations import installation_cost_breakdown, lcoe_coefficients
 from boa.model.logic import (
     return_global_average_costs,
@@ -321,9 +322,8 @@ def execute_single_point_baseload_power_simulation(
     # Follow the profile's already-wrapped, reported snap so capacity and profile
     # describe the same grid cell (the two regional cutouts share one grid).
     max_cap = max_cap_full_region.sel(x=float(profile_ds.x.values), y=float(profile_ds.y.values), method="nearest")
-    overbuild_limit = {tech: float(max_cap[tech].values) / baseload_demand for tech in ["pv", "wind"]}
-    overbuild_limit = {key.replace("pv", "solar"): value for key, value in overbuild_limit.items()}
-    logging.info(f"Physical capacity limits: {overbuild_limit}")
+    ceiling_mw = {"solar": float(max_cap["pv"].values), "wind": float(max_cap["wind"].values)}
+    logging.info(f"Capacity ceiling: solar {ceiling_mw['solar']:.0f} MW, wind {ceiling_mw['wind']:.0f} MW")
 
     # Costs for this point (geocoded; falls back to global-average if iso3 not found).
     capex, opex_pct, cost_of_capital, cost_key = extract_costs_for_point(
@@ -365,12 +365,13 @@ def execute_single_point_baseload_power_simulation(
     _progress(92, "Computing optimal design...")
     coeffs = lcoe_coefficients(investment_horizon, capex, opex_pct, cost_of_capital, baseload_demand)
     optimum = argmin_lcoe(frontier, coeffs)
-    logging.warning(
-        "[UNCONSTRAINED] The capacity ceiling is not applied yet (Grid 2 arrives in M4), so "
-        "this LCOE is the unconstrained optimum. With the availability layers on the ceiling "
-        "binds nearly everywhere, so the result will be optimistic and plausible-looking. Do "
-        "not promote it."
+    p_max, binding = max_baseload(
+        np.array([optimum.solar]),
+        np.array([optimum.wind]),
+        np.array([ceiling_mw["solar"]]),
+        np.array([ceiling_mw["wind"]]),
     )
+    max_baseload_mw, ceiling_binding = float(p_max[0]), int(binding[0])
     optimal_design = {"solar": optimum.solar, "wind": optimum.wind, "battery": optimum.battery}
     optimal_lcoe = optimum.lcoe
     optimal_cost, ic_solar, ic_wind, ic_battery = installation_cost_breakdown(
@@ -401,6 +402,10 @@ def execute_single_point_baseload_power_simulation(
     logging.info(f"  Solar overscale factor: {optimal_design['solar']:.2f}")
     logging.info(f"  Wind overscale factor: {optimal_design['wind']:.2f}")
     logging.info(f"  Battery overscale factor: {optimal_design['battery']:.2f}")
+    logging.info(
+        f"  Capacity potential at this LCOE: {max_baseload_mw:.0f} MW baseload "
+        f"({BINDING_CODES[ceiling_binding]} ceiling binds)"
+    )
     if generate_plots:
         logging.info(f"All plots saved to {output_dir}")
 
@@ -420,6 +425,11 @@ def execute_single_point_baseload_power_simulation(
         "status": 1,
         "region_selection": region_selection,
         "load_mw": baseload_demand,
+        "solar_ceiling_mw": ceiling_mw["solar"],
+        "wind_ceiling_mw": ceiling_mw["wind"],
+        "max_baseload_mw": max_baseload_mw,
+        "max_annual_energy_twh": float(max_annual_energy_twh(max_baseload_mw, optimum.served_fraction)),
+        "ceiling_binding": ceiling_binding,
     }
 
     # Include plot data if requested

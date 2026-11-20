@@ -1,0 +1,115 @@
+# Originals that BOA takes input values from.
+#
+# access = "download" (the default): one file at url, pinned by sha256. boa-sources-fetch downloads
+#   it into <data root>/sources/<id>/ and checks its sha256.
+# access = "cds-api": a data set of the Copernicus Climate Data Store. url is the data set page and
+#   dataset the name in the CDS API request. boa-cds-download gets it (it needs a CDS account and
+#   the accepted data set licence); boa-sources-fetch skips it.
+#
+# A value names its source as "<id>: <ref>", where <ref> is the text before the colon in one of
+# the "tables" lines. "tags" says which inputs use the source:
+#   costs             the boa-cost-data-core workbooks (scripts/cost/build_core.py)
+#   capacity-ceiling  the capacity-ceiling densities and land-cover factors
+#                     (boa.config.physical_parameters)
+
+[[source]]
+id = "irena-rpgc-2024-data"
+citation = "IRENA (2025), Renewable power generation costs in 2024, International Renewable Energy Agency, Abu Dhabi. Data file."
+url = "https://www.irena.org/-/media/Files/IRENA/Agency/Publication/2025/Jul/IRENA-Datafile-RenPwrGenCosts-in-2024.xlsx"
+sha256 = "693e09859a4e0ebdb52313e5d0988f184cab80893410c63c660dc1fa7fe7f270"
+licence = "IRENA terms of use: free use with attribution"
+accessed = 2026-11-19
+tags = ["costs"]
+tables = [
+  "Table 2.1: onshore wind total installed cost 2024, weighted average by region, USD(2024)/kW",
+  "Table 3.1: utility-scale solar PV total installed cost 2024, weighted average by region, USD(2024)/kW",
+  "Table S.1: global weighted-average total installed cost 2024, USD(2024)/kW",
+  "Table A3: onshore wind O&M for the LCOE calculation, by country, USD(2024)/kW/year",
+  "Table A4: solar PV O&M for the LCOE calculation, OECD and non-OECD, USD(2024)/kW/year",
+  "Fig A1: WACC 2024 by country and technology, real, after tax",
+]
+
+[[source]]
+id = "irena-rpgc-2024-report"
+citation = "IRENA (2025), Renewable power generation costs in 2024, International Renewable Energy Agency, Abu Dhabi."
+url = "https://www.irena.org/-/media/Files/IRENA/Agency/Publication/2025/Jul/IRENA_TEC_RPGC_in_2024_2025.pdf"
+sha256 = "ffe8ce4bde29616f3edf9ef1a86dbb6ae2d5381a0ecb9bb1f71bb20204b6bada"
+licence = "IRENA terms of use: free use with attribution"
+accessed = 2026-11-19
+tags = ["costs"]
+tables = [
+  "Table A1: default real WACC for countries outside the WACC benchmark tool (5% OECD and China, 7.5% elsewhere), p. 202",
+  "Box A.2: minimum WACC floor on the Table A1 defaults, p. 203",
+  "Annex III: regional groupings of countries, p. 215",
+]
+
+[[source]]
+id = "iea-weo-2025"
+citation = "IEA (2025), World Energy Outlook 2025, International Energy Agency, Paris."
+url = "https://www.iea.org/files/9753df19-0a71-422a-b725-012c555763b3/WorldEnergyOutlook2025.pdf"
+sha256 = "ebee58b6b93d6aed43db5247d54b03a7248510c2986bd24cfb4cca59d339b8f4"
+licence = "CC BY 4.0 (Annex A: CC BY-NC-SA 4.0, not used)"
+accessed = 2026-11-19
+tags = ["costs"]
+tables = [
+  "Table B.4a: CPS capital costs 2024, 2035, 2050 (US, EU, China, India), USD(2024)/kW, p. 454",
+  "Table B.4b: STEPS capital costs 2024, 2035, 2050 (US, EU, China, India), USD(2024)/kW, p. 455",
+  "Table B.4c: NZE capital costs 2024, 2035, 2050 (US, EU, China, India), USD(2024)/kW, p. 456",
+  "Table B.5: utility-scale stationary batteries 2024, 2035, 2050, global, USD(2024)/kWh, p. 457",
+]
+
+[[source]]
+id = "natural-earth-50m-map-subunits"
+citation = "Natural Earth (2022), 1:50m Admin 0 - Details: map subunits, version 5.1.1. The file BOA builds its ISO-3 grid from."
+url = "https://naciscdn.org/naturalearth/50m/cultural/ne_50m_admin_0_map_subunits.zip"
+sha256 = "156c8645eea09b8c6e487d7e490c29b06f5307ea7c0a3dd8abd032e3f1b36767"
+licence = "Public domain"
+accessed = 2026-11-19
+tags = ["costs"]
+tables = [
+  "ISO_A3: ISO-3 code of each map subunit (ADM0_A3 where ISO_A3 is -99)",
+  "SUBREGION: UN M49 subregion of each map subunit",
+  "SOVEREIGNT: sovereign state of each map subunit",
+]
+
+[[source]]
+id = "deng-2015-realistic-wind-solar"
+citation = "Deng, Y.Y., Haigh, M., Pouwels, W., Ramaekers, L., Brandsma, R., Schimschar, S., Grözinger, J., de Jager, D. (2015), Quantifying a realistic, worldwide wind and solar electricity supply, Global Environmental Change 31: 239-252, doi:10.1016/j.gloenvcha.2015.01.005. Copy on Wikimedia Commons."
+url = "https://upload.wikimedia.org/wikipedia/commons/c/c8/Quantifying_a_realistic%2C_worldwide_wind_and_solar_electricity_supply.pdf"
+sha256 = "6bba315342ae05151fd41e5330d20dff7042eaa0efd8748aab44d0d2f9233772"
+licence = "CC BY 4.0, as stated on the Wikimedia Commons file page"
+accessed = 2026-11-20
+tags = ["capacity-ceiling"]
+tables = [
+  "Table 2: availability factor for technologies on land, High case, industrialised countries, p. 242",
+  "Footnote 2: typical power densities of solar farms, 25-50 MW/km2, p. 243",
+  "Section 2.2.2: wind power density D = 7 MW/km2, p. 244",
+  "Section 2.1.1: land excluded for all technologies (urban, ice, water, coast, cliffs, dune, rock) and forest excluded for solar, pp. 240-241",
+]
+
+[[source]]
+id = "c3s-satellite-land-cover"
+citation = "Copernicus Climate Change Service (2019), Land cover classification gridded maps from 1992 to present derived from satellite observations, Copernicus Climate Change Service (C3S) Climate Data Store (CDS), doi:10.24381/cds.006f2c9a. ESA-CCI land cover, version 2.1.1, year 2022."
+url = "https://cds.climate.copernicus.eu/datasets/satellite-land-cover"
+access = "cds-api"
+dataset = "satellite-land-cover"
+licence = "The data set page lists the ESA CCI licence, the CC-BY licence and the VITO licence; it does not say which applies to version 2.1.1"
+accessed = 2026-11-20
+tags = ["capacity-ceiling"]
+tables = [
+  "lccs_class: land-cover class of each 300 m pixel, version 2.1.1, year 2022 (the lulc availability layer, boa.cds.spec.LULC_YEAR and LULC_VERSION)",
+]
+
+[[source]]
+id = "c3s-energy-global-reanalysis"
+citation = "Copernicus Climate Change Service (2026), Global climate and energy indicators from 1950 to present derived from reanalysis, Copernicus Climate Change Service (C3S) Climate Data Store (CDS), doi:10.24381/3bb607bd. Version 1.00."
+url = "https://cds.climate.copernicus.eu/datasets/sis-energy-global-reanalysis"
+access = "cds-api"
+dataset = "sis-energy-global-reanalysis"
+licence = "CC-BY licence"
+accessed = 2026-11-20
+tags = ["capacity-ceiling"]
+tables = [
+  "solar_pv_exclusion_mask: binary exclusion mask for solar PV, 0.25 degree, file ANCI_SPVM-mask_C3S2LOT1_025d_v1.00.nc, variable PVmask (the cds_exclusion availability layer)",
+  "wind_power_exclusion_mask: binary exclusion mask for onshore wind, 0.25 degree, file ANCI_WPM-mask_C3S2LOT1_025d_v1.00.nc, variable wp_mask (the cds_exclusion availability layer)",
+]

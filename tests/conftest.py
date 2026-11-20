@@ -96,8 +96,9 @@ def lulc_raster(tmp_path):
 
     Two 0.25 deg cells side by side, each an exact 90x90 block of 300 m pixels
     (ESA_CCI_CELLS_PER_DEG = 360, so 0.25 deg is exactly 90 cells). Cell 0 is all
-    urban (190), cell 1 is half bare (200) and half tree cover (60). Tree cover is
-    absent from LULC_CODES, so it must contribute exactly zero.
+    urban (190), cell 1 is half bare (200) and half tree cover (60). Urban is absent
+    from LULC_CODES for both technologies and tree cover is absent for PV, so these
+    must contribute exactly zero.
 
     Latitude descends, as in the real product, so the reader has to flip it.
     """

@@ -2,6 +2,43 @@
 
 Changes to BOA by version, newest first. Each version is a git tag, for example `v1.10.0`.
 
+## Unreleased
+
+### Added
+
+- **Capacity potential**: each per-year file has `max_baseload_mw`, the largest baseload demand
+  that the land of the pixel can supply with its optimal design at that LCOE, and
+  `max_annual_energy_twh`, `ceiling_binding`, `solar_ceiling_mw` and `wind_ceiling_mw`. The query
+  reads the maximum-capacity store of each region and stops when it is missing. The LCOE and the
+  design do not change, and `capacity_ceiling_applied` stays 0.
+- **`boa-sources-fetch --tag`**: fetches only the sources with one tag (`costs` or
+  `capacity-ceiling`).
+- **CDS sources in the registry**: entries with `access = "cds-api"` give the access point of a
+  CDS data set (page, data set name, DOI, version, licence). The registry lists the ESA-CCI land
+  cover and the C3S exclusion masks of the capacity ceiling. `boa-sources-fetch` skips them.
+- **Capacity maps** with `--plots`: the LCOE above the capacity potential for each year, and the
+  available share of the land for solar PV and wind for each region. They use Crameri's Scientific
+  Colour Maps, through the new dependency `cmcrameri`.
+- **Supply curves** with `--plots`: the LCOE over the annual energy of the capacity potential, one
+  ordered by cost and coloured by region, one with a block for each region, from the lowest to
+  the highest energy-weighted median LCOE. They use 14 regions made from the
+  UN subregions, with China and Russia apart, and leave out the most expensive 2 % of the energy
+  of each region. A map shows the regions in the colours of the curves.
+- **Variable attributes**: each variable of a per-year file has `long_name` and `units`. The map
+  and supply-curve functions take their labels from them, so they also plot other gridded cost
+  files, for example an LCOH.
+
+### Changed
+
+- **Region `GREENLAND`**: a new region box between `CANADA` and `EUROPE`, so all of Greenland
+  below 72° N has results. A run made before needs `boa-cds-prepare` and a build of this region
+  before it can combine a GLOBAL file again.
+- **Capacity-ceiling parameters** come from Deng et al. (2015): 50 MW/km² for solar PV, 7 MW/km²
+  for wind, and the land-cover fractions of the High case for industrialised countries. Rebuild
+  the maximum-capacity stores (`boa-cds-prepare --force`), because their signature changes.
+- **Source registry**: `src/boa/config/cost_sources.toml` is now `src/boa/config/sources.toml`,
+  and each source has a required `tags` list.
+
 ## 1.10.0
 
 ### Added

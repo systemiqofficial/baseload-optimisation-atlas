@@ -5,6 +5,7 @@ description = "Baseload Optimisation Atlas: optimal solar/wind/battery systems f
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "cmcrameri>=1.10",
     "dask[array]>=2025.5.0",  # xarray/zarr chunked writes (Dataset.chunk())
     "geopandas",
     "matplotlib",
