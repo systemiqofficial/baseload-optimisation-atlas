@@ -66,3 +66,18 @@ tables = [
   "SUBREGION: UN M49 subregion of each map subunit",
   "SOVEREIGNT: sovereign state of each map subunit",
 ]
+
+[[source]]
+id = "deng-2015-realistic-wind-solar"
+citation = "Deng, Y.Y., Haigh, M., Pouwels, W., Ramaekers, L., Brandsma, R., Schimschar, S., Grözinger, J., de Jager, D. (2015), Quantifying a realistic, worldwide wind and solar electricity supply, Global Environmental Change 31: 239-252, doi:10.1016/j.gloenvcha.2015.01.005. Copy on Wikimedia Commons."
+url = "https://upload.wikimedia.org/wikipedia/commons/c/c8/Quantifying_a_realistic%2C_worldwide_wind_and_solar_electricity_supply.pdf"
+sha256 = "6bba315342ae05151fd41e5330d20dff7042eaa0efd8748aab44d0d2f9233772"
+licence = "CC BY 4.0, as stated on the Wikimedia Commons file page"
+accessed = 2026-11-20
+tags = ["capacity-ceiling"]
+tables = [
+  "Table 2: availability factor for technologies on land, High case, industrialised countries, p. 242",
+  "Footnote 2: typical power densities of solar farms, 25-50 MW/km2, p. 243",
+  "Section 2.2.2: wind power density D = 7 MW/km2, p. 244",
+  "Section 2.1.1: land excluded for all technologies (urban, ice, water, coast, cliffs, dune, rock) and forest excluded for solar, pp. 240-241",
+]

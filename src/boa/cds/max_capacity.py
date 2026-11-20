@@ -36,7 +36,10 @@ from boa.cds.availability import LayerSpec, availability_factor, availability_si
 from boa.config.constants import EARTH_RADIUS_KM
 from boa.config.paths import PathConfig
 from boa.config.physical_parameters import (
+    AVAILABILITY_CASE,
+    AVAILABILITY_SOURCE,
     CAPACITY_DENSITY_MW_PER_KM2,
+    CAPACITY_DENSITY_SOURCE,
     ERA5_DATA_RESOLUTION,
     ERA5_DATA_YEAR,
     LULC_CODES,
@@ -94,6 +97,11 @@ def store_attrs(layers: list[LayerSpec], density: dict[str, float]) -> dict[str,
         + (" x " + " x ".join(names) if names else " (no availability layers)"),
         "density_mw_per_km2": str(density),
         "availability_layers": ",".join(names),
+        # Where the default densities and the land-cover fractions come from (boa/config/sources.toml).
+        # A run that overrides a density with --pv-density / --wind-density shows it in density_mw_per_km2.
+        "density_source": str(CAPACITY_DENSITY_SOURCE),
+        "availability_case": AVAILABILITY_CASE,
+        "availability_source": AVAILABILITY_SOURCE,
         SIGNATURE_ATTR: availability_signature(layers, density),
         "generated_by": "boa.cds.max_capacity",
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),

@@ -38,23 +38,25 @@ def test_lulc_fraction_matches_the_block_mean(lulc_raster):
     is half bare and half tree cover.
     """
     frac = availability.lulc_fraction(CELL_LAT, CELL_LONS, "pv", lulc_raster)
+    frac_wind = availability.lulc_fraction(CELL_LAT, CELL_LONS, "wind", lulc_raster)
 
     assert frac.shape == (1, 2)
-    assert frac[0, 0] == pytest.approx(LULC_CODES["pv"][190])
     assert frac[0, 1] == pytest.approx(LULC_CODES["pv"][200] / 2)
+    assert frac_wind[0, 1] == pytest.approx((LULC_CODES["wind"][200] + LULC_CODES["wind"][60]) / 2)
 
 
 def test_unlisted_class_is_fully_excluded(lulc_raster):
     """
     Classes absent from `LULC_CODES` get fraction 0, not a neutral 1.0. That is what
-    makes all forest, wetland, water and snow hard exclusions, and for wind urban too,
-    since code 190 appears only in the pv table.
+    makes urban, wetland, water and snow hard exclusions for both technologies, and
+    forest one for PV.
     """
-    assert 60 not in LULC_CODES["pv"], "fixture premise: tree cover is unlisted"
-    assert 190 not in LULC_CODES["wind"], "fixture premise: urban is unlisted for wind"
+    assert 60 not in LULC_CODES["pv"], "fixture premise: tree cover is unlisted for pv"
+    assert all(190 not in codes for codes in LULC_CODES.values()), "fixture premise: urban is unlisted"
 
-    frac_wind = availability.lulc_fraction(CELL_LAT, CELL_LONS, "wind", lulc_raster)
-    assert frac_wind[0, 0] == pytest.approx(0.0), "an all-urban cell must be zero for wind"
+    for tech in ("pv", "wind"):
+        frac = availability.lulc_fraction(CELL_LAT, CELL_LONS, tech, lulc_raster)
+        assert frac[0, 0] == pytest.approx(0.0), f"an all-urban cell must be zero for {tech}"
 
 
 def test_lccs_dtype_is_pinned_to_uint8(lulc_raster):
@@ -119,9 +121,9 @@ def test_block_mean_and_latitude_flip_over_two_rows(tmp_path):
     x = np.array([-179.75])
     block = availability.BLOCK  # 90
     codes = np.zeros((45 + 2 * block, 45 + block), dtype=np.uint8)
-    # Top ESA block (higher latitude, y=89.75): urban.
-    codes[45 : 45 + block, 45:] = 190
-    # Bottom block (y=89.5): half bare, half unlisted code 50 (-> 0).
+    # Top ESA block (higher latitude, y=89.75): cropland.
+    codes[45 : 45 + block, 45:] = 10
+    # Bottom block (y=89.5): half bare, half tree cover (code 50, unlisted for pv).
     codes[45 + block :, 45 : 45 + block // 2] = 200
     codes[45 + block :, 45 + block // 2 :] = 50
     lulc_path = tmp_path / "lulc.nc"
@@ -129,11 +131,12 @@ def test_block_mean_and_latitude_flip_over_two_rows(tmp_path):
 
     frac = availability.lulc_fraction(y, x, "pv", lulc_path)
     assert frac.shape == (2, 1)
-    np.testing.assert_allclose(frac[1, 0], LULC_CODES["pv"][190], rtol=1e-6)  # y=89.75 (top block)
+    np.testing.assert_allclose(frac[1, 0], LULC_CODES["pv"][10], rtol=1e-6)  # y=89.75 (top block)
     np.testing.assert_allclose(frac[0, 0], LULC_CODES["pv"][200] / 2, rtol=1e-6)  # y=89.5, half usable
-    # Wind has no urban entry -> the 190 block is fully excluded.
+    # Wind lists tree cover, so the bottom block is the mean of the two classes.
     frac_wind = availability.lulc_fraction(y, x, "wind", lulc_path)
-    np.testing.assert_allclose(frac_wind[1, 0], 0.0)
+    np.testing.assert_allclose(frac_wind[1, 0], LULC_CODES["wind"][10], rtol=1e-6)
+    np.testing.assert_allclose(frac_wind[0, 0], (LULC_CODES["wind"][200] + LULC_CODES["wind"][50]) / 2, rtol=1e-6)
 
 
 # --------------------------------------------------------------------------
