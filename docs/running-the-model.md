@@ -178,8 +178,9 @@ show the capacity ceiling:
   the point where the curve reaches the median to the right edge of the block. The weighted
   median is the LCOE below which half of the annual energy of the region lies. The curves do not
   show pixels outside all regions, for example small islands with no country in the ISO-3 grid.
-  A small map in the top left of the first curve shows the regions in their colours. The legend
-  on the right shows the regions in one column, in the order of the blocks. Both curves leave
+  A map in the top left of the first curve shows the regions in their colours. The legend
+  on the right shows the regions in one column, in the order of the blocks. Long region names
+  use two lines. An empty row separates the median line from the regions. Both curves leave
   out the most expensive 2 % of the annual energy of each region, and the
   weighted medians use only the pixels that stay. The cost axis ends at the highest cost that
   stays. The energy axis is in PWh/yr when the total is 10,000 TWh/yr or more.

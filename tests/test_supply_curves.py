@@ -13,6 +13,8 @@ from shapely.geometry import Point
 
 from boa.model.supply_curves import (
     COUNTRY_TO_REGION,
+    MAP_CLEARANCE,
+    MAP_INSET_BOUNDS,
     NO_REGION,
     NO_REGION_COLOUR,
     REGIONS,
@@ -20,6 +22,8 @@ from boa.model.supply_curves import (
     _rectangles,
     country_regions,
     drop_costliest,
+    legend_label,
+    map_inset_bounds,
     median_offset,
     plot_region_map,
     plot_supply_curves,
@@ -168,3 +172,17 @@ def test_the_regions_run_from_the_lowest_to_the_highest_weighted_median():
 def test_the_curves_are_written_as_svg(tmp_path):
     out = plot_supply_curves(_ds(), tmp_path / "curve.svg", regions=_regions())
     assert out.read_text(encoding="utf-8").lstrip().startswith("<?xml")
+
+
+def test_long_legend_labels_go_on_two_lines():
+    assert legend_label("Latin America & Caribbean") == "Latin America &\nCaribbean"
+    assert legend_label("China") == "China"
+    assert legend_label("") == ""
+
+
+def test_the_region_map_moves_up_to_stay_clear_of_the_curve():
+    low = map_inset_bounds(np.array([1.0, 1.0]), np.array([1.0, 9.0]), top=10.0)
+    assert low[1] == MAP_INSET_BOUNDS[1]
+    high = map_inset_bounds(np.array([1.0, 1.0]), np.array([5.0, 9.0]), top=10.0)
+    assert high[1] == pytest.approx(0.5 + MAP_CLEARANCE)
+    assert high[1] + high[3] == pytest.approx(MAP_INSET_BOUNDS[1] + MAP_INSET_BOUNDS[3])

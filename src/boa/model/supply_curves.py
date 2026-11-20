@@ -18,6 +18,7 @@ The functions take any two variables on `(lat, lon)` and label the axes from eac
 plots the same way. Pixels with no cost, or a quantity of 0 or none, are left out.
 """
 
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -119,7 +120,12 @@ PIXEL_CHUNK = 100_000
 
 # The region map inside the cost-ordered supply curve, as (x, y, width, height) in axes fractions:
 # the top left, which a rising curve leaves free.
-MAP_INSET_BOUNDS = (0.01, 0.40, 0.40, 0.58)
+# The bottom edge is the lowest of MAP_INSET_BOUNDS[1] and the height that keeps the map clear of the
+# curve (`map_inset_bounds`).
+MAP_INSET_BOUNDS = (0.01, 0.30, 0.48, 0.68)
+MAP_CLEARANCE = 0.04
+# Legend labels longer than this many characters go on two or more lines, to keep the legend narrow.
+LEGEND_LABEL_WIDTH = 16
 
 # Larger units for a total that would otherwise need many digits: unit -> (larger unit, factor).
 _LARGER_UNITS = {
@@ -321,6 +327,28 @@ def _draw_steps(ax: plt.Axes, steps: pd.DataFrame, colours: dict[str, str]) -> N
 
 
 @slide_style
+def map_inset_bounds(widths: np.ndarray, costs: np.ndarray, top: float) -> tuple[float, float, float, float]:
+    """
+    The region-map bounds in axes fractions for a cost-ordered curve of steps `widths` and
+    `costs`, with the cost axis from 0 to `top`: `MAP_INSET_BOUNDS`, with the bottom edge moved up
+    when the curve under the map is higher than that edge.
+    """
+    x0, y0, width, height = MAP_INSET_BOUNDS
+    top_edge = y0 + height
+    total = float(np.sum(widths))
+    if total > 0 and top > 0:
+        right = np.cumsum(widths)
+        index = min(int(np.searchsorted(right, (x0 + width) * total, side="left")), len(costs) - 1)
+        y0 = max(y0, float(np.max(costs[: index + 1])) / top + MAP_CLEARANCE)
+    y0 = min(y0, top_edge - 0.2)
+    return x0, y0, width, top_edge - y0
+
+
+def legend_label(text: str, width: int = LEGEND_LABEL_WIDTH) -> str:
+    """`text` on lines of at most `width` characters, broken between words."""
+    return "\n".join(textwrap.wrap(text, width)) or text
+
+
 def plot_supply_curves(
     ds: xr.Dataset,
     out_path: Path,
@@ -360,7 +388,8 @@ def plot_supply_curves(
 
     fig, (ax_cost, ax_region) = plt.subplots(2, 1, figsize=(13.33, 7.5), sharex=True, sharey=True, layout="constrained")
 
-    _draw_steps(ax_cost, table.sort_values("cost", kind="stable"), colours)
+    by_cost = table.sort_values("cost", kind="stable")
+    _draw_steps(ax_cost, by_cost, colours)
     ax_cost.set_title("Ordered by cost, coloured by region")
 
     by_region = table.assign(order=table["region"].map({r: i for i, r in enumerate(order)}))
@@ -400,17 +429,20 @@ def plot_supply_curves(
 
     if regions is not None:
         # A supply curve rises to the right, so its top left is free: the region map goes there.
-        x0, y0, width, height = MAP_INSET_BOUNDS
+        bounds = map_inset_bounds(by_cost["width"].to_numpy(), by_cost["cost"].to_numpy(), top)
+        x0, y0, width, height = bounds
         ax_cost.add_patch(
             Rectangle(
                 (x0, y0), width, height, transform=ax_cost.transAxes, facecolor="white", edgecolor="none", zorder=2
             )
         )
-        ax_map = ax_cost.inset_axes(MAP_INSET_BOUNDS, zorder=3)
+        ax_map = ax_cost.inset_axes(bounds, zorder=3)
         _draw_regions(ax_map, regions)
         _frame(ax_map, regions, None, "")
-        # On the right: the regions in block order, one column, and the median line last.
-        handles: list[Artist] = [Patch(facecolor=colours[r], label=r) for r in order]
+        # On the right: the regions in block order, one column, then an empty row and the median line.
+        handles: list[Artist] = [Patch(facecolor=colours[r], label=legend_label(r)) for r in order]
+        handles.append(Patch(visible=False, label=" "))
+        median_handle.set_label(legend_label(str(median_handle.get_label())))
         handles.append(median_handle)
         fig.legend(
             handles=handles,
@@ -418,6 +450,7 @@ def plot_supply_curves(
             frameon=False,
             fontsize=10.5,
             handlelength=1.2,
+            labelspacing=0.9,
             title="Regions in block order",
             title_fontsize=11.5,
             alignment="left",
