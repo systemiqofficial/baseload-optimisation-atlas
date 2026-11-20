@@ -53,6 +53,11 @@ OUTPUT_VARIABLES: dict[str, tuple[str, str]] = {
     "lcoh_stack": ("LCOH: stack replacement", "USD/kg"),
     "electrolyser_wacc": ("Electrolyser WACC (pixel WACC plus premium)", "fraction"),
 }
+# Written only when the run reports the capacity potential (`max_annual_energy_twh`): the hydrogen
+# that the electrolyser makes from the energy of that potential. 0 where the land cannot hold the design.
+POTENTIAL_VARIABLE = "max_annual_h2_kt"
+POTENTIAL_ATTRS = {"long_name": "Hydrogen potential", "units": "kt/yr"}
+KT_PER_TWH_AT_ONE_KWH_PER_KG = 1.0e3  # 1 TWh at 1 kWh/kg is 1e9 kg
 
 
 def _sha256(path: Path) -> str:
@@ -136,12 +141,14 @@ def build_lcoh(
         cost_key = np.asarray(reference["cost_key"].values)
         status = np.asarray(reference["status"].values).astype(np.int8)
         attrs = _attrs(path_config, reference, years, scenario, capex_bound, table_path)
+        has_potential = "max_annual_energy_twh" in reference.data_vars
 
     implied = _cost_set_scenario(str(attrs["cost_set"]))
     if implied and implied != scenario:
         log.warning(f"Cost set '{attrs['cost_set']}' names {implied}, but the electrolyser scenario is {scenario}.")
 
-    out = {name: np.full((len(years), lat.size, lon.size), np.nan, dtype=np.float32) for name in OUTPUT_VARIABLES}
+    names = [*OUTPUT_VARIABLES, POTENTIAL_VARIABLE] if has_potential else list(OUTPUT_VARIABLES)
+    out = {name: np.full((len(years), lat.size, lon.size), np.nan, dtype=np.float32) for name in names}
     priced = (status == STATUS_OPTIMUM) & (cost_key != "")
 
     for i, year in enumerate(years):
@@ -153,9 +160,12 @@ def build_lcoh(
             lcoe = ds["lcoe"].values.astype(float)
             served = ds["served_fraction"].values.astype(float)
             wacc = ds["cost_of_capital"].values.astype(float)
+            energy = ds["max_annual_energy_twh"].values.astype(float) if has_potential else None
         if not priced.any():
             continue
         p = Electrolyser.from_table(table, scenario, year, capex_bound)
+        if energy is not None:
+            out[POTENTIAL_VARIABLE][i][priced] = energy[priced] * KT_PER_TWH_AT_ONE_KWH_PER_KG / p.kwh_per_kg
         result = lcoh(lcoe[priced], served[priced], wacc[priced], p)
         out["lcoh"][i][priced] = result.total
         out["lcoh_electricity"][i][priced] = result.electricity
@@ -171,6 +181,8 @@ def build_lcoh(
         name: (("year", "lat", "lon"), out[name], {"long_name": long_name, "units": units})
         for name, (long_name, units) in OUTPUT_VARIABLES.items()
     }
+    if has_potential:
+        data_vars[POTENTIAL_VARIABLE] = (("year", "lat", "lon"), out[POTENTIAL_VARIABLE], POTENTIAL_ATTRS)
     data_vars["cost_key_id"] = (
         ("lat", "lon"),
         cost_key_id,
@@ -182,7 +194,7 @@ def build_lcoh(
     )
     encoding: dict = {
         name: {"dtype": "float32", "zlib": True, "complevel": 4, "chunksizes": (1, lat.size, lon.size)}
-        for name in OUTPUT_VARIABLES
+        for name in names
     }
     encoding["cost_key_id"] = {"dtype": "int16", "zlib": True, "complevel": 4}
     encoding["status"] = {"dtype": "int8", "zlib": True, "complevel": 4}

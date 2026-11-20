@@ -179,7 +179,7 @@ def test_invalid_inputs_give_nan(table):
 # --- file step ------------------------------------------------------------------------------------
 
 
-def _write_year(path_config: PathConfig, year: int) -> None:
+def _write_year(path_config: PathConfig, year: int, energy_twh: np.ndarray | None = None) -> None:
     lat, lon = np.array([0.0, 0.25]), np.array([10.0, 10.25, 10.5])
     ds = xr.Dataset(
         {
@@ -192,9 +192,30 @@ def _write_year(path_config: PathConfig, year: int) -> None:
         coords={"lat": lat, "lon": lon},
         attrs={"coverage_fraction": 0.9, "era5_weather_year": 2025, "capacity_ceiling_applied": 0},
     )
+    if energy_twh is not None:
+        ds["max_annual_energy_twh"] = (("lat", "lon"), energy_twh.astype("float32"))
     path = path_config.optimal_sol_path(2025, 1.0, 0.9, "GLOBAL", year)
     path.parent.mkdir(parents=True, exist_ok=True)
     ds.to_netcdf(path)
+
+
+def test_build_lcoh_converts_the_energy_potential_to_hydrogen(tmp_path):
+    path_config = PathConfig.from_root(tmp_path, input_set="cds-2025", cost_set="core-steps", run="r_abcd")
+    _write_year(path_config, 2030, energy_twh=np.array([[2.0, 0.0, 5.0], [1.0, 1.0, 1.0]]))
+    with xr.open_dataset(build_lcoh(path_config, 2025, 1.0, 0.9)) as ds:
+        h2 = ds["max_annual_h2_kt"].sel(year=2030).values
+        assert ds["max_annual_h2_kt"].attrs["units"] == "kt/yr"
+    kwh_per_kg = KWH_PER_KG_H2_LHV / 0.64
+    assert h2[0, 0] == pytest.approx(2.0e3 / kwh_per_kg, rel=1e-6)  # 2 TWh is about 38 kt
+    assert h2[0, 1] == 0.0  # the land cannot hold the design
+    assert np.isnan(h2[0, 2])  # status 0: no LCOH, no potential
+
+
+def test_build_lcoh_without_a_potential_writes_no_potential(tmp_path):
+    path_config = PathConfig.from_root(tmp_path, input_set="cds-2025", cost_set="core-steps", run="r_abcd")
+    _write_year(path_config, 2030)
+    with xr.open_dataset(build_lcoh(path_config, 2025, 1.0, 0.9)) as ds:
+        assert "max_annual_h2_kt" not in ds.data_vars
 
 
 def test_build_lcoh_writes_the_promoted_layout_with_lcoh_as_primary_variable(tmp_path):

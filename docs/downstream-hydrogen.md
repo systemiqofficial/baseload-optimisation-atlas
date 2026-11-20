@@ -165,6 +165,7 @@ float32 on `(year, lat, lon)`. `cost_key_id` (int16) and `status` (int8) are on 
 | `lcoh_fom` | USD/kg | Fixed O&M part |
 | `lcoh_stack` | USD/kg | Stack part |
 | `electrolyser_wacc` | fraction | The rate *r*: pixel WACC plus the premium of the investment year |
+| `max_annual_h2_kt` | kt/yr | Hydrogen potential: `max_annual_energy_twh` of the run × 1000 / *e*. Only when the run reports the capacity potential. 0 when the land cannot hold the design |
 
 **No value.** A pixel has no value (NaN) when one of these conditions is true:
 
@@ -200,7 +201,8 @@ These limits apply to the LCOH in addition to the limits of the LCOE (see
 [Known limitations](known-limitations.md)).
 
 - **No capacity ceiling.** BOA does not apply the capacity ceiling, so the LCOH is also a cost
-  without a land limit.
+  without a land limit. The hydrogen potential `max_annual_h2_kt` gives the quantity that the land
+  can supply at that LCOE.
 - **Full-load hours.** The step uses 8760 × *sf* as the full-load hours and does not model
   part-load hours. The stack life uses these hours.
 - **No degradation.** The efficiency does not decrease when the stack ages.

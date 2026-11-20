@@ -338,6 +338,7 @@ and the output file, see [Hydrogen cost (LCOH)](downstream-hydrogen.md).
     ```bash
     boa-lcoh --run wy2025-core-steps                              # all coverage targets, STEPS CAPEX
     boa-lcoh --run wy2025-core-steps --scenario NZE --coverage 0.9
+    boa-lcoh --run wy2025-core-steps --capex-bound upper          # upper end of the CAPEX range
     ```
 
 3. Find the files in `<root>/downstream/<run>_<hash>/`.
