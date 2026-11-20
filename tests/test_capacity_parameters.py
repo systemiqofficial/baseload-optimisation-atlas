@@ -18,8 +18,9 @@ def test_every_capacity_value_names_a_registered_table():
         _resolve(label)
 
 
-def test_the_capacity_ceiling_tag_holds_exactly_deng():
-    assert list(sources_with_tag("capacity-ceiling")) == [pp.DENG_2015]
+def test_the_only_capacity_ceiling_file_is_deng():
+    ceiling = sources_with_tag("capacity-ceiling")
+    assert [i for i, s in ceiling.items() if s.downloadable] == [pp.DENG_2015]
 
 
 def test_densities_are_deng_values():
