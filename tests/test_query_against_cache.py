@@ -9,9 +9,14 @@ How the query uses a frontier store: which stores it refuses, and when it re-der
   the store it was priced from, so the query, the GLOBAL combine and promotion can tell an old
   file from a current one.
 
-The region build runs for real on a one-pixel synthetic region under `tmp_path`; only the
-weather-year lookup, the land-sea mask read and the cost-key lookup are replaced.
+The region build runs for real on a one-pixel synthetic region; only the weather-year lookup,
+the land-sea mask read and the cost-key lookup are replaced. The default store is built once per
+module, and each test gets a copy under `tmp_path`.
 """
+
+import shutil
+from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -30,11 +35,48 @@ HORIZON = 25
 LOAD_DENSITY = 1.0
 
 
+@pytest.fixture(scope="module")
+def default_store(tmp_path_factory, profiles, anchor_costs):
+    """One real build with the default `SearchParams`: (store path, cache directory it sits in)."""
+    root = tmp_path_factory.mktemp("default_store")
+    with pytest.MonkeyPatch.context() as mp:
+        build, path_config = _stage(root, mp, profiles, anchor_costs)
+        store = build()
+    return store, path_config.frontier_cache_dir(WEATHER_YEAR)
+
+
 @pytest.fixture
-def staged(tmp_path, monkeypatch, profiles, anchor_costs):
-    """Returns (build, path_config): `build(params, force)` writes the one-pixel store anchored at `anchor_costs`."""
-    monkeypatch.setenv("BOA_DATA_ROOT", str(tmp_path))
-    path_config = PathConfig.from_root(tmp_path)
+def staged(tmp_path, monkeypatch, profiles, anchor_costs, default_store):
+    """
+    Returns (build, path_config). `build()` copies the module's default store into `tmp_path`;
+    `build(params)` builds a store for those params for real.
+    """
+    real_build, path_config = _stage(tmp_path, monkeypatch, profiles, anchor_costs)
+    store, store_dir = default_store
+
+    def build(params: SearchParams | None = None) -> Path:
+        if params is not None:
+            return real_build(params)
+        target = path_config.frontier_cache_dir(WEATHER_YEAR) / store.relative_to(store_dir)
+        shutil.copytree(store, target)
+        return target
+
+    return build, path_config
+
+
+def _rebuild(store: Path) -> None:
+    """Stand in for a rebuild: move the store's `built_at` on, which is all the query compares."""
+    group = zarr.open_group(str(store), mode="a")
+    meta = group.attrs["meta"]
+    assert isinstance(meta, dict)
+    later = datetime.fromisoformat(str(meta["built_at"])) + timedelta(seconds=1)
+    group.attrs["meta"] = {**meta, "built_at": later.isoformat()}
+
+
+def _stage(root: Path, monkeypatch, profiles, anchor_costs):
+    """Point BOA at `root` with the one-pixel region; returns (build, path_config)."""
+    monkeypatch.setenv("BOA_DATA_ROOT", str(root))
+    path_config = PathConfig.from_root(root)
     lats, lons = np.array([10.0, 10.25]), np.array([20.0, 20.25])
     monkeypatch.setattr(global_extension, "detect_weather_year", lambda _: WEATHER_YEAR)
     monkeypatch.setattr(
@@ -55,7 +97,7 @@ def staged(tmp_path, monkeypatch, profiles, anchor_costs):
         coords={"time": np.arange(hours), "y": lats, "x": lons},
     )
 
-    def build(params: SearchParams | None = None, force: bool = False):
+    def build(params: SearchParams | None = None) -> Path:
         return global_extension.build_frontier_cache_for_region(
             region=REGION,
             coverage=COVERAGE,
@@ -64,7 +106,6 @@ def staged(tmp_path, monkeypatch, profiles, anchor_costs):
             path_config=path_config,
             n_workers=1,
             params=params,
-            force=force,
         )
 
     return build, path_config
@@ -179,12 +220,12 @@ def test_a_regional_file_is_re_derived_after_the_store_is_rebuilt(staged):
     from boa.model.frontier_cache import read_frontier_built_at
 
     build, path_config = staged
-    build()
+    store = build()
     _close(_query(path_config))
     out = path_config.optimal_sol_path(WEATHER_YEAR, LOAD_DENSITY, COVERAGE, REGION, 2025)
     created = _attr(out, "created_at")
 
-    store = build(force=True)
+    _rebuild(store)
     _close(_query(path_config))
 
     assert _attr(out, "created_at") != created
@@ -193,7 +234,7 @@ def test_a_regional_file_is_re_derived_after_the_store_is_rebuilt(staged):
 
 def test_the_global_file_is_combined_again_after_a_region_is_re_derived(staged):
     build, path_config = staged
-    build()
+    store = build()
     _close(_query(path_config))
     _close(_combine(path_config))
     out = path_config.optimal_sol_path(WEATHER_YEAR, LOAD_DENSITY, COVERAGE, "GLOBAL", 2025)
@@ -202,9 +243,48 @@ def test_the_global_file_is_combined_again_after_a_region_is_re_derived(staged):
     _close(_combine(path_config))
     assert _attr(out, "created_at") == created, "an unchanged region must not force a new combine"
 
-    build(force=True)
+    _rebuild(store)
     _close(_query(path_config))
     _close(_combine(path_config))
     assert _attr(out, "created_at") != created
     regional = path_config.optimal_sol_path(WEATHER_YEAR, LOAD_DENSITY, COVERAGE, REGION, 2025)
     assert _attr(out, "frontier_cache_built_at") == f"{REGION}={_attr(regional, 'frontier_cache_built_at')}"
+
+
+# --------------------------------------------------------------------------
+# The CLI stops before the first file
+# --------------------------------------------------------------------------
+
+
+def test_query_all_years_stops_before_it_queries_any_year(staged, anchor_costs, monkeypatch):
+    """A check inside the year loop would write the first year and then stop; this one writes nothing."""
+    from boa.cli import run_simulation
+
+    build, path_config = staged
+    build()
+    monkeypatch.setattr(run_simulation, "REGION_COORDS", {REGION: None})
+    monkeypatch.setattr(run_simulation, "_validate_cost_set", lambda *_: (None, HORIZON))
+    candidates = {(2025, "DEU"): anchor_costs, (2030, "DEU"): _far(anchor_costs)}
+    monkeypatch.setattr(run_simulation, "cost_candidates", lambda *_: candidates)
+    queried: list[int] = []
+    monkeypatch.setattr(run_simulation, "query_frontier_cache_for_region", lambda **kw: queried.append(kw["year"]))
+
+    with pytest.raises(FrontierCacheCoverageError):
+        run_simulation.query_all_years(
+            path_config, [2025, 2030], LOAD_DENSITY, COVERAGE, 1, WEATHER_YEAR, generate_plots=False
+        )
+    assert queried == []
+
+
+def test_boa_run_query_exits_1_when_the_caches_do_not_cover_the_run(tmp_path, monkeypatch):
+    from boa.cli import run_simulation
+
+    def refuse(*_args, **_kwargs):
+        raise FrontierCacheCoverageError("TESTREGION: no frontier cache")
+
+    monkeypatch.setenv("BOA_DATA_ROOT", str(tmp_path))
+    monkeypatch.setattr(run_simulation, "preflight", lambda *_args, **_kwargs: WEATHER_YEAR)
+    monkeypatch.setattr(run_simulation.run_manifest, "record_invocation", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(run_simulation, "query_all_years", refuse)
+
+    assert run_simulation.main_query(["--load-density", str(LOAD_DENSITY), "--coverage", str(COVERAGE)]) == 1
