@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Optional
 
 from boa.config.paths import PathConfig
+from boa.config.physical_parameters import REGION_COORDS
+from boa.inputs.profiles import open_regional_dataset
+from boa.model.capacity_maps import availability_share, land_on_grid, plot_availability_share, plot_lcoe_and_potential
 
 
 def plot_time_series(profile: dict[str, np.ndarray], output_path: Optional[Path] = None) -> None:
@@ -175,11 +178,12 @@ def plot_regional_optimum_baseload_power_simulation_map(
 
     plots_path = path_config.map_plots_dir(weather_year, load_density, coverage, region)
     plots_path.mkdir(parents=True, exist_ok=True)
-    optimal_sol = xr.open_dataset(path_config.optimal_sol_path(weather_year, load_density, coverage, region, year))
-    optimal_sol = optimal_sol.where(optimal_sol != 0)
+    raw = xr.open_dataset(path_config.optimal_sol_path(weather_year, load_density, coverage, region, year))
+    optimal_sol = raw.where(raw != 0)
 
     # Load country boundaries
     geo_boundaries = gpd.read_file(path_config.subunits_50m_shapefile_path)
+    _plot_capacity_maps(raw, region, year, coverage, plots_path, path_config, geo_boundaries)
 
     for var in ["lcoe", "solar_factor", "wind_factor", "battery_factor"]:
         lat_lon_ratio = len(optimal_sol.lat) / len(optimal_sol.lon)
@@ -210,10 +214,11 @@ def plot_global_optimum_baseload_power_simulation_map(
 
     plots_path = path_config.map_plots_dir(weather_year, load_density, coverage, "GLOBAL")
     plots_path.mkdir(parents=True, exist_ok=True)
-    optimal_sol = optimal_sol.where(optimal_sol != 0)
 
     # Load country boundaries
     geo_boundaries = gpd.read_file(path_config.subunits_50m_shapefile_path)
+    _plot_capacity_maps(optimal_sol, "GLOBAL", year, coverage, plots_path, path_config, geo_boundaries)
+    optimal_sol = optimal_sol.where(optimal_sol != 0)
 
     for var in ["lcoe", "solar_factor", "wind_factor", "battery_factor"]:
         lat_lon_ratio = len(optimal_sol.lat) / len(optimal_sol.lon)
@@ -229,3 +234,55 @@ def plot_global_optimum_baseload_power_simulation_map(
         plt.title(f"Optimal {var} for {year} at {coverage * 100:g}% coverage")
         plt.savefig(plots_path / f"{var}_GLOBAL_{year}_cov{coverage:g}.png", dpi=300)
         plt.close()
+
+
+def _regional_share(region: str, path_config: PathConfig) -> dict[str, xr.DataArray]:
+    with open_regional_dataset("max_cap", region, path_config) as max_cap:
+        return {tech: share.load() for tech, share in availability_share(max_cap).items()}
+
+
+def _global_share(lat: np.ndarray, lon: np.ndarray, path_config: PathConfig) -> dict[str, xr.DataArray]:
+    """The available share of every region's max-capacity store, on the global result grid."""
+    out = {
+        tech: xr.DataArray(np.full((len(lat), len(lon)), np.nan), dims=("lat", "lon"), coords={"lat": lat, "lon": lon})
+        for tech in ("pv", "wind")
+    }
+    for region in REGION_COORDS:
+        for tech, share in _regional_share(region, path_config).items():
+            on_grid = share.reindex(lat=lat, lon=lon, method="nearest", tolerance=1e-6)
+            out[tech] = out[tech].fillna(on_grid)
+    return out
+
+
+def _plot_capacity_maps(
+    optimal_sol: xr.Dataset,
+    region: str,
+    year: int,
+    coverage: float,
+    plots_path: Path,
+    path_config: PathConfig,
+    boundaries: gpd.GeoDataFrame,
+) -> None:
+    """
+    The capacity maps of one result file: the available share of the land (once per region, as it
+    does not change with the year) and the panel of the LCOE above the capacity potential.
+
+    `optimal_sol` must still hold its zeros: a potential of 0 is a result, shown in grey.
+    """
+    if "max_baseload_mw" in optimal_sol.data_vars:
+        plot_lcoe_and_potential(
+            optimal_sol,
+            plots_path / f"lcoe_potential_{region}_{year}_cov{coverage:g}.png",
+            boundaries=boundaries,
+            title=f"{region}, investment year {year}, coverage {coverage:g}",
+        )
+    share_path = plots_path / f"availability_share_{region}.png"
+    if share_path.exists():
+        return
+    lat, lon = optimal_sol.lat.values, optimal_sol.lon.values
+    share = _global_share(lat, lon, path_config) if region == "GLOBAL" else _regional_share(region, path_config)
+    first = next(iter(share.values()))
+    land = land_on_grid(path_config.lsm_path, first.lat.values, first.lon.values)
+    plot_availability_share(
+        share, share_path, land=land, boundaries=boundaries, title=f"{region}: available share of the pixel area"
+    )

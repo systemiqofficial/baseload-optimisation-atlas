@@ -13,6 +13,9 @@ Changes to BOA by version, newest first. Each version is a git tag, for example 
   design do not change, and `capacity_ceiling_applied` stays 0.
 - **`boa-sources-fetch --tag`**: fetches only the sources with one tag (`costs` or
   `capacity-ceiling`).
+- **Capacity maps** with `--plots`: the LCOE above the capacity potential for each year, and the
+  available share of the land for solar PV and wind for each region. They use Crameri's Scientific
+  Colour Maps, through the new dependency `cmcrameri`.
 
 ### Changed
 

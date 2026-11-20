@@ -163,7 +163,17 @@ an earlier cost set or year. See
 ## Plots
 
 `boa-run` and `boa-run query` make map PNGs only with `--plots`. The maps show `lcoe`,
-`solar_factor`, `wind_factor` and `battery_factor`, for each region and for GLOBAL. They are in
+`solar_factor`, `wind_factor` and `battery_factor`, for each region and for GLOBAL. Two more maps
+show the capacity ceiling:
+
+- `lcoe_potential_<REGION>_<year>_cov<c>.png`: the LCOE above the capacity potential
+  `max_baseload_mw`, on a log scale. Grey pixels have a potential of 0: the land cannot hold the
+  design.
+- `availability_share_<REGION>.png`: the available share of the pixel area for solar PV and for
+  wind, from the maximum-capacity stores, on a scale from 0 to 0.10. Grey land has no available
+  area. BOA writes this map once for each region, because it does not change with the year.
+
+The colour maps are Crameri's Scientific Colour Maps (package `cmcrameri`). The maps are in
 `<root>/runs/<label>_<hash>/outputs/wy<weather year>/<rho>MWkm2/cov<c>/plots/<REGION>/`. The log
 line "Regridding regional datasets onto the global grid" appears when BOA combines the regions into
 the GLOBAL file. It appears with or without `--plots`. The `point` command always makes its plots
