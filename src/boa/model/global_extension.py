@@ -451,8 +451,10 @@ def query_frontier_cache_for_region(
     ceiling, so this read is the only place a stale or absent one could be caught.
 
     An existing NetCDF is reused, unless `force`, only while it records the `built_at` of the
-    store as it is now (`frontier_cache_built_at`). A rebuilt store can give other designs, so
-    a file priced from an earlier build is derived again rather than left beside new ones.
+    store as it is now (`frontier_cache_built_at`) and the signature of the max-capacity store
+    as it is now (`capacity_ceiling_signature`). A rebuilt store can give other designs, and a
+    rebuilt ceiling another potential, so such a file is derived again rather than left beside
+    new ones.
     """
     params = SearchParams() if params is None else params
     weather_year = detect_weather_year(path_config)
@@ -461,12 +463,17 @@ def query_frontier_cache_for_region(
     out_path = path_config.optimal_sol_path(weather_year, load_density, coverage, region, year)
     built_at = read_frontier_built_at(cache_file) if cache_file.exists() else None
     if out_path.exists() and not force:
+        ceiling_signature = _ceiling_signature(region, path_config)
         with xr.open_dataset(out_path) as existing:
             derived_from = existing.attrs.get("frontier_cache_built_at")
-        if derived_from is not None and derived_from == built_at:
+            priced_ceiling = existing.attrs.get("capacity_ceiling_signature")
+        if derived_from is not None and derived_from == built_at and priced_ceiling == ceiling_signature:
             logging.info(f"{out_path.name} already exists; skipping (use --force to re-derive).")
             return xr.open_dataset(out_path)
-        logging.info(f"{out_path.name} was priced from an earlier build of the frontier cache; re-deriving it.")
+        logging.info(
+            f"{out_path.name} was priced from an earlier build of the frontier cache or another capacity "
+            "ceiling; re-deriving it."
+        )
 
     cache = read_frontier_cache(cache_file, params, coverage, weather_year)
     npts = cache.n_points
@@ -545,6 +552,12 @@ def query_frontier_cache_for_region(
     )
     logging.info(f"Wrote {out_path.name} ({solved}/{npts} pixels solved).")
     return optimal_sol
+
+
+def _ceiling_signature(region: str, path_config: PathConfig) -> str:
+    """The `availability_signature` of the region's max-capacity store. Raises when it is missing."""
+    with open_regional_dataset("max_cap", region, path_config) as ds:
+        return str(ds.attrs.get(SIGNATURE_ATTR, ""))
 
 
 def _ceiling_at_points(
@@ -775,16 +788,20 @@ def _join_cache_stamps(stamps: dict[str, str]) -> str:
 def _global_file_is_current(global_path: Path, regional_paths: dict[str, Path]) -> bool:
     """
     Whether the GLOBAL file lists the `frontier_cache_built_at` of every regional file as it is
-    now. Also True when a regional file is missing: no new combine is possible then.
+    now, and has the `capacity_ceiling_signature` of every regional file. Also True when a
+    regional file is missing: no new combine is possible then.
     """
     stamps = {}
+    signatures = set()
     for region, path in regional_paths.items():
         if not path.exists():
             return True
         with xr.open_dataset(path) as ds:
             stamps[region] = str(ds.attrs.get("frontier_cache_built_at", ""))
+            signatures.add(ds.attrs.get("capacity_ceiling_signature"))
     with xr.open_dataset(global_path) as ds:
-        if ds.attrs.get("frontier_cache_built_at") == _join_cache_stamps(stamps):
+        same_ceiling = signatures == {ds.attrs.get("capacity_ceiling_signature")}
+        if ds.attrs.get("frontier_cache_built_at") == _join_cache_stamps(stamps) and same_ceiling:
             return True
     logging.info(f"{global_path.name} was combined from earlier regional files; combining it again.")
     return False

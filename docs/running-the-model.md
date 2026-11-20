@@ -150,10 +150,11 @@ way: through the cost mixes that it was built for, which are its [anchors](gloss
   the cost mixes of the run. `boa-run` has no `--force` option.
 - **Per-year files after a rebuild.** Each per-year file records the build time of the cache that
   it was priced from, in the attribute `frontier_cache_built_at`. Without `--force`, a command that
-  finds a per-year file uses it only when this value is the build time of the current cache. In
+  finds a per-year file uses it only when this value is the build time of the current cache, and
+  its `capacity_ceiling_signature` is the signature of the current maximum-capacity store. In
   all other cases, the command derives the file again. This includes a file that has no such
-  attribute. The GLOBAL file is combined again when a regional file has another build time than
-  the one that the GLOBAL file records. `boa-run query --force` derives every regional file again
+  attribute. The GLOBAL file is combined again when a regional file has another build time or
+  another ceiling signature than the GLOBAL file records. `boa-run query --force` derives every regional file again
   and combines every GLOBAL file again. The coverage check also runs with `--force`.
 
 A rebuild for more cost mixes can change which designs the cache holds, and therefore the LCOE of

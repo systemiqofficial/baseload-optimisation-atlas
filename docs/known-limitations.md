@@ -238,7 +238,9 @@ which designs the cache contains (see [Methodology](methodology.md#cost-anchors)
   (`frontier_cache_built_at`). A query derives again each file of its years that comes from an
   earlier build. The files of the other years keep the earlier build, so one run directory can
   hold files from two builds. The promotion step stops when the GLOBAL files of the years come
-  from different builds. See
+  from different builds. A rebuilt maximum-capacity store has the same effect on the capacity
+  potential: a query derives a file again when its `capacity_ceiling_signature` is not the
+  signature of the current store. See
   [Rebuild a frontier cache](running-the-model.md#rebuild-a-frontier-cache).
 - **A full cache is used with a warning.** A cache that is built for the largest number of cost
   mixes (`max_anchors`, 32 by default) passes the coverage check of the build and of the query,

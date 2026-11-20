@@ -110,7 +110,7 @@ def test_frontier_cache_is_shared_across_availability_layer_sets(tmp_path):
     """
     The point of D4. A frontier store holds no land-availability assumption, so two layer
     sets on the same weather must land in one cache: revising the LULC table then rebuilds
-    the ceiling and the Grid 2 sidecars but not the physics, and an A/B of two ceilings
+    the ceiling stores but not the physics, and an A/B of two ceilings
     reads the same bytes rather than two independently rebuilt copies.
     """
     plain = PathConfig.from_root(tmp_path, input_set="cds-2024")
