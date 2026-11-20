@@ -358,14 +358,10 @@ path from the costs into the build.
   When they cover all candidates, the build uses the cache again. When they do not, the build
   makes the cache again with the old anchors and the new ones. A cache with `max_anchors`
   anchors is used again with a warning.
-- Before the query writes a file, it applies the same rule to the cache of each region, with the
-  same `anchor_tol`
+- Before the query writes a file, it applies the same rule to the cache of each region
   ([`check_frontier_caches_cover`][boa.model.global_extension.check_frontier_caches_cover]).
-  It stops with
-  [`FrontierCacheCoverageError`][boa.model.global_extension.FrontierCacheCoverageError]. This
-  happens in four cases: the cache is missing; another cache version built it; it records no
-  anchors; its anchors do not cover all candidates. A cache with `max_anchors` anchors passes, as
-  it does for the build.
+  When a cache does not pass, the query stops and builds nothing (see
+  [Rebuild a frontier cache](running-the-model.md#rebuild-a-frontier-cache)).
 - A single-point run builds its frontier with the costs of that point as its only anchor.
 
 The stored dispatch results contain no cost. But the anchors decide where the patches are, and
