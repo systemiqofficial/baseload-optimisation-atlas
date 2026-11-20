@@ -114,6 +114,8 @@ COUNTRY_TO_REGION = {
     "ATA": "Oceania & other",
 }
 DEFAULT_CUT_SHARE = 0.02
+# Pixels for each ISO-3 lookup in `pixel_regions`.
+PIXEL_CHUNK = 100_000
 
 # The region map inside the cost-ordered supply curve, as (x, y, width, height) in axes fractions:
 # the top left, which a rising curve leaves free.
@@ -155,7 +157,20 @@ def pixel_regions(ds: xr.Dataset, iso3_grid_path: Path, shapefile_path: Path) ->
     country that has no region, get an empty string.
     """
     lat2, lon2 = np.meshgrid(ds.lat.values, ds.lon.values, indexing="ij")
-    iso3 = iso3_at_batch(lat2.ravel(), lon2.ravel(), iso3_grid_path)
+    lats, lons = lat2.ravel(), lon2.ravel()
+    # In chunks: the lookup holds a points x grid-longitudes array, about 1 GB for each chunk.
+    iso3 = (
+        np.concatenate(
+            [
+                np.asarray(
+                    iso3_at_batch(lats[i : i + PIXEL_CHUNK], lons[i : i + PIXEL_CHUNK], iso3_grid_path), dtype=object
+                )
+                for i in range(0, lats.size, PIXEL_CHUNK)
+            ]
+        )
+        if lats.size
+        else np.array([], dtype=object)
+    )
     lookup = country_regions(shapefile_path)
     regions = np.array([lookup.get(str(code), "") for code in iso3], dtype=object)
     return xr.DataArray(regions.reshape(lat2.shape), dims=("lat", "lon"), coords={"lat": ds.lat, "lon": ds.lon})
